@@ -1,0 +1,45 @@
+{
+    "name": "banimark/banimark",
+    "description": "Banimark - self-hosted AI engine for Laravel apps: bring your own AI key, your data never leaves your server. Support desk, tools, and more as modules.",
+    "type": "library",
+    "license": "proprietary",
+    "require": {
+        "php": "^8.1",
+        "ext-curl": "*",
+        "ext-json": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.5"
+    },
+    "suggest": {
+        "illuminate/support": "Required to use the Laravel service provider and admin panel (^10|^11|^12)"
+    },
+    "autoload": {
+        "psr-4": {
+            "Banimark\\": "src/"
+        },
+        "classmap": [
+            "src/Core.php"
+        ]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Banimark\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Banimark\\Laravel\\BanimarkServiceProvider"
+            ]
+        }
+    },
+    "scripts": {
+        "bundle": "php build/bundle.php",
+        "test": [
+            "php build/bundle.php",
+            "phpunit"
+        ]
+    },
+    "minimum-stability": "stable"
+}
