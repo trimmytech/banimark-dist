@@ -3,6 +3,29 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.14.1
+- **The widget now behaves like a live chat.** The conversation survives page
+  reloads and, for signed-in users, even a cleared browser or a new device — the
+  same person continues the same thread instead of opening a new one. Replies
+  from your team arrive without a reload, with a soft chime, even while the chat
+  bubble is closed.
+- **When the AI cannot answer, a human takes over — instantly.** A provider
+  problem (bad key, outage, quota) no longer shows the visitor an apology to
+  retry: they are handed to your team on the spot, your inbox chimes, and the
+  real error is recorded in the conversation as a staff-only note.
+- **Typing indicators that mean it.** Staff see dots only while the visitor is
+  actually typing; the visitor sees dots while a team member types.
+- **Conversation view:** the visitor's messages sit on the left, yours on the
+  right. Fixed the typing dots and an empty green box showing when nothing was
+  happening.
+- **Editing tools (Laravel):** the *Edit* button and prefilled builder were
+  missing from the Laravel panel in 0.14.0 — they are here now.
+- Flutter SDK: same continuity for signed-in users; shows when an agent is
+  typing; `controller.typing()` reports the user's typing.
+
+*Upgrade note:* run `php artisan migrate` (Laravel) or open the admin panel once
+(standalone).
+
 ## 0.14.0
 - **Free trial at first install.** A fresh install asks Banimark HQ for a trial
   licence automatically (or from *License → Start free trial*); your vendor sets

@@ -180,6 +180,9 @@ class Panel
         }
         if (preg_match('#^/conversation/([a-f0-9]{32})/messages$#', $route, $m)) {
             header('Content-Type: application/json');
+            if (!empty($_GET['typing'])) {
+                $this->store->markTyping($m[1], 'agent'); // the visitor's widget shows the dots
+            }
             echo json_encode([
                 'ok' => true,
                 'mode' => $this->store->mode($m[1]),

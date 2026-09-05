@@ -271,13 +271,22 @@
         input.focus();
     });
 
+    function adoptSession(id) {
+        if (!id || id === session) { return; }
+        session = id;
+        try { localStorage.setItem(SS_KEY, session); } catch (err) {}
+    }
+
     var restored = false;
-    /* continuation: replay what was said before, then keep the heartbeat going */
-    function restore() {
-        if (restored || !session) { return; }
+    /* continuation: replay what was said before - at LOAD, so a reload never
+     * looks like a fresh chat. A signed-in visitor without a local session is
+     * matched to their open thread by the server. */
+    function restore(done) {
+        if (restored || (!session && !cfg.token)) { if (done) { done(); } return; }
         restored = true;
         get('/chat/history', {}, function (res) {
-            if (!res || !res.ok || !res.messages || !res.messages.length) { return; }
+            if (res && res.ok && res.session_id) { adoptSession(res.session_id); }
+            if (!res || !res.ok || !res.messages || !res.messages.length) { if (done) { done(); } return; }
             msgs.innerHTML = '';
             greeted = true;
             res.messages.forEach(function (m) {
@@ -287,6 +296,7 @@
             });
             bubble('sys', 'Picking up where you left off.');
             if (res.mode === 'agent') { enterAgentMode(true); }
+            if (done) { done(); }
         });
     }
 
@@ -299,12 +309,13 @@
             if (cfg.greeting) { bubble('bot', cfg.greeting); }
         }
         if (guestNeeded()) { showGuest(true); }
-        startPolling();
+        if (session) { startPolling(false); }
         setTimeout(function () { (guestBox.hidden ? input : guestBox.querySelector('.g-name')).focus(); }, 220);
     }
     function closePanel() {
         wrap.classList.remove('open');
-        stopPolling(); // presence follows the panel: closed means not watching
+        showAgentTyping(false);
+        if (session) { startPolling(true); } else { stopPolling(); } // keep a slow ear open for a human's reply
     }
 
     btn.addEventListener('click', function () {
@@ -358,14 +369,14 @@
             typing.remove();
             var res = null;
             try { res = JSON.parse(xhr.responseText); } catch (err) {}
+            // the thread id is kept even when the answer failed: the conversation
+            // exists on the server and a human may pick it up - losing the id here
+            // is what used to turn a reload into a brand-new chat
+            if (res && res.session_id) { adoptSession(res.session_id); }
             if (res && res.ok) {
-                if (res.session_id) {
-                    session = res.session_id;
-                    try { localStorage.setItem(SS_KEY, session); } catch (err) {}
-                }
                 if (res.reply) { bubble('bot', res.reply); }
                 if (res.mode === 'agent' && !agentMode) { enterAgentMode(); }
-                startPolling();
+                startPolling(false);
             } else {
                 bubble('err', (res && res.error) || 'Could not send — please try again.');
             }
@@ -383,22 +394,64 @@
      * It runs whenever the panel is open, not only in agent mode, because the
      * desk uses "is this widget still polling?" to decide whether the visitor
      * is around - and emails them the reply when they are not. */
-    function startPolling() {
-        if (!pollTimer) { pollAgent(); pollTimer = setInterval(pollAgent, POLL_MS); }
+    /* open panel: every POLL_MS; closed panel: a slow background check so a
+     * human's reply still arrives (pip + chime) - a real live chat never goes deaf */
+    var BG_MS = Math.max(POLL_MS * 3, 30000);
+    function startPolling(background) {
+        stopPolling();
+        pollAgent();
+        pollTimer = setInterval(pollAgent, background ? BG_MS : POLL_MS);
     }
     function stopPolling() {
         if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     }
+
+    /* a soft two-note chime for a human's message (synthesised, nothing to load) */
+    var audio;
+    function chime() {
+        try {
+            audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+            var t = audio.currentTime;
+            [[660, 0], [880, 0.11]].forEach(function (n) {
+                var o = audio.createOscillator(), g = audio.createGain();
+                o.type = 'sine'; o.frequency.value = n[0];
+                g.gain.setValueAtTime(0.0001, t + n[1]);
+                g.gain.exponentialRampToValueAtTime(0.15, t + n[1] + 0.02);
+                g.gain.exponentialRampToValueAtTime(0.0001, t + n[1] + 0.32);
+                o.connect(g); g.connect(audio.destination); o.start(t + n[1]); o.stop(t + n[1] + 0.36);
+            });
+        } catch (e) {}
+    }
+
+    /* typing, both directions: our keystrokes are reported (throttled) on the
+     * poll; the agent's typing comes back on it and shows the dots */
+    var typingAt = 0, agentTypingEl = null;
+    function showAgentTyping(on) {
+        if (on && !agentTypingEl) {
+            agentTypingEl = document.createElement('div');
+            agentTypingEl.className = 'typ';
+            agentTypingEl.innerHTML = '<i></i><i></i><i></i>';
+            msgs.appendChild(agentTypingEl);
+            msgs.scrollTop = msgs.scrollHeight;
+        } else if (!on && agentTypingEl) {
+            agentTypingEl.remove(); agentTypingEl = null;
+        }
+    }
+    input.addEventListener('input', function () {
+        if (!session || !agentMode) { return; }
+        var now = Date.now();
+        if (now - typingAt > 2500) { typingAt = now; pollAgent(true); }
+    });
     function enterAgentMode(quiet) {
         agentMode = true;
         if (!quiet) { bubble('sys', "You're connected to our support team — replies appear here."); }
-        startPolling();
+        if (!pollTimer) { startPolling(!wrap.classList.contains('open')); }
     }
 
     /* a hidden tab is not "in the chat" either */
     document.addEventListener('visibilitychange', function () {
         if (document.hidden) { stopPolling(); }
-        else if (wrap.classList.contains('open')) { startPolling(); }
+        else if (session) { startPolling(!wrap.classList.contains('open')); }
     });
     /** GET against a sibling of the chat endpoint, with identity attached. */
     function get(path, extra, done) {
@@ -418,18 +471,29 @@
         xhr.send();
     }
 
-    function pollAgent() {
+    function pollAgent(typing) {
         if (!session) { return; }
-        get('/chat/poll', { after: lastAgentId }, function (res) {
+        var extra = { after: lastAgentId };
+        if (typing) { extra.typing = 1; }
+        get('/chat/poll', extra, function (res) {
             if (!res || !res.ok) { return; }
-            (res.messages || []).forEach(function (m) {
+            var fresh = (res.messages || []);
+            if (fresh.length) { showAgentTyping(false); }
+            fresh.forEach(function (m) {
                 lastAgentId = Math.max(lastAgentId, m.id || 0);
                 bubble('bot', m.text);
                 if (!wrap.classList.contains('open')) { pip.classList.add('on'); }
             });
+            if (fresh.length) { chime(); }
+            var wasAgent = agentMode;
             agentMode = res.mode === 'agent';
+            if (agentMode && !wasAgent) { enterAgentMode(true); }
+            showAgentTyping(!!res.agent_typing && wrap.classList.contains('open'));
         });
     }
+
+    // at load: bring back the thread, then listen in the background
+    restore(function () { if (session) { startPolling(!wrap.classList.contains('open')); } });
 
     // shared as a link: the chat is the whole page, open from the first paint
     if (MODE === 'page') { openPanel(); }

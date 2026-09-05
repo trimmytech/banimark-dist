@@ -26,6 +26,8 @@ class Schema
             followup_at INTEGER NOT NULL DEFAULT 0,
             last_message_at INTEGER NOT NULL DEFAULT 0,
             escalated_at INTEGER NOT NULL DEFAULT 0,
+            visitor_typing_at INTEGER NOT NULL DEFAULT 0,
+            agent_typing_at INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL DEFAULT 0
         )");
         self::index($pdo, "{$prefix}conv_session", "{$prefix}conversations", 'session_id', true);
@@ -165,6 +167,9 @@ class Schema
         self::addColumn($pdo, "{$prefix}conversations", 'followup_at', 'INTEGER NOT NULL DEFAULT 0');
         // when the AI (or an agent) handed the chat to a human - drives the staff alert feed
         self::addColumn($pdo, "{$prefix}conversations", 'escalated_at', 'INTEGER NOT NULL DEFAULT 0');
+        // live typing indicators, both directions (a timestamp; "typing" = within the last few seconds)
+        self::addColumn($pdo, "{$prefix}conversations", 'visitor_typing_at', 'INTEGER NOT NULL DEFAULT 0');
+        self::addColumn($pdo, "{$prefix}conversations", 'agent_typing_at', 'INTEGER NOT NULL DEFAULT 0');
         self::addColumn($pdo, "{$prefix}rules", 'folder_id', 'INTEGER NOT NULL DEFAULT 0');
         // staff 2FA (TOTP): secret + whether it is switched on for this account
         self::addColumn($pdo, "{$prefix}agents", 'totp_secret', "VARCHAR(64) NOT NULL DEFAULT ''");

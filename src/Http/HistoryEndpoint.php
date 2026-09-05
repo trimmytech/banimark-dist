@@ -27,15 +27,19 @@ class HistoryEndpoint
     public function handle(array $input, ?int $now = null): array
     {
         $sessionId = (string) ($input['session_id'] ?? '');
-        if (!preg_match('/^[a-f0-9]{32}$/', $sessionId)) {
-            return ['ok' => false, 'messages' => [], 'mode' => 'ai'];
-        }
         $claims = [];
         $token = (string) ($input['token'] ?? '');
         if ($token !== '' && $this->identitySecret !== '') {
             $claims = VisitorToken::verify($token, $this->identitySecret) ?? [];
         }
         $identityHash = $claims === [] ? 'anon' : 'u:'.hash('sha256', json_encode($claims));
+        // no session on this device, but we know who it is: their open thread
+        if (!preg_match('/^[a-f0-9]{32}$/', $sessionId) && $identityHash !== 'anon' && $this->store instanceof \Banimark\Storage\PdoStore) {
+            $sessionId = (string) ($this->store->latestSessionFor($identityHash) ?? '');
+        }
+        if (!preg_match('/^[a-f0-9]{32}$/', $sessionId)) {
+            return ['ok' => false, 'messages' => [], 'mode' => 'ai'];
+        }
 
         $stored = $this->store->load($sessionId);
         if ($stored === null || !hash_equals($stored['identity_hash'], $identityHash)) {
@@ -53,6 +57,6 @@ class HistoryEndpoint
                 'text' => (string) $r['content'],
             ];
         }
-        return ['ok' => true, 'mode' => $this->store->mode($sessionId), 'messages' => $messages];
+        return ['ok' => true, 'session_id' => $sessionId, 'mode' => $this->store->mode($sessionId), 'messages' => $messages];
     }
 }

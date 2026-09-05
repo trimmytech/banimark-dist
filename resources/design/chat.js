@@ -28,6 +28,7 @@
     el.className = 'msg ' + m.role + ' in';
     el.setAttribute('data-id', m.id);
     if (m.role === 'tool') { el.innerHTML = '⚡ ' + esc(m.text); return el; }
+    if (m.role === 'system') { el.textContent = m.text; return el; }
     el.innerHTML = esc(m.text) + '<div class="msg-meta">' + (m.role === 'agent' ? 'human agent · ' : m.role === 'assistant' ? 'AI · ' : '') + fmtTime(m.at) + '</div>';
     return el;
   }
@@ -51,12 +52,20 @@
     var online = p.last_seen_at && (Date.now() / 1000 - p.last_seen_at) < 45;
     presence.className = 'bm-presence ' + (online ? 'on' : 'off');
     presence.textContent = (p.visitor_label || 'Visitor') + (online ? ' · online now' : (p.last_seen_at ? ' · left the chat' : ''));
-    if (typing) typing.hidden = !(online && p.mode === 'ai' && p.ai_busy);
+    // the dots mean exactly one thing: the visitor is typing right now
+    if (typing) typing.hidden = !p.visitor_typing;
   }
 
-  function poll() {
+  // our own typing is reported on the poll (throttled) so the visitor's widget can show dots
+  var typingAt = 0;
+  box.addEventListener('input', function () {
+    var now = Date.now();
+    if (now - typingAt > 2500) { typingAt = now; poll(true); }
+  });
+
+  function poll(typing) {
     var xhr = new XMLHttpRequest();
-    xhr.open('GET', msgsUrl + (msgsUrl.indexOf('?') > -1 ? '&' : '?') + 'after=' + after, true);
+    xhr.open('GET', msgsUrl + (msgsUrl.indexOf('?') > -1 ? '&' : '?') + 'after=' + after + (typing ? '&typing=1' : ''), true);
     xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
     xhr.onreadystatechange = function () {
       if (xhr.readyState !== 4 || xhr.status !== 200) return;

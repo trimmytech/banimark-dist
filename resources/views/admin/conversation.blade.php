@@ -33,6 +33,8 @@
             @foreach($rows as $m)
                 @if($m['role'] === 'tool')
                     <div class="msg tool" data-id="{{ $m['id'] }}">{!! Icons::get('bolt', 12) !!} {{ $m['text'] }}</div>
+                @elseif($m['role'] === 'system')
+                    <div class="msg system" data-id="{{ $m['id'] }}">{{ $m['text'] }}</div>
                 @else
                     <div class="msg {{ $m['role'] }}" data-id="{{ $m['id'] }}">{{ $m['text'] }}<div class="msg-meta">{{ $m['role'] === 'agent' ? 'human agent · ' : ($m['role'] === 'assistant' ? 'AI · ' : '') }}{{ $m['at'] ? date('H:i', $m['at']) : '' }}</div></div>
                 @endif

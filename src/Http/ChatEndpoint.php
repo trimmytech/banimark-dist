@@ -96,6 +96,15 @@ class ChatEndpoint
                 $state = $stored['state'];
             }
         }
+        // a signed-in visitor with no (valid) session id continues their open thread
+        if ($state === null && $identityHash !== 'anon' && $this->store instanceof PdoStore
+            && ($resume = $this->store->latestSessionFor($identityHash)) !== null) {
+            $stored = $this->store->load($resume);
+            if ($stored !== null) {
+                $sessionId = $resume;
+                $state = $stored['state'];
+            }
+        }
         if ($state === null) {
             $sessionId = bin2hex(random_bytes(16));
             $state = new ConversationState();
@@ -122,15 +131,25 @@ class ChatEndpoint
 
         $result = $this->engine->reply($state, $claims);
         if (!$result->ok) {
-            // persist the user's message anyway; the next turn may succeed
+            // The assistant failed (bad key, provider down, quota...). The visitor
+            // must not be left with an apology: hand them to a human right away,
+            // and put the REAL error in the thread where only staff can see it.
             $this->store->save($sessionId, $state, $identityHash);
             $this->recordVisitor($sessionId, $claims, (array) ($input['visitor'] ?? []));
+            $label = (string) ($claims['name'] ?? $claims['email'] ?? (isset($claims['user_id']) ? 'user #'.$claims['user_id'] : 'Anonymous'));
+            if ($this->store instanceof PdoStore) {
+                $this->store->appendSystemNote($sessionId, 'AI could not answer - escalated automatically. Provider error: '.($result->error !== '' ? $result->error : 'unknown'));
+                $this->store->setMode($sessionId, 'agent', $label);
+                if ($this->notifier) {
+                    try { $this->notifier->escalated($sessionId, $label, 'The assistant could not answer (provider error) - a person is needed.'); } catch (\Throwable $e) { /* notify never breaks the reply */ }
+                }
+            }
             return [
-                'ok' => false,
+                'ok' => true,
                 'session_id' => $sessionId,
-                'reply' => '',
-                'mode' => 'ai',
-                'error' => 'Sorry - I could not answer right now. Please try again in a moment.',
+                'reply' => "I'm having trouble reaching our assistant right now, so I've passed you to a member of our team - they'll reply here shortly.",
+                'mode' => 'agent',
+                'error' => null,
             ];
         }
 

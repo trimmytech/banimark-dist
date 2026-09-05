@@ -15,6 +15,9 @@ final class TranscriptView
         $payload = !empty($m['payload']) ? (json_decode((string) $m['payload'], true) ?: []) : [];
         $role = (string) $m['role'];
         $text = (string) $m['content'];
+        if ($role === 'system') {
+            return ['id' => (int) $m['id'], 'role' => 'system', 'text' => $text, 'at' => (int) ($m['created_at'] ?? 0)];
+        }
         if ($role === 'tool') {
             $text = ($payload['for_call']['name'] ?? 'tool').' → '.mb_substr(json_encode($payload['tool_result'] ?? []), 0, 200);
         } elseif ($role === 'assistant' && !empty($payload['tool_calls'])) {

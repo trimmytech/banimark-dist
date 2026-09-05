@@ -39,8 +39,9 @@ class PdoStore implements StateStore
         if (!$conv) {
             return null;
         }
+        // only what the MODEL saw: agent replies and staff-only system notes stay out of the prompt
         $rows = $this->query(
-            "SELECT role, content, payload FROM {$this->prefix}messages WHERE conversation_id = ? AND role != 'agent' ORDER BY id",
+            "SELECT role, content, payload FROM {$this->prefix}messages WHERE conversation_id = ? AND role IN ('user', 'assistant', 'tool') ORDER BY id",
             [$conv['id']],
         );
         $stateRows = [];
@@ -152,6 +153,46 @@ class PdoStore implements StateStore
         );
     }
 
+    /**
+     * The conversation a known identity is in the middle of, so a signed-in
+     * visitor who cleared storage, changed device, or hit an error mid-chat
+     * lands back in the same thread instead of opening a new one. Anonymous
+     * visitors have no identity to match - they rely on the widget's storage.
+     */
+    public function latestSessionFor(string $identityHash): ?string
+    {
+        if ($identityHash === '' || $identityHash === 'anon') {
+            return null;
+        }
+        $rows = $this->query(
+            "SELECT session_id FROM {$this->prefix}conversations WHERE identity_hash = ? AND mode <> 'closed' ORDER BY last_message_at DESC, id DESC LIMIT 1",
+            [$identityHash],
+        );
+        return $rows[0]['session_id'] ?? null;
+    }
+
+    /** A staff-only note in the thread (e.g. the real provider error behind an escalation). */
+    public function appendSystemNote(string $sessionId, string $text): void
+    {
+        $conv = $this->conversation($sessionId);
+        if (!$conv) {
+            return;
+        }
+        $this->exec(
+            "INSERT INTO {$this->prefix}messages (conversation_id, role, content, payload, created_at) VALUES (?, 'system', ?, NULL, ?)",
+            [$conv['id'], mb_substr($text, 0, 2000), time()],
+        );
+    }
+
+    /** Typing indicators: a fresh timestamp means "typing right now" for a few seconds. */
+    public const TYPING_WINDOW = 6;
+
+    public function markTyping(string $sessionId, string $who, ?int $now = null): void
+    {
+        $col = $who === 'agent' ? 'agent_typing_at' : 'visitor_typing_at';
+        $this->exec("UPDATE {$this->prefix}conversations SET {$col} = ? WHERE session_id = ?", [$now ?? time(), $sessionId]);
+    }
+
     /** Staff live view: every row (all roles) with id > $afterId. */
     public function messagesSince(string $sessionId, int $afterId): array
     {
@@ -246,6 +287,8 @@ class PdoStore implements StateStore
             'last_seen_at' => (int) ($conv['last_seen_at'] ?? 0),
             'followup_at' => (int) ($conv['followup_at'] ?? 0),
             'last_message_at' => (int) ($conv['last_message_at'] ?? 0),
+            'visitor_typing' => (int) ($conv['visitor_typing_at'] ?? 0) > time() - self::TYPING_WINDOW,
+            'agent_typing' => (int) ($conv['agent_typing_at'] ?? 0) > time() - self::TYPING_WINDOW,
         ];
     }
 

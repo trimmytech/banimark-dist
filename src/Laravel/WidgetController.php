@@ -33,6 +33,7 @@ class WidgetController
             'session_id' => (string) $request->query('session_id', ''),
             'after' => (int) $request->query('after', 0),
             'token' => (string) $request->query('token', ''),
+            'typing' => (string) $request->query('typing', ''), // visitor is typing - shown to staff
         ]));
     }
 

@@ -41,11 +41,16 @@ class PollEndpoint
         }
 
         $this->store->touch($sessionId, $now);
+        if (!empty($input['typing'])) {
+            $this->store->markTyping($sessionId, 'visitor', $now);
+        }
         $rows = $this->store->agentMessagesSince($sessionId, max(0, (int) ($input['after'] ?? 0)));
+        $presence = $this->store->presence($sessionId) ?? [];
 
         return [
             'ok' => true,
             'mode' => $this->store->mode($sessionId),
+            'agent_typing' => !empty($presence['agent_typing']),
             'messages' => array_map(fn ($r) => ['id' => (int) $r['id'], 'text' => (string) $r['content']], $rows),
         ];
     }

@@ -549,6 +549,9 @@ class PanelController
     public function messages(Request $request, string $sessionId, PdoStore $store, AgentAuth $auth)
     {
         if ($r = $this->gate($auth)) { return $r; }
+        if ($request->boolean('typing')) {
+            $store->markTyping($sessionId, 'agent'); // the visitor's widget shows the dots
+        }
         return response()->json([
             'ok' => true,
             'mode' => $store->mode($sessionId),
