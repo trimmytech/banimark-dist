@@ -213,7 +213,7 @@ class Panel
         if ($route === '/license') {
             $key = trim((string) ($p['license_key'] ?? ''));
             $this->settings->set('license_key', $key);
-            $this->settings->set('hq_url', trim((string) ($p['hq_url'] ?? '')));
+            // hq_url is not a panel field - support overrides it directly if ever needed
             if ($key === '') {
                 $this->settings->set('license_token', '');
                 return '<div class="flash-ok">License settings saved.</div>';
@@ -303,17 +303,17 @@ class Panel
     /** Sidebar links, with the current section highlighted. */
     private function nav(string $current = ''): string
     {
+        // grouped by MODULE - Support Desk is the first of several
         $items = [
-            ['Desk'],
+            ['Support Desk'],
             ['/', 'dashboard', 'Dashboard'],
             ['/inbox', 'inbox', 'Inbox'],
-            ['Build'],
             ['/tools', 'tools', 'Tools'],
             ['/rules', 'rules', 'Rules'],
             ['/providers', 'providers', 'AI providers'],
             ['/widget', 'widget', 'Widget'],
-            ['Settings'],
             ['/escalation', 'escalation', 'Notifications'],
+            ['Account'],
         ];
         if ($this->auth->isOwner()) {
             $items[] = ['/agents', 'staff', 'Staff'];
@@ -660,14 +660,53 @@ class Panel
         $last = (int) $this->settings->get('license_last_ping', '0');
         $pill = ['active' => 'ai', 'expired' => 'agent'][$status] ?? 'closed';
         $lock = $this->auth->lockReason();
+
+        // version + changelog from HQ. Never licence-gated, always fail-open:
+        // a lapsed customer must still see what is new and how to get it.
+        $cache = json_decode((string) $this->settings->get('updates_cache', ''), true);
+        $cache = is_array($cache) ? $cache : null;
+        if (\Banimark\Update\UpdateCheck::due($this->settings->get('updates_checked_at', '0'))) {
+            try {
+                $fresh = (new \Banimark\Update\UpdateCheck(\Banimark\Update\UpdateCheck::endpointFrom(
+                    (string) ($this->settings->get('hq_url', '') ?: Master::DEFAULT_ENDPOINT)
+                )))->fetch();
+                $this->settings->set('updates_checked_at', (string) time());
+                if ($fresh['ok']) {
+                    $this->settings->set('updates_cache', (string) json_encode($fresh));
+                    $cache = $fresh;
+                }
+            } catch (\Throwable $e) {
+                // a version check must never break the panel
+            }
+        }
+        $cache = $cache ?: ['ok' => false, 'latest' => null, 'releases' => [], 'update_command' => 'composer update banimark/banimark'];
+        $outdated = \Banimark\Update\UpdateCheck::isNewer($cache['latest'] ?? null);
+
+        $versionPill = $outdated
+            ? '<span class="pill expired">UPDATE AVAILABLE - '.Html::e((string) $cache['latest']).'</span>'
+            : ($cache['ok'] ? '<span class="pill good">UP TO DATE</span>' : '<span class="pill unknown">COULD NOT CHECK</span>');
+        $notes = '';
+        foreach ((array) $cache['releases'] as $r) {
+            $notes .= '<div style="border-top:1px solid var(--border);padding:12px 0 2px">'
+                .'<div class="row" style="gap:8px"><b>'.Html::e((string) $r['version']).'</b>'
+                .((string) $r['version'] === Master::PACKAGE_VERSION ? '<span class="pill active">INSTALLED</span>' : '')
+                .'<span class="muted">'.Html::e((string) $r['released_at']).'</span></div>'
+                .'<div class="muted" style="white-space:pre-wrap;margin-top:4px">'.Html::e((string) $r['notes']).'</div></div>';
+        }
+        $versionCard = '<div class="bm-card"><div class="bm-sec-h"><div><h2>Version</h2>'
+            .'<div class="muted">You are running <b>'.Html::e(Master::PACKAGE_VERSION).'</b></div></div>'
+            .'<div class="spacer"></div>'.$versionPill.'</div>'
+            .($outdated ? '<div class="muted">To update, run this in your project:</div>'
+                .'<textarea readonly rows="1" onclick="this.select()">'.Html::e((string) $cache['update_command']).'</textarea>' : '')
+            .($notes ?: '<div class="muted" style="margin-top:8px">No release notes available right now.</div>')
+            .'</div>';
         $banner = $lock !== null ? '<div class="flash-err"><b>Admin locked.</b> '.Html::e($lock['message']).'</div>' : '';
-        return Html::page('License', $flash.$banner.'<div class="bm-card"><h2>License</h2>'
+        return Html::page('License', $flash.$banner.$versionCard.'<div class="bm-card"><h2>License</h2>'
             .'<div class="muted">Your Banimark license key from the purchase email. Checked at most once a day, from this panel only - the check sends the key, this site\'s URL and version numbers, nothing else. An expired or unreachable license never affects the widget or this panel; it only pauses updates.</div>'
             .($status !== '' ? '<p>Status: <span class="pill '.$pill.'">'.strtoupper(Html::e($status)).'</span>'
                 .($last > 0 ? ' <span class="muted">checked '.date('d M H:i', $last).'</span>' : '').'</p>' : '')
             .'<form method="post" action="'.Html::e($this->url('/license')).'">'.$this->csrfField()
             .'<label>License key</label><input type="text" name="license_key" value="'.Html::e($this->settings->get('license_key', '')).'" placeholder="BM-XXXX-XXXX-XXXX-XXXX">'
-            .'<label>HQ endpoint (leave blank unless support says otherwise)</label><input type="text" name="hq_url" value="'.Html::e($this->settings->get('hq_url', '')).'" placeholder="'.Html::e(Master::DEFAULT_ENDPOINT).'">'
             .'<div style="margin-top:12px;"><button type="submit">Save &amp; check now</button></div></form></div>', $this->nav('/license'));
     }
 

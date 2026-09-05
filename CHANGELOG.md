@@ -3,14 +3,27 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
-## 0.10.2
-- HQ (the licensing control plane) moved to MySQL. No customer-facing change.
-- Verified the package against MySQL as well as SQLite, covering index creation,
-  date bucketing in the dashboard, and repeated query placeholders.
+## 0.12.0
+- **See when an update is available.** The License page now shows the version
+  you are running, whether a newer one exists, the release notes for each
+  version, and the command to update. It works whether or not your licence is
+  active — you should never be the last to know there is a new release.
 
-## 0.10.0
-- Packaging change only: the engine now ships as a single core file. No API or
-  configuration change; `composer update` is all that is required.
+## 0.11.0
+- **Licences are now per module.** Your key lists what it covers — the Support
+  Desk today, further modules as they arrive — and the panel shows which are
+  active on your licence.
+- **A licence activates on one site.** The first site you activate binds the key
+  to that domain; the same key on a second site is refused. Moving servers or
+  changing domain is fine — contact support and we release it. Switching to
+  HTTPS, adding or dropping `www`, or running on a port is *not* a different
+  site.
+- The admin sidebar is grouped by module, so it stays clear as more are added.
+
+## 0.10.2
+- Runs on MySQL/MariaDB or SQLite, on Laravel or standalone.
+- Licence activation no longer asks for a server address — enter your key and
+  Banimark does the rest.
 
 ## 0.9.0 — email, presence and chat continuation
 - **SMTP settings in the panel.** Banimark now sends its own email rather than

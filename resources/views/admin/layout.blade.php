@@ -7,15 +7,15 @@
     <aside class="bm-side">
         <div class="bm-brand">{!! Layout::logo('Banimark', 'Support desk') !!}</div>
         <nav class="bm-nav">
-            <span class="lbl">Desk</span>
+            <span class="lbl">Support Desk</span>
             {!! Layout::navLink(['href' => route('banimark.admin.dashboard'), 'icon' => 'dashboard', 'label' => 'Dashboard', 'on' => request()->routeIs('banimark.admin.dashboard')]) !!}
             {!! Layout::navLink(['href' => route('banimark.admin.inbox'), 'icon' => 'inbox', 'label' => 'Inbox', 'on' => request()->routeIs('banimark.admin.inbox') || request()->routeIs('banimark.admin.conversation')]) !!}
-            <span class="lbl">Build</span>
+
             {!! Layout::navLink(['href' => route('banimark.admin.tools'), 'icon' => 'tools', 'label' => 'Tools', 'on' => request()->routeIs('banimark.admin.tools')]) !!}
             {!! Layout::navLink(['href' => route('banimark.admin.rules'), 'icon' => 'rules', 'label' => 'Rules', 'on' => request()->routeIs('banimark.admin.rules')]) !!}
             {!! Layout::navLink(['href' => route('banimark.admin.providers'), 'icon' => 'providers', 'label' => 'AI providers', 'on' => request()->routeIs('banimark.admin.providers')]) !!}
             {!! Layout::navLink(['href' => route('banimark.admin.widget'), 'icon' => 'widget', 'label' => 'Widget', 'on' => request()->routeIs('banimark.admin.widget')]) !!}
-            <span class="lbl">Settings</span>
+            <span class="lbl">Account</span>
             {!! Layout::navLink(['href' => route('banimark.admin.escalation'), 'icon' => 'escalation', 'label' => 'Notifications', 'on' => request()->routeIs('banimark.admin.escalation')]) !!}
             {!! Layout::navLink(['href' => route('banimark.admin.agents'), 'icon' => 'staff', 'label' => 'Staff', 'on' => request()->routeIs('banimark.admin.agents')]) !!}
             {!! Layout::navLink(['href' => route('banimark.admin.license'), 'icon' => 'license', 'label' => 'License', 'on' => request()->routeIs('banimark.admin.license')]) !!}

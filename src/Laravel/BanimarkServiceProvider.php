@@ -36,7 +36,14 @@ class BanimarkServiceProvider extends ServiceProvider
                 }
                 $key = ($s['license_key'] ?? '') !== '' ? $s['license_key']
                     : (config('banimark.license.key') ?? env('BANIMARK_LICENSE_KEY', ''));
-                return ['key' => (string) $key, 'token' => $s['license_token'] ?? null];
+                return [
+                    'key' => (string) $key,
+                    'token' => $s['license_token'] ?? null,
+                    // the host we are actually running on - a token signed for
+                    // another site must not unlock this one
+                    'host' => (string) (request()?->getHost() ?? ''),
+                    'module' => \Banimark\Licensing\Master::MODULE_DESK,
+                ];
             };
             return new \Banimark\Auth\AgentAuth($app->make(\Banimark\Auth\Agents::class), new \Banimark\Auth\LaravelSession(), $status);
         });

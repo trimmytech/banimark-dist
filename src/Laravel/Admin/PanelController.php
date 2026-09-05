@@ -116,7 +116,7 @@ class PanelController
     private function licenseSettings(): array
     {
         return DB::table('banimark_settings')
-            ->whereIn('key', ['license_key', 'license_status', 'license_last_ping', 'license_token', 'hq_url'])
+            ->whereIn('key', ['license_key', 'license_status', 'license_last_ping', 'license_token', 'hq_url', 'updates_cache', 'updates_checked_at'])
             ->pluck('value', 'key')->all();
     }
 
@@ -140,8 +140,11 @@ class PanelController
         $s = $this->licenseSettings();
         $key = $this->licenseKey($s);
         $status = (string) ($s['license_status'] ?? '');
+        $verdict = Master::verify($key, (string) ($s['license_token'] ?? ''), null, (string) request()->getHost());
         return view('banimark::admin.license', [
+            'updates' => $this->updates($s),
             'lock' => $auth->lockReason(),
+            'modules' => $verdict['modules'] ?? [],
             'key' => $key,
             'hqUrl' => (string) ($s['hq_url'] ?? ''),
             'status' => $status,
@@ -149,12 +152,45 @@ class PanelController
         ]);
     }
 
+    /**
+     * Version + changelog from HQ, cached in settings. Never licence-gated:
+     * a lapsed customer must still see what is new and how to get it.
+     *
+     * @return array{ok: bool, latest: ?string, releases: array, update_command: string, outdated: bool}
+     */
+    private function updates(array $s): array
+    {
+        $cached = json_decode((string) ($s['updates_cache'] ?? ''), true);
+        $cached = is_array($cached) ? $cached : null;
+
+        if (\Banimark\Update\UpdateCheck::due((string) ($s['updates_checked_at'] ?? '0'))) {
+            try {
+                $fresh = (new \Banimark\Update\UpdateCheck(
+                    \Banimark\Update\UpdateCheck::endpointFrom($this->hqEndpoint($s))
+                ))->fetch();
+                DB::table('banimark_settings')->updateOrInsert(['key' => 'updates_checked_at'], ['value' => (string) time()]);
+                if ($fresh['ok']) {
+                    DB::table('banimark_settings')->updateOrInsert(['key' => 'updates_cache'], ['value' => json_encode($fresh)]);
+                    $cached = $fresh;
+                }
+            } catch (\Throwable $e) {
+                // a version check must never break the panel
+            }
+        }
+
+        $cached = $cached ?: ['ok' => false, 'latest' => null, 'releases' => [], 'update_command' => 'composer update banimark/banimark'];
+        $cached['outdated'] = \Banimark\Update\UpdateCheck::isNewer($cached['latest'] ?? null);
+        return $cached;
+    }
+
     public function saveLicense(Request $request, AgentAuth $auth)
     {
         if ($r = $this->gate($auth, false)) { return $r; }
         $key = trim((string) $request->input('license_key', ''));
         DB::table('banimark_settings')->updateOrInsert(['key' => 'license_key'], ['value' => $key]);
-        DB::table('banimark_settings')->updateOrInsert(['key' => 'hq_url'], ['value' => trim((string) $request->input('hq_url', ''))]);
+        // hq_url is deliberately NOT a panel field - customers should never have
+        // to know it. Support can still override it via BANIMARK_HQ_URL, and an
+        // already-stored value is left alone rather than blanked by this save.
         if ($key === '') {
             DB::table('banimark_settings')->whereIn('key', ['license_status', 'license_token'])->delete();
             return back()->with('bm_ok', 'License settings saved.');
