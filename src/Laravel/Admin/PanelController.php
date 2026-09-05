@@ -5,6 +5,8 @@ namespace Banimark\Laravel\Admin;
 use Banimark\Auth\AgentAuth;
 use Banimark\Auth\Agents;
 use Banimark\Auth\Totp;
+use Banimark\Auth\Permissions;
+use Banimark\Licensing\PhoneHome;
 use Banimark\Desk\QuickReplies;
 use Banimark\Storage\TranscriptView;
 use Banimark\Licensing\Master;
@@ -62,6 +64,9 @@ class PanelController
         $result = $auth->attempt((string) $request->input('email'), (string) $request->input('password'));
         if ($result === '2fa') {
             return redirect()->route('banimark.admin.login.2fa');
+        }
+        if ($result === 'pending') {
+            return back()->with('bm_error', 'Your account is not activated yet. Use the link in your invitation email, or ask an owner to resend it.');
         }
         if ($result) {
             return redirect()->route('banimark.admin.dashboard');
@@ -162,6 +167,7 @@ class PanelController
         return view('banimark::admin.agents', [
             'rows' => $agents->all(), 'isOwner' => $auth->isOwner(), 'meId' => (int) $auth->id(),
             'require2fa' => (\Banimark\Laravel\BanimarkServiceProvider::settings()['require_2fa'] ?? '0') === '1',
+            'permissions' => Permissions::ALL, 'presets' => Permissions::PRESETS,
         ]);
     }
 
@@ -169,12 +175,87 @@ class PanelController
     {
         if ($r = $this->gate($auth)) { return $r; }
         if (!$auth->isOwner()) { return back()->with('bm_error', 'Only an owner can add staff.'); }
-        if (strlen((string) $request->input('password')) < 8 || !filter_var($request->input('email'), FILTER_VALIDATE_EMAIL)) {
-            return back()->with('bm_error', 'A valid email and an 8+ character password are required.');
+        if (!filter_var($request->input('email'), FILTER_VALIDATE_EMAIL)) {
+            return back()->with('bm_error', 'A valid email is required - the invitation goes there.');
         }
-        $ok = $agents->create((string) $request->input('name'), (string) $request->input('email'),
-            (string) $request->input('password'), $request->input('role') === 'owner' ? 'owner' : 'agent');
-        return back()->with($ok === false ? 'bm_error' : 'bm_ok', $ok === false ? 'That email is already a staff account.' : 'Staff account added.');
+        $perms = $request->input('preset', 'agent') === 'custom'
+            ? (array) $request->input('perms', [])
+            : Permissions::preset((string) $request->input('preset', 'agent'));
+        $inv = $agents->invite((string) $request->input('name'), (string) $request->input('email'),
+            $request->input('role') === 'owner' ? 'owner' : 'agent', $perms);
+        if ($inv === false) {
+            return back()->with('bm_error', 'That email is already a staff account.');
+        }
+        return back()->with($this->sendInvite($agents->find($inv['id']), $inv['token'], $auth->name()) ? 'bm_ok' : 'bm_error', session()->get('bm_invite_note'));
+    }
+
+    /** Email the activation link; when mail is not set up, hand the owner the link to share. */
+    private function sendInvite(array $agent, string $token, string $inviter): bool
+    {
+        $url = route('banimark.admin.activate', $token);
+        $settings = \Banimark\Laravel\BanimarkServiceProvider::settings();
+        [$subject, $body] = \Banimark\Notify\Invite::message((string) $agent['name'], $inviter, (string) ($settings['title'] ?? 'Support'), $url);
+        $sent = false;
+        try {
+            $sent = app(\Banimark\Notify\Mailer::class)->send([(string) $agent['email']], $subject, $body);
+        } catch (\Throwable $e) {
+        }
+        // the owner always gets the link too: on many hosts mail() "succeeds" into
+        // the void, and an owner can paste a link into chat far faster than debugging SMTP
+        session()->flash('bm_invite_note', ($sent
+            ? 'Invitation emailed to '.$agent['email'].'. The account stays pending until they set a password.'
+            : 'Invitation created for '.$agent['email'].', but the email could not be sent (check Notifications → Email).')
+            .' You can also share this link with them directly (works for 7 days): '.$url);
+        return $sent;
+    }
+
+    public function reinviteAgent(Request $request, AgentAuth $auth, Agents $agents)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        if (!$auth->isOwner()) { return back()->with('bm_error', 'Only an owner can resend invitations.'); }
+        $token = $agents->reinvite((int) $request->input('id'));
+        if ($token === null) {
+            return back()->with('bm_error', 'That account is not pending.');
+        }
+        return back()->with($this->sendInvite($agents->find((int) $request->input('id')), $token, $auth->name()) ? 'bm_ok' : 'bm_error', session()->get('bm_invite_note'));
+    }
+
+    /** Owner edits what a colleague may do (and their role). */
+    public function setPermissions(Request $request, AgentAuth $auth, Agents $agents)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        if (!$auth->isOwner()) { return back()->with('bm_error', 'Only an owner can change permissions.'); }
+        $id = (int) $request->input('id');
+        $target = $agents->find($id);
+        if (!$target) { return back()->with('bm_error', 'Unknown staff member.'); }
+        $agents->setRole($id, $request->input('role') === 'owner' ? 'owner' : 'agent');
+        $perms = $request->input('preset', 'custom') === 'custom'
+            ? (array) $request->input('perms', [])
+            : Permissions::preset((string) $request->input('preset'));
+        $agents->setPermissions($id, $perms);
+        return back()->with('bm_ok', 'Access for '.$target['name'].' updated - it applies on their next click.');
+    }
+
+    /* ---------------- activation (public: the invitee has no session yet) ---------------- */
+
+    public function activate(string $token, Agents $agents)
+    {
+        $agent = $agents->findByInviteToken($token);
+        return view('banimark::admin.activate', ['agent' => $agent, 'token' => $token]);
+    }
+
+    public function doActivate(Request $request, string $token, Agents $agents)
+    {
+        $agent = $agents->findByInviteToken($token);
+        if (!$agent) {
+            return redirect()->route('banimark.admin.activate', $token);
+        }
+        $pw = (string) $request->input('password');
+        if (strlen($pw) < 8 || $pw !== (string) $request->input('password_confirmation')) {
+            return back()->with('bm_error', 'Use at least 8 characters, and type the same password twice.');
+        }
+        $agents->activate((int) $agent['id'], (string) $request->input('name', $agent['name']), $pw);
+        return redirect()->route('banimark.admin.login')->with('bm_ok', 'Your account is active - sign in with your new password.');
     }
 
     public function deleteAgent(Request $request, AgentAuth $auth, Agents $agents)
@@ -191,7 +272,7 @@ class PanelController
     private function licenseSettings(): array
     {
         return DB::table('banimark_settings')
-            ->whereIn('key', ['license_key', 'license_status', 'license_last_ping', 'license_token', 'license_unreachable_since', 'hq_url', 'updates_cache', 'updates_checked_at', 'support_email'])
+            ->whereIn('key', ['license_key', 'license_status', 'license_last_ping', 'license_token', 'license_unreachable_since', 'license_details', 'hq_url', 'updates_cache', 'updates_checked_at', 'support_email', 'support_url'])
             ->pluck('value', 'key')->all();
     }
 
@@ -220,18 +301,66 @@ class PanelController
         $key = $this->licenseKey($s);
         $status = (string) ($s['license_status'] ?? '');
         $verdict = Master::verify($key, (string) ($s['license_token'] ?? ''), null, (string) request()->getHost());
+        $details = json_decode((string) ($s['license_details'] ?? ''), true) ?: [];
+        $isTrial = ($details['plan'] ?? $verdict['plan'] ?? '') === 'trial';
+        $active = $status === 'active' && $auth->lockReason() === null;
         return view('banimark::admin.license', [
-            // an ACTIVE key is read-only: swapping it is how a licence walks to
-            // another install. Editable again the moment it is expired/revoked.
-            'keyLocked' => $status === 'active' && $auth->lockReason() === null,
+            // an ACTIVE paid key is read-only (swapping it is how a licence walks to
+            // another install); a TRIAL key stays editable so a purchased key can replace it
+            'keyLocked' => $active && !$isTrial,
+            'active' => $active,
+            'isTrial' => $isTrial,
+            'details' => $details,
+            'expiresAt' => (string) ($details['expires_at'] ?? $verdict['expires_at'] ?? ''),
+            'daysLeft' => ($d = (string) ($details['expires_at'] ?? $verdict['expires_at'] ?? '')) !== '' ? (int) ceil((strtotime($d.' 23:59:59') - time()) / 86400) : null,
             'supportEmail' => (string) ($s['support_email'] ?? ''),
+            'supportUrl' => (string) ($s['support_url'] ?? ''),
             'lock' => $auth->lockReason(),
-            'modules' => $verdict['modules'] ?? [],
+            'modules' => $verdict['modules'] ?: ($details['modules'] ?? []),
             'key' => $key,
+            'maskedKey' => $key !== '' ? preg_replace('/^(BM-[A-Z0-9]{4})-[A-Z0-9-]+-([A-Z0-9]{4})$/', '$1-••••-••••-$2', $key) : '',
             'hqUrl' => (string) ($s['hq_url'] ?? ''),
             'status' => $status,
             'lastPing' => (int) ($s['license_last_ping'] ?? 0),
+            'canTrial' => $key === '',
         ]);
+    }
+
+    /** Owner asks HQ for the free trial this site is entitled to. */
+    public function startTrial(Request $request, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth, false)) { return $r; }
+        if (!$auth->isOwner()) { return redirect()->route('banimark.admin.dashboard'); }
+        $settings = $this->licenseSettings();
+        $settings['hq_url'] = $this->hqEndpoint($settings);
+        $result = PhoneHome::startTrial(
+            $settings,
+            $request->getSchemeAndHttpHost(),
+            fn (string $k, string $v) => DB::table('banimark_settings')->updateOrInsert(['key' => $k], ['value' => $v]),
+            fn (string $k) => DB::table('banimark_settings')->where('key', $k)->delete(),
+        );
+        if (!empty($result['ok'])) {
+            return redirect()->route('banimark.admin.dashboard')->with('bm_ok', 'Your free trial has started - '.(int) ($result['trial_days'] ?? 0).' days, until '.$result['expires_at'].'. Welcome to your Support Desk.');
+        }
+        $why = (string) ($result['message'] ?? '');
+        return back()->with('bm_error', $why !== '' ? $why : 'Could not reach Banimark HQ to start the trial. Try again in a moment, or enter a purchased key.');
+    }
+
+    /** "Re-check now" on the licence page: the daily check, forced. */
+    public function recheckLicense(Request $request, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth, false)) { return $r; }
+        if (!$auth->isOwner()) { return redirect()->route('banimark.admin.dashboard'); }
+        $settings = $this->licenseSettings();
+        $settings['license_key'] = $this->licenseKey($settings);
+        $settings['hq_url'] = $this->hqEndpoint($settings);
+        $result = PhoneHome::run($settings, $request->getSchemeAndHttpHost(),
+            fn (string $k, string $v) => DB::table('banimark_settings')->updateOrInsert(['key' => $k], ['value' => $v]),
+            fn (string $k) => DB::table('banimark_settings')->where('key', $k)->delete(), force: true);
+        if ($result === null || empty($result['ok'])) {
+            return back()->with('bm_error', PhoneHome::unreachableMessage($settings));
+        }
+        return back()->with('bm_ok', 'Checked with HQ just now - status: '.$result['license'].'.');
     }
 
     /**
@@ -471,18 +600,42 @@ class PanelController
     {
         if ($r = $this->gate($auth)) { return $r; }
         $mode = in_array($request->input('mode'), ['ai', 'agent', 'closed'], true) ? $request->input('mode') : 'ai';
+        if ($mode === 'closed' && !$auth->can('inbox.close')) {
+            return back()->with('bm_error', 'You do not have permission to close conversations.');
+        }
         $store->setMode($sessionId, $mode);
         return redirect()->route('banimark.admin.conversation', $sessionId);
     }
 
     /* ---------------- providers ---------------- */
 
-    public function providers(AgentAuth $auth)
+    public function providers(AgentAuth $auth, Request $request)
     {
         if ($r = $this->gate($auth)) { return $r; }
+        $editing = null;
+        if (($slug = (string) $request->query('edit', '')) !== '') {
+            $row = DB::table('banimark_providers')->where('slug', $slug)->first();
+            // the key never round-trips to the form
+            $editing = $row ? ['slug' => $row->slug, 'driver' => $row->driver, 'model' => $row->model, 'base_url' => (string) $row->base_url,
+                'temperature' => (float) $row->temperature, 'enabled' => (bool) $row->enabled, 'has_key' => trim((string) $row->api_key) !== ''] : null;
+        }
         return view('banimark::admin.providers', [
-            'rows' => DB::table('banimark_providers')->orderBy('id')->get(),
+            'rows' => DB::table('banimark_providers')->orderByDesc('enabled')->orderBy('id')->get(),
+            'editing' => $editing,
         ]);
+    }
+
+    /** Exactly one provider answers the widget: switching one on switches the others off. */
+    public function activateProvider(Request $request, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        $slug = (string) $request->input('slug');
+        if (!DB::table('banimark_providers')->where('slug', $slug)->exists()) {
+            return back()->with('bm_error', 'Unknown provider.');
+        }
+        DB::table('banimark_providers')->update(['enabled' => false, 'is_default' => false]);
+        DB::table('banimark_providers')->where('slug', $slug)->update(['enabled' => true, 'is_default' => true]);
+        return back()->with('bm_ok', '"'.$slug.'" is now the provider answering your chat.');
     }
 
     public function saveProvider(Request $request)
@@ -506,12 +659,18 @@ class PanelController
         } elseif (!DB::table('banimark_providers')->where('slug', $data['slug'])->exists()) {
             return back()->with('bm_error', 'An API key is required for a new provider.');
         }
-        DB::table('banimark_providers')->updateOrInsert(['slug' => $data['slug']], $data + ['created_at' => now()]);
-        if ($request->input('is_default')) {
-            DB::table('banimark_providers')->update(['is_default' => false]);
-            DB::table('banimark_providers')->where('slug', $data['slug'])->update(['is_default' => true]);
+        // ONE provider at a time: enabling this one disables every other
+        $data['is_default'] = $data['enabled'];
+        if ($data['enabled']) {
+            DB::table('banimark_providers')->update(['enabled' => false, 'is_default' => false]);
         }
-        return back()->with('bm_ok', 'Provider saved.');
+        DB::table('banimark_providers')->updateOrInsert(['slug' => $data['slug']], $data + ['created_at' => now()]);
+        if (!DB::table('banimark_providers')->where('enabled', true)->exists()) {
+            // never leave the chat without a provider when one exists to use
+            $first = DB::table('banimark_providers')->orderBy('id')->value('slug');
+            if ($first) { DB::table('banimark_providers')->where('slug', $first)->update(['enabled' => true, 'is_default' => true]); }
+        }
+        return redirect()->route('banimark.admin.providers')->with('bm_ok', 'Provider saved.'.($data['enabled'] ? ' It is now the one answering your chat.' : ''));
     }
 
     public function deleteProvider(Request $request)
@@ -593,11 +752,25 @@ class PanelController
 
     /* ---------------- tool builder ---------------- */
 
-    public function tools(AgentAuth $auth)
+    public function tools(AgentAuth $auth, Request $request)
     {
         if ($r = $this->gate($auth)) { return $r; }
+        $editing = null;
+        if (($name = (string) $request->query('edit', '')) !== '') {
+            $row = DB::table('banimark_tools')->where('name', $name)->first();
+            if ($row) {
+                $params = [];
+                foreach ((array) (json_decode($row->parameters, true) ?: []) as $pn => $spec) {
+                    $params[] = ['name' => $pn, 'type' => $spec['type'] ?? 'string', 'desc' => $spec['description'] ?? '', 'required' => !empty($spec['required'])];
+                }
+                $editing = ['name' => $row->name, 'description' => $row->description, 'sql' => $row->sql, 'max_rows' => (int) $row->max_rows,
+                    'columns' => implode(', ', json_decode($row->columns, true) ?: []), 'context' => implode(', ', json_decode((string) $row->context, true) ?: []),
+                    'enabled' => (bool) $row->enabled, 'params' => $params];
+            }
+        }
         return view('banimark::admin.tools', [
             'rows' => DB::table('banimark_tools')->orderBy('id')->get(),
+            'editing' => $editing,
         ]);
     }
 
@@ -650,17 +823,27 @@ class PanelController
             return back()->with('bm_error', $e->getMessage())->withInput();
         }
 
-        DB::table('banimark_tools')->updateOrInsert(['name' => $definition['name']], [
+        // editing: original_name is the row to update, name may be a rename
+        $original = trim((string) $request->input('original_name', ''));
+        $target = $original !== '' && DB::table('banimark_tools')->where('name', $original)->exists() ? $original : $definition['name'];
+        if ($target !== $definition['name'] && DB::table('banimark_tools')->where('name', $definition['name'])->exists()) {
+            return back()->with('bm_error', 'A tool called "'.$definition['name'].'" already exists.')->withInput();
+        }
+        $data = [
+            'name' => $definition['name'],
             'description' => $definition['description'],
             'parameters' => json_encode($definition['parameters']),
             'sql' => $definition['sql'],
             'columns' => json_encode($definition['columns']),
             'context' => json_encode($definition['context']),
             'max_rows' => $definition['max_rows'],
-            'enabled' => (bool) $request->input('enabled', true),
-            'updated_at' => now(), 'created_at' => now(),
-        ]);
-        return back()->with('bm_ok', 'Tool "'.$definition['name'].'" saved and validated.');
+            'enabled' => $request->boolean('enabled'),
+            'updated_at' => now(),
+        ];
+        DB::table('banimark_tools')->where('name', $target)->exists()
+            ? DB::table('banimark_tools')->where('name', $target)->update($data)
+            : DB::table('banimark_tools')->insert($data + ['created_at' => now()]);
+        return redirect()->route('banimark.admin.tools')->with('bm_ok', 'Tool "'.$definition['name'].'" '.($original !== '' ? 'updated' : 'saved').' and validated.');
     }
 
     public function deleteTool(Request $request)
@@ -678,6 +861,7 @@ class PanelController
         $updates = $this->updates($settings);
         return view('banimark::admin.widget', [
             'cfg' => array_merge((array) config('banimark.widget', []), $settings),
+            'chatPageUrl' => route('banimark.chat.page'),
             'flutter' => $updates['sdks']['flutter'] ?? null, // advertised by HQ; null = not published yet
             'supportEmail' => (string) ($settings['support_email'] ?? ''),
         ]);
@@ -696,6 +880,8 @@ class PanelController
             'poll_seconds' => fn ($v) => (string) max(3, min(600, (int) $v ?: 10)),
             'guest_mode' => fn ($v) => in_array($v, ['off', 'optional', 'required'], true) ? $v : 'off',
             'offline_note' => fn ($v) => mb_substr(trim($v), 0, 200),
+            // auto follows the visitor's OS; light/dark force it (Flutter reads the same value)
+            'theme' => fn ($v) => in_array($v, ['auto', 'light', 'dark'], true) ? $v : 'auto',
         ];
         foreach ($allowed as $key => $clean) {
             DB::table('banimark_settings')->updateOrInsert(['key' => $key], ['value' => $clean((string) $request->input($key, ''))]);

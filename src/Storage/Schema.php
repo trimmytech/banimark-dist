@@ -103,6 +103,11 @@ class Schema
             enabled {$bool} NOT NULL DEFAULT 1,
             totp_secret VARCHAR(64) NOT NULL DEFAULT '',
             totp_enabled INTEGER NOT NULL DEFAULT 0,
+            status VARCHAR(12) NOT NULL DEFAULT 'active',
+            invite_token VARCHAR(64) NOT NULL DEFAULT '',
+            invited_at VARCHAR(32) NULL,
+            activated_at VARCHAR(32) NULL,
+            permissions TEXT NULL,
             created_at VARCHAR(32) NULL
         )");
         self::index($pdo, "{$prefix}agent_email", "{$prefix}agents", 'email', true);
@@ -164,6 +169,14 @@ class Schema
         // staff 2FA (TOTP): secret + whether it is switched on for this account
         self::addColumn($pdo, "{$prefix}agents", 'totp_secret', "VARCHAR(64) NOT NULL DEFAULT ''");
         self::addColumn($pdo, "{$prefix}agents", 'totp_enabled', 'INTEGER NOT NULL DEFAULT 0');
+        // invitations: new staff are 'pending' until they set their own password
+        // from the emailed link; existing rows default to 'active' and keep working
+        self::addColumn($pdo, "{$prefix}agents", 'status', "VARCHAR(12) NOT NULL DEFAULT 'active'");
+        self::addColumn($pdo, "{$prefix}agents", 'invite_token', "VARCHAR(64) NOT NULL DEFAULT ''");
+        self::addColumn($pdo, "{$prefix}agents", 'invited_at', 'VARCHAR(32) NULL');
+        self::addColumn($pdo, "{$prefix}agents", 'activated_at', 'VARCHAR(32) NULL');
+        // per-staff permissions (JSON list); NULL = legacy account, treated as full editor
+        self::addColumn($pdo, "{$prefix}agents", 'permissions', 'TEXT NULL');
     }
 
     /** ALTER ... ADD COLUMN works on MySQL and SQLite alike; a duplicate is fine. */

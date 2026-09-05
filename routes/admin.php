@@ -7,6 +7,8 @@ Route::get('/login', [PanelController::class, 'login'])->name('banimark.admin.lo
 Route::post('/login', [PanelController::class, 'doLogin'])->name('banimark.admin.login.post');
 Route::get('/login/2fa', [PanelController::class, 'login2fa'])->name('banimark.admin.login.2fa');
 Route::post('/login/2fa', [PanelController::class, 'doLogin2fa'])->name('banimark.admin.login.2fa.post');
+Route::get('/activate/{token}', [PanelController::class, 'activate'])->name('banimark.admin.activate');
+Route::post('/activate/{token}', [PanelController::class, 'doActivate'])->name('banimark.admin.activate.post');
 Route::get('/security', [PanelController::class, 'security'])->name('banimark.admin.security');
 Route::post('/security/begin', [PanelController::class, 'securityBegin'])->name('banimark.admin.security.begin');
 Route::post('/security/confirm', [PanelController::class, 'securityConfirm'])->name('banimark.admin.security.confirm');
@@ -21,6 +23,8 @@ Route::post('/staff', [PanelController::class, 'saveAgent'])->name('banimark.adm
 Route::post('/staff/delete', [PanelController::class, 'deleteAgent'])->name('banimark.admin.agents.delete');
 Route::post('/staff/2fa-reset', [PanelController::class, 'staffTotpReset'])->name('banimark.admin.agents.totp.reset');
 Route::post('/staff/2fa-require', [PanelController::class, 'staffTotpRequire'])->name('banimark.admin.agents.totp.require');
+Route::post('/staff/reinvite', [PanelController::class, 'reinviteAgent'])->name('banimark.admin.agents.reinvite');
+Route::post('/staff/permissions', [PanelController::class, 'setPermissions'])->name('banimark.admin.agents.permissions');
 Route::get('/escalation', [PanelController::class, 'escalation'])->name('banimark.admin.escalation');
 Route::post('/escalation', [PanelController::class, 'saveEscalation'])->name('banimark.admin.escalation.save');
 Route::post('/escalation/test', [PanelController::class, 'testEmail'])->name('banimark.admin.escalation.test');
@@ -31,6 +35,7 @@ Route::post('/conversation/{sessionId}/mode', [PanelController::class, 'setMode'
 Route::get('/providers', [PanelController::class, 'providers'])->name('banimark.admin.providers');
 Route::post('/providers', [PanelController::class, 'saveProvider'])->name('banimark.admin.providers.save');
 Route::post('/providers/delete', [PanelController::class, 'deleteProvider'])->name('banimark.admin.providers.delete');
+Route::post('/providers/activate', [PanelController::class, 'activateProvider'])->name('banimark.admin.providers.activate');
 Route::get('/rules', [PanelController::class, 'rules'])->name('banimark.admin.rules');
 Route::post('/rules', [PanelController::class, 'saveRule'])->name('banimark.admin.rules.save');
 Route::post('/rules/delete', [PanelController::class, 'deleteRule'])->name('banimark.admin.rules.delete');
@@ -46,4 +51,6 @@ Route::get('/widget', [PanelController::class, 'widget'])->name('banimark.admin.
 Route::get('/changelog', [PanelController::class, 'changelog'])->name('banimark.admin.changelog');
 Route::get('/license', [PanelController::class, 'license'])->name('banimark.admin.license');
 Route::post('/license', [PanelController::class, 'saveLicense'])->name('banimark.admin.license.save');
+Route::post('/license/trial', [PanelController::class, 'startTrial'])->name('banimark.admin.license.trial');
+Route::post('/license/recheck', [PanelController::class, 'recheckLicense'])->name('banimark.admin.license.recheck');
 Route::post('/widget', [PanelController::class, 'saveWidget'])->name('banimark.admin.widget.save');

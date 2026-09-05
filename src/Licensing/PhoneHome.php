@@ -59,6 +59,13 @@ final class PhoneHome
             return $result;
         }
 
+        self::apply($result, $set, $forget, $now);
+        return $result;
+    }
+
+    /** Store everything a successful HQ answer tells us. */
+    public static function apply(array $result, callable $set, callable $forget, ?int $now = null): void
+    {
         $set('license_status', (string) ($result['license'] ?? 'unknown'));
         if (($result['token'] ?? '') !== '') {
             $set('license_token', (string) $result['token']);
@@ -66,7 +73,44 @@ final class PhoneHome
         if (($result['support_email'] ?? '') !== '') {
             $set('support_email', (string) $result['support_email']);
         }
+        if (($result['support_url'] ?? '') !== '') {
+            $set('support_url', (string) $result['support_url']);
+        }
+        // the human-readable facts the licence page shows (the TOKEN is what is trusted)
+        $set('license_details', (string) json_encode([
+            'plan' => (string) ($result['plan'] ?? ''),
+            'trial' => !empty($result['trial']),
+            'modules' => array_values((array) ($result['modules'] ?? [])),
+            'domain' => (string) ($result['domain'] ?? ''),
+            'customer' => (string) ($result['customer'] ?? ''),
+            'issued_at' => (string) ($result['issued_at'] ?? ''),
+            'expires_at' => (string) ($result['expires_at'] ?? ''),
+            'checked_at' => $now ?? time(),
+        ]));
         $forget('license_unreachable_since');
+    }
+
+    /**
+     * Ask HQ for the free trial this site is entitled to at first install.
+     * HQ decides the length and whether trials are on; one trial per domain.
+     * @return array HQ's answer (ok + license_key + trial{days,ends}) or ['ok' => false, 'error' => ...]
+     */
+    public static function startTrial(array $settings, string $siteUrl, callable $set, callable $forget, ?callable $post = null, ?int $now = null): array
+    {
+        $endpoint = (string) (($settings['hq_url'] ?? '') !== '' ? $settings['hq_url'] : Master::DEFAULT_ENDPOINT);
+        $trialUrl = preg_replace('#/ping$#', '/trial', $endpoint) ?: $endpoint;
+        $post ??= fn (string $url, array $payload) => Master::post($url, $payload);
+        try {
+            $result = $post($trialUrl, ['site_url' => $siteUrl, 'package_version' => Master::PACKAGE_VERSION, 'php_version' => PHP_VERSION]);
+        } catch (\Throwable $e) {
+            $result = ['ok' => false, 'error' => 'unreachable'];
+        }
+        if (empty($result['ok']) || trim((string) ($result['license_key'] ?? '')) === '') {
+            return ['ok' => false, 'error' => (string) ($result['error'] ?? 'unreachable'), 'message' => (string) ($result['message'] ?? '')];
+        }
+        $set('license_key', trim((string) $result['license_key']));
+        $set('license_last_ping', (string) ($now ?? time()));
+        self::apply($result, $set, $forget, $now);
         return $result;
     }
 

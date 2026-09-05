@@ -17,6 +17,13 @@
                         </select>
                     </div>
                 </div>
+                <label>Theme</label>
+                <select name="theme">
+                    <option value="auto" @selected(($cfg['theme'] ?? 'auto') === 'auto')>Auto — follow the visitor's device (light or dark)</option>
+                    <option value="light" @selected(($cfg['theme'] ?? '') === 'light')>Always light</option>
+                    <option value="dark" @selected(($cfg['theme'] ?? '') === 'dark')>Always dark</option>
+                </select>
+                <div class="hint">Applies to the website widget, the shareable chat link and the Flutter SDK (when it follows your settings).</div>
                 <label>Header title</label>
                 <input type="text" name="title" value="{{ $cfg['title'] ?? 'Support' }}">
                 <label>Greeting bubble</label>
@@ -68,6 +75,13 @@
   user: { name: "Ada Lovelace", email: "ada@example.com" }
 });</textarea>
         </div>
+    </div>
+
+    <div class="bm-card">
+        <h2>Share as a link</h2>
+        <div class="muted">The same chat as a full page — for email signatures, QR codes, SMS, or anywhere the widget cannot be embedded. Guests are asked who they are according to your <i>Ask guests</i> setting above.</div>
+        <textarea readonly rows="1" data-select-all style="margin-top:10px">{{ $chatPageUrl }}</textarea>
+        <div class="hint">Signed-in users: append <code>?t=</code> and a <code>VisitorToken</code> minted server-side (24 h) so their lookups are scoped — e.g. a "Chat with us" button in your own app. Never put a long-lived token in an email.</div>
     </div>
 
     <div class="bm-card">

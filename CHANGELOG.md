@@ -3,6 +3,39 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.14.0
+- **Free trial at first install.** A fresh install asks Banimark HQ for a trial
+  licence automatically (or from *License → Start free trial*); your vendor sets
+  the length. The licence page shows the days left. When the trial ends the
+  admin panel locks until you enter a purchased key — the chat widget keeps
+  working throughout. One trial per site.
+- **Licence page shows your licence.** Once active: plan, site, modules, issued
+  and expiry dates, last verification, your vendor's support contact, and a
+  *Re-check with HQ now* button. A trial key can be replaced by a purchased one;
+  a paid key stays locked to the site.
+- **Staff invitations.** Adding a colleague now sends them an email with a link
+  to choose their own password. The account is *pending* and cannot sign in
+  until they do. Owners can resend a link; links work for 7 days. The link is
+  also shown to the owner in case email is not set up.
+- **Staff permissions.** Owners decide what each staff member can open and do:
+  presets (*View only*, *Agent*, *Editor*) or a custom tick-list — inbox
+  viewing, replying, closing, tools, rules, providers, widget, notifications.
+  The sidebar shows only what a person may open. Existing staff keep the access
+  they had.
+- **Edit tools and providers.** Every tool and every AI provider now has an
+  *Edit* button that reopens it in the form (a tool can also be renamed or
+  switched off). Provider keys are never shown; leaving the key blank keeps it.
+- **One AI provider at a time.** Exactly one provider answers the chat. Turning
+  one on turns the others off; *Use this* switches in one click.
+- **Widget light/dark mode.** Under Widget → Theme: follow the visitor's device,
+  always light, or always dark. Applies to the website widget, the shareable
+  chat page and the Flutter SDK (`followAdminAppearance`).
+- **Chat as a link.** *Widget → Share as a link* gives a full-page chat URL for
+  email signatures, QR codes or anywhere the widget cannot be embedded.
+
+*Upgrade note:* run `php artisan migrate` (Laravel) or open the admin panel once
+(standalone).
+
 ## 0.13.2
 - **Works under your app's Content-Security-Policy.** If your app sets a CSP
   (many do), the panel's buttons and scripts were being blocked - the theme

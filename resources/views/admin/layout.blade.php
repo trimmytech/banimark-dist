@@ -1,5 +1,6 @@
 @php use Banimark\Ui\Layout; use Banimark\Ui\Icons;
-Layout::configure(['events' => route('banimark.admin.events'), 'conversation' => route('banimark.admin.conversation', '__SID__')]); @endphp
+$bmAuth = app(\Banimark\Auth\AgentAuth::class);
+Layout::configure(['events' => $bmAuth->can('inbox.view') ? route('banimark.admin.events') : '', 'conversation' => route('banimark.admin.conversation', '__SID__')]); @endphp
 <!doctype html>
 <html lang="en">
 <head>{!! Layout::head('Banimark — '.trim($__env->yieldContent('title', 'Admin'))) !!}</head>
@@ -9,19 +10,37 @@ Layout::configure(['events' => route('banimark.admin.events'), 'conversation' =>
         <div class="bm-brand">{!! Layout::logo('Banimark', 'Support desk') !!}</div>
         <nav class="bm-nav">
             <span class="lbl">Support Desk</span>
+            @if($bmAuth->can('dashboard.view'))
             {!! Layout::navLink(['href' => route('banimark.admin.dashboard'), 'icon' => 'dashboard', 'label' => 'Dashboard', 'on' => request()->routeIs('banimark.admin.dashboard')]) !!}
+            @endif
+            @if($bmAuth->can('inbox.view'))
             {!! Layout::navLink(['href' => route('banimark.admin.inbox'), 'icon' => 'inbox', 'label' => 'Inbox', 'on' => request()->routeIs('banimark.admin.inbox') || request()->routeIs('banimark.admin.conversation')]) !!}
+            @endif
 
+            @if($bmAuth->can('tools.manage'))
             {!! Layout::navLink(['href' => route('banimark.admin.tools'), 'icon' => 'tools', 'label' => 'Tools', 'on' => request()->routeIs('banimark.admin.tools')]) !!}
+            @endif
+            @if($bmAuth->can('rules.manage'))
             {!! Layout::navLink(['href' => route('banimark.admin.rules'), 'icon' => 'rules', 'label' => 'Rules', 'on' => request()->routeIs('banimark.admin.rules')]) !!}
+            @endif
+            @if($bmAuth->can('providers.manage'))
             {!! Layout::navLink(['href' => route('banimark.admin.providers'), 'icon' => 'providers', 'label' => 'AI providers', 'on' => request()->routeIs('banimark.admin.providers')]) !!}
+            @endif
+            @if($bmAuth->can('widget.manage'))
             {!! Layout::navLink(['href' => route('banimark.admin.widget'), 'icon' => 'widget', 'label' => 'Widget', 'on' => request()->routeIs('banimark.admin.widget')]) !!}
+            @endif
             <span class="lbl">Account</span>
+            @if($bmAuth->can('notifications.manage'))
             {!! Layout::navLink(['href' => route('banimark.admin.escalation'), 'icon' => 'escalation', 'label' => 'Notifications', 'on' => request()->routeIs('banimark.admin.escalation')]) !!}
+            @endif
+            @if($bmAuth->isOwner())
             {!! Layout::navLink(['href' => route('banimark.admin.agents'), 'icon' => 'staff', 'label' => 'Staff', 'on' => request()->routeIs('banimark.admin.agents')]) !!}
+            @endif
             {!! Layout::navLink(['href' => route('banimark.admin.security'), 'icon' => 'shield', 'label' => 'Security', 'on' => request()->routeIs('banimark.admin.security')]) !!}
+            @if($bmAuth->isOwner())
             {!! Layout::navLink(['href' => route('banimark.admin.license'), 'icon' => 'license', 'label' => 'License', 'on' => request()->routeIs('banimark.admin.license')]) !!}
-            @if(app(\Banimark\Auth\AgentAuth::class)->isOwner())
+            @endif
+            @if($bmAuth->isOwner())
                 {!! Layout::navLink(['href' => route('banimark.admin.changelog'), 'icon' => 'bolt', 'label' => 'Changelog', 'on' => request()->routeIs('banimark.admin.changelog')]) !!}
             @endif
         </nav>

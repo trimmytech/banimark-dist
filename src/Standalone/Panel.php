@@ -71,11 +71,30 @@ class Panel
                 header('Location: '.$this->url('/login/2fa'));
                 return;
             }
+            if ($result === 'pending') {
+                echo $this->login('Your account is not activated yet. Use the link in your invitation email, or ask an owner to resend it.');
+                return;
+            }
             if ($result) {
                 header('Location: '.$this->url());
                 return;
             }
             echo $this->login('Wrong email or password.');
+            return;
+        }
+        if (preg_match('#^/activate/([a-f0-9]{48})$#', $route, $m)) {
+            $agent = $this->agents->findByInviteToken($m[1]);
+            if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && $agent) {
+                $pw = (string) ($_POST['password'] ?? '');
+                if (strlen($pw) < 8 || $pw !== (string) ($_POST['password_confirmation'] ?? '')) {
+                    echo Html::activate($this->url('/activate/'.$m[1]), $this->url('/login'), $agent, 'Use at least 8 characters, and type the same password twice.');
+                    return;
+                }
+                $this->agents->activate((int) $agent['id'], (string) ($_POST['name'] ?? $agent['name']), $pw);
+                echo $this->login('', 'Your account is active - sign in with your new password.');
+                return;
+            }
+            echo Html::activate($this->url('/activate/'.$m[1]), $this->url('/login'), $agent);
             return;
         }
         if ($route === '/login/2fa') {
@@ -120,7 +139,7 @@ class Panel
         // license lock: no valid license = no admin, pages AND actions. The
         // verdict comes from AgentAuth->lockReason() (encoded Master), not a
         // local call, so it cannot be stripped here. Widget/chat is never gated.
-        if (!in_array($route, ['/license', '/changelog', '/logout'], true) && $this->auth->lockReason() !== null) {
+        if (!in_array($route, ['/license', '/changelog', '/logout'], true) && !str_starts_with($route, '/license/') && $this->auth->lockReason() !== null) {
             header('Location: '.$this->url('/license'));
             return;
         }
@@ -130,7 +149,20 @@ class Panel
             header('Location: '.$this->url('/security'));
             return;
         }
-        Layout::configure(['events' => $this->url('/events'), 'conversation' => $this->url('/conversation/__SID__')]);
+        Layout::configure(['events' => $this->auth->can('inbox.view') ? $this->url('/events') : '', 'conversation' => $this->url('/conversation/__SID__')]);
+
+        // per-staff permissions from ONE map (Permissions::forPath); the licence and
+        // changelog pages decide inside (a locked-out staffer still sees "ask your owner")
+        if (!in_array($route, ['/license', '/changelog'], true) && !str_starts_with($route, '/license/')) {
+            $requirement = \Banimark\Auth\Permissions::forPath($route);
+            if (!$this->auth->allowed($requirement)) {
+                http_response_code(403);
+                echo Html::page('No access', '<div class="bm-card" style="max-width:560px"><div class="row" style="gap:10px"><span class="avatar">'.Icons::get('shield', 16).'</span><div><h2 style="margin:0">You don\'t have access to this</h2>'
+                    .'<div class="muted">'.($requirement === 'owner' ? 'Only an owner can open this page.' : 'An owner can grant it under Staff → Access.').'</div></div></div>'
+                    .'<div class="row" style="margin-top:16px;gap:8px"><a class="btn2 btn-sm" href="'.Html::e($this->url('/inbox')).'">'.Icons::get('inbox', 14).' Inbox</a><a class="btn-ghost btn-sm" href="'.Html::e($this->url()).'">Dashboard</a></div></div>', $this->nav($route), 'This page is not part of your permissions');
+                return;
+            }
+        }
 
         $flash = '';
         if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
@@ -176,11 +208,11 @@ class Panel
             str_starts_with($route, '/rules') => $this->rules($flash),
             str_starts_with($route, '/security') => $this->securityPage($flash),
             $route === '/quick-replies' => $this->escalationPage($flash),
-            $route === '/providers' => $this->providers($flash),
-            $route === '/agents' => $this->agentsPage($flash),
+            $route === '/providers', $route === '/providers/activate' => $this->providers($flash),
+            str_starts_with($route, '/agents') => $this->agentsPage($flash),
             $route === '/escalation', $route === '/escalation/test' => $this->escalationPage($flash),
             $route === '/widget' => $this->widget($flash),
-            $route === '/license' => $this->licensePage($flash),
+            str_starts_with($route, '/license') => $this->licensePage($flash),
             $route === '/changelog' => $this->changelogPage($flash),
             default => Html::page('Not found', '<div class="bm-card"><h2>Not found</h2></div>', $this->nav()),
         };
@@ -258,6 +290,16 @@ class Panel
         if ($route === '/providers') {
             return $this->saveProvider($p);
         }
+        if ($route === '/providers/activate') {
+            // exactly one provider answers the widget
+            $slug = (string) ($p['slug'] ?? '');
+            if ($this->query('SELECT 1 FROM banimark_providers WHERE slug = ?', [$slug]) === []) {
+                return '<div class="flash-err">Unknown provider.</div>';
+            }
+            $this->exec('UPDATE banimark_providers SET enabled = 0, is_default = 0', []);
+            $this->exec('UPDATE banimark_providers SET enabled = 1, is_default = 1 WHERE slug = ?', [$slug]);
+            return '<div class="flash-ok">"'.Html::e($slug).'" is now the provider answering your chat.</div>';
+        }
         if ($route === '/providers/delete') {
             $this->exec('DELETE FROM banimark_providers WHERE slug = ?', [(string) ($p['slug'] ?? '')]);
             header('Location: '.$this->url('/providers'));
@@ -267,11 +309,33 @@ class Panel
             if (!$this->auth->isOwner()) {
                 return '<div class="flash-err">Only an owner can manage staff.</div>';
             }
-            $ok = $this->agents->create((string) ($p['name'] ?? ''), (string) ($p['email'] ?? ''), (string) ($p['password'] ?? ''), ($p['role'] ?? '') === 'owner' ? 'owner' : 'agent');
-            if ($ok === false) {
-                return '<div class="flash-err">That email is already a staff account, or the details are invalid.</div>';
+            $perms = ($p['preset'] ?? 'agent') === 'custom' ? (array) ($p['perms'] ?? []) : \Banimark\Auth\Permissions::preset((string) ($p['preset'] ?? 'agent'));
+            $inv = $this->agents->invite((string) ($p['name'] ?? ''), (string) ($p['email'] ?? ''), ($p['role'] ?? '') === 'owner' ? 'owner' : 'agent', $perms);
+            if ($inv === false) {
+                return '<div class="flash-err">That email is already a staff account, or the address is invalid.</div>';
             }
-            return '<div class="flash-ok">Staff account added.</div>';
+            return $this->sendInvite($this->agents->find($inv['id']), $inv['token']);
+        }
+        if ($route === '/agents/reinvite') {
+            if (!$this->auth->isOwner()) {
+                return '<div class="flash-err">Only an owner can resend invitations.</div>';
+            }
+            $token = $this->agents->reinvite((int) ($p['id'] ?? 0));
+            return $token === null ? '<div class="flash-err">That account is not pending.</div>' : $this->sendInvite($this->agents->find((int) $p['id']), $token);
+        }
+        if ($route === '/agents/permissions') {
+            if (!$this->auth->isOwner()) {
+                return '<div class="flash-err">Only an owner can change permissions.</div>';
+            }
+            $id = (int) ($p['id'] ?? 0);
+            $target = $this->agents->find($id);
+            if (!$target) {
+                return '<div class="flash-err">Unknown staff member.</div>';
+            }
+            $this->agents->setRole($id, ($p['role'] ?? '') === 'owner' ? 'owner' : 'agent');
+            $perms = ($p['preset'] ?? 'custom') === 'custom' ? (array) ($p['perms'] ?? []) : \Banimark\Auth\Permissions::preset((string) $p['preset']);
+            $this->agents->setPermissions($id, $perms);
+            return '<div class="flash-ok">Access for '.Html::e($target['name']).' updated - it applies on their next click.</div>';
         }
         if ($route === '/agents/delete') {
             if ($this->auth->isOwner()) {
@@ -318,15 +382,38 @@ class Panel
             $this->settings->set('poll_seconds', (string) max(3, min(600, (int) ($p['poll_seconds'] ?? 10) ?: 10)));
             $this->settings->set('guest_mode', in_array($p['guest_mode'] ?? '', ['off', 'optional', 'required'], true) ? $p['guest_mode'] : 'off');
             $this->settings->set('offline_note', mb_substr(trim((string) ($p['offline_note'] ?? '')), 0, 200));
+            $this->settings->set('theme', in_array($p['theme'] ?? '', ['auto', 'light', 'dark'], true) ? $p['theme'] : 'auto');
             return '<div class="flash-ok">Widget saved.</div>';
+        }
+        if ($route === '/license/trial' || $route === '/license/recheck') {
+            if (!$this->auth->isOwner()) {
+                return '<div class="flash-err">Only an owner can manage the licence.</div>';
+            }
+            $set = fn (string $k, string $v) => $this->settings->set($k, $v);
+            $forget = fn (string $k) => $this->settings->set($k, '');
+            if ($route === '/license/trial') {
+                $r = \Banimark\Licensing\PhoneHome::startTrial($this->settings->all(), Master::siteUrlFromServer($_SERVER), $set, $forget);
+                if (!empty($r['ok'])) {
+                    header('Location: '.$this->url()); // straight into the desk
+                    return null;
+                }
+                return '<div class="flash-err">'.Html::e(($r['message'] ?? '') !== '' ? $r['message'] : 'Could not reach Banimark HQ to start the trial. Try again in a moment, or enter a purchased key.').'</div>';
+            }
+            $r = \Banimark\Licensing\PhoneHome::run($this->settings->all(), Master::siteUrlFromServer($_SERVER), $set, $forget, force: true);
+            return ($r === null || empty($r['ok']))
+                ? '<div class="flash-err">'.Html::e(\Banimark\Licensing\PhoneHome::unreachableMessage($this->settings->all())).'</div>'
+                : '<div class="flash-ok">Checked with HQ just now - status: <b>'.Html::e($r['license']).'</b>.</div>';
         }
         if ($route === '/license') {
             if (!$this->auth->isOwner()) {
                 return '<div class="flash-err">Only an owner can manage the licence.</div>';
             }
             $key = trim((string) ($p['license_key'] ?? ''));
-            // an ACTIVE key is read-only: swapping it is how a licence walks to another install
+            $details = json_decode((string) $this->settings->get('license_details', ''), true) ?: [];
+            // an ACTIVE paid key is read-only (swapping it is how a licence walks to
+            // another install); a TRIAL key may be replaced by a purchased one
             if ($this->settings->get('license_status') === 'active' && $this->auth->lockReason() === null
+                && ($details['plan'] ?? '') !== 'trial'
                 && $key !== '' && $key !== (string) $this->settings->get('license_key', '')) {
                 return '<div class="flash-err">Your licence is active. To move to a different key, contact support.</div>';
             }
@@ -358,7 +445,7 @@ class Panel
         return '';
     }
 
-    private function saveTool(array $p): string
+    private function saveTool(array $p): ?string
     {
         // rows arrive as positional arrays; a checkbox only posts when ticked,
         // so param_required[] carries the INDEXES of the required rows
@@ -392,13 +479,20 @@ class Panel
         } catch (\Throwable $e) {
             return '<div class="flash-err">'.Html::e($e->getMessage()).'</div>';
         }
-        $this->exec('DELETE FROM banimark_tools WHERE name = ?', [$definition['name']]);
+        // editing: original_name is the row to replace, name may be a rename
+        $original = trim((string) ($p['original_name'] ?? ''));
+        $target = $original !== '' && $this->query('SELECT 1 FROM banimark_tools WHERE name = ?', [$original]) !== [] ? $original : $definition['name'];
+        if ($target !== $definition['name'] && $this->query('SELECT 1 FROM banimark_tools WHERE name = ?', [$definition['name']]) !== []) {
+            return '<div class="flash-err">A tool called "'.Html::e($definition['name']).'" already exists.</div>';
+        }
+        $this->exec('DELETE FROM banimark_tools WHERE name = ?', [$target]);
         $this->exec('INSERT INTO banimark_tools (name, description, parameters, `sql`, columns, context, max_rows, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
             $definition['name'], $definition['description'], json_encode($definition['parameters']),
             $definition['sql'], json_encode($definition['columns']), json_encode($definition['context']),
-            $definition['max_rows'], 1, date('Y-m-d H:i:s'), date('Y-m-d H:i:s'),
+            $definition['max_rows'], !empty($p['enabled']) ? 1 : 0, date('Y-m-d H:i:s'), date('Y-m-d H:i:s'),
         ]);
-        return '<div class="flash-ok">Tool "'.Html::e($definition['name']).'" saved and validated.</div>';
+        header('Location: '.$this->url('/tools'));
+        return null;
     }
 
     private function saveProvider(array $p): string
@@ -414,19 +508,24 @@ class Panel
         if ($key === '' && $existing === null) {
             return '<div class="flash-err">An API key is required for a new provider.</div>';
         }
+        $enabled = !empty($p['enabled']) ? 1 : 0;
+        if ($enabled) {
+            // ONE provider at a time: enabling this one disables every other
+            $this->exec('UPDATE banimark_providers SET enabled = 0, is_default = 0', []);
+        }
         $this->exec('DELETE FROM banimark_providers WHERE slug = ?', [$slug]);
-        $this->exec('INSERT INTO banimark_providers (slug, driver, api_key, model, base_url, temperature, enabled, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)', [
+        $this->exec('INSERT INTO banimark_providers (slug, driver, api_key, model, base_url, temperature, enabled, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
             $slug, $driver, $key !== '' ? $key : $existing['api_key'], $model,
             trim((string) ($p['base_url'] ?? '')) ?: null,
             max(0, min(2, (float) ($p['temperature'] ?? 0.4))),
-            !empty($p['enabled']) ? 1 : 0,
+            $enabled, $enabled,
             date('Y-m-d H:i:s'), date('Y-m-d H:i:s'),
         ]);
-        if (!empty($p['is_default'])) {
-            $this->exec('UPDATE banimark_providers SET is_default = 0', []);
-            $this->exec('UPDATE banimark_providers SET is_default = 1 WHERE slug = ?', [$slug]);
+        if ($this->query('SELECT 1 FROM banimark_providers WHERE enabled = 1', []) === []) {
+            $first = $this->query('SELECT slug FROM banimark_providers ORDER BY id LIMIT 1', [])[0]['slug'] ?? null;
+            if ($first) { $this->exec('UPDATE banimark_providers SET enabled = 1, is_default = 1 WHERE slug = ?', [$first]); }
         }
-        return '<div class="flash-ok">Provider saved.</div>';
+        return '<div class="flash-ok">Provider saved.'.($enabled ? ' It is now the one answering your chat.' : '').'</div>';
     }
 
     /* ---------------- pages ---------------- */
@@ -434,24 +533,30 @@ class Panel
     /** Sidebar links, with the current section highlighted. */
     private function nav(string $current = ''): string
     {
-        // grouped by MODULE - Support Desk is the first of several
-        $items = [
-            ['Support Desk'],
-            ['/', 'dashboard', 'Dashboard'],
-            ['/inbox', 'inbox', 'Inbox'],
-            ['/tools', 'tools', 'Tools'],
-            ['/rules', 'rules', 'Rules'],
-            ['/providers', 'providers', 'AI providers'],
-            ['/widget', 'widget', 'Widget'],
-            ['/escalation', 'escalation', 'Notifications'],
-            ['Account'],
-        ];
+        // grouped by MODULE - Support Desk is the first of several; each link
+        // shows only when this staff member may open it
+        $can = fn (string $p) => $this->auth->can($p);
+        $items = [['Support Desk']];
+        foreach ([
+            ['/', 'dashboard', 'Dashboard', 'dashboard.view'],
+            ['/inbox', 'inbox', 'Inbox', 'inbox.view'],
+            ['/tools', 'tools', 'Tools', 'tools.manage'],
+            ['/rules', 'rules', 'Rules', 'rules.manage'],
+            ['/providers', 'providers', 'AI providers', 'providers.manage'],
+            ['/widget', 'widget', 'Widget', 'widget.manage'],
+            ['/escalation', 'escalation', 'Notifications', 'notifications.manage'],
+        ] as [$path, $icon, $label, $perm]) {
+            if ($can($perm)) {
+                $items[] = [$path, $icon, $label];
+            }
+        }
+        $items[] = ['Account'];
         if ($this->auth->isOwner()) {
             $items[] = ['/agents', 'staff', 'Staff'];
         }
         $items[] = ['/security', 'shield', 'Security'];
-        $items[] = ['/license', 'license', 'License'];
         if ($this->auth->isOwner()) {
+            $items[] = ['/license', 'license', 'License'];
             $items[] = ['/changelog', 'bolt', 'Changelog'];
         }
 
@@ -464,7 +569,7 @@ class Panel
             [$path, $icon, $label] = $it;
             $out .= Layout::navLink([
                 'href' => $this->url($path === '/' ? '' : $path),
-                'icon' => $icon, 'label' => $label, 'on' => $current === $path,
+                'icon' => $icon, 'label' => $label, 'on' => $current === $path || ($path !== '/' && str_starts_with($current, $path)),
             ]);
         }
         return $out.'<span class="lbl">Session</span>'
@@ -529,9 +634,9 @@ class Panel
         return Html::page('Dashboard', $body, $this->nav('/'), 'How your AI desk is performing');
     }
 
-    private function login(string $error = ''): string
+    private function login(string $error = '', string $notice = ''): string
     {
-        return Html::auth($this->url('/login'), $error);
+        return Html::auth($this->url('/login'), $error, $notice);
     }
 
     private function inbox(string $flash): string
@@ -686,49 +791,65 @@ class Panel
     private function tools(string $flash): string
     {
         $e = fn ($v) => Html::e((string) $v);
+        $ed = null; // editing an existing tool?
+        if (($name = (string) ($_GET['edit'] ?? '')) !== '') {
+            $row = $this->query('SELECT * FROM banimark_tools WHERE name = ?', [$name])[0] ?? null;
+            if ($row) {
+                $params = [];
+                foreach ((array) (json_decode($row['parameters'], true) ?: []) as $pn => $spec) {
+                    $params[] = ['name' => $pn, 'type' => $spec['type'] ?? 'string', 'desc' => $spec['description'] ?? '', 'required' => !empty($spec['required'])];
+                }
+                $ed = $row + ['params' => $params, 'columns_csv' => implode(', ', json_decode($row['columns'], true) ?: []), 'context_csv' => implode(', ', json_decode((string) $row['context'], true) ?: [])];
+            }
+        }
         $rows = '';
         foreach ($this->query('SELECT * FROM banimark_tools ORDER BY id', []) as $r) {
-            $rows .= '<tr><td><div class="row">'.Icons::get('tools', 15).'<b class="mono" style="background:none;padding:0">'.$e($r['name']).'</b></div></td>'
+            $rows .= '<tr'.($r['enabled'] ? '' : ' style="opacity:.55"').'><td><div class="row">'.Icons::get('tools', 15).'<b class="mono" style="background:none;padding:0">'.$e($r['name']).'</b></div></td>'
                 .'<td class="muted">'.$e(mb_substr($r['description'], 0, 110)).'</td>'
                 .'<td class="muted">'.($e(implode(', ', array_keys(json_decode($r['parameters'], true) ?: []))) ?: '&mdash;').'</td>'
                 .'<td style="font-variant-numeric:tabular-nums">'.(int) $r['max_rows'].'</td>'
-                .'<td><form method="post" action="'.$e($this->url('/tools/delete')).'">'.$this->csrfField().'<input type="hidden" name="name" value="'.$e($r['name']).'">'
+                .'<td><span class="pill '.($r['enabled'] ? 'good' : 'closed').'">'.($r['enabled'] ? 'ON' : 'OFF').'</span></td>'
+                .'<td class="row" style="gap:4px"><a class="btn-ghost btn-sm" href="'.$e($this->url('/tools').'?edit='.rawurlencode($r['name'])).'#build">Edit</a>'
+                .'<form method="post" action="'.$e($this->url('/tools/delete')).'">'.$this->csrfField().'<input type="hidden" name="name" value="'.$e($r['name']).'">'
                 .'<button class="btn-ghost btn-icon" data-confirm="Delete this tool?" title="Delete">'.Icons::get('trash', 15).'</button></form></td></tr>';
         }
         if ($rows === '') {
-            $rows = '<tr><td colspan="5">'.Chart::empty('No tools yet', 'The AI can chat, but it cannot look anything up until you build one.').'</td></tr>';
+            $rows = '<tr><td colspan="6">'.Chart::empty('No tools yet', 'The AI can chat, but it cannot look anything up until you build one.').'</td></tr>';
         }
         $html = $flash
             .'<div class="bm-card pad0"><div class="bm-sec-h" style="padding:18px 20px 0"><div><h2>Your tools</h2>'
             .'<div class="muted">Each tool is one question the AI can answer from your data, e.g. "find this customer\'s orders".</div></div></div>'
-            .'<div class="t-wrap"><table><tr><th>Name</th><th>What it does</th><th>Asks the customer for</th><th>Rows</th><th></th></tr>'.$rows.'</table></div></div>'
-            .'<div class="bm-card"><h2>Build a tool</h2>'
-            .'<div class="muted">Three steps: name it, say what the AI needs to ask the customer, then point at your data. No SQL knowledge needed - the builder writes it for you.</div>'
+            .'<div class="t-wrap"><table><tr><th>Name</th><th>What it does</th><th>Asks the customer for</th><th>Rows</th><th>Status</th><th></th></tr>'.$rows.'</table></div></div>'
+            .'<div class="bm-card" id="build"><div class="bm-sec-h"><div><h2>'.($ed ? 'Edit tool: '.$e($ed['name']) : 'Build a tool').'</h2>'
+            .'<div class="muted">'.($ed ? 'Change anything below and save - the AI uses the new version straight away.' : 'Three steps: name it, say what the AI needs to ask the customer, then point at your data. No SQL knowledge needed - the builder writes it for you.').'</div></div>'
+            .($ed ? '<a class="btn-ghost btn-sm" href="'.$e($this->url('/tools')).'">Cancel - build a new one instead</a>' : '').'</div>'
             .'<form method="post" action="'.$e($this->url('/tools')).'">'.$this->csrfField()
+            .($ed ? '<input type="hidden" name="original_name" value="'.$e($ed['name']).'">' : '')
             .'<h3 class="bm-step">1. What is this tool?</h3>'
-            .'<div class="grid2"><div><label>Name <span class="muted">(letters, numbers, underscores)</span></label><input type="text" name="name" required placeholder="find_orders"></div>'
-            .'<div><label>Most rows to return</label><input type="number" name="max_rows" value="10" min="1" max="50"></div></div>'
+            .'<div class="grid2"><div><label>Name <span class="muted">(letters, numbers, underscores)</span></label><input type="text" name="name" required placeholder="find_orders" value="'.$e($ed['name'] ?? '').'"></div>'
+            .'<div><label>Most rows to return</label><input type="number" name="max_rows" value="'.(int) ($ed['max_rows'] ?? 10).'" min="1" max="50"></div></div>'
             .'<label>Describe it in plain words - the AI reads this to know when to use it</label>'
-            .'<textarea name="description" required placeholder="Look up a customer\'s orders by order number or by what they bought."></textarea>'
+            .'<textarea name="description" required placeholder="Look up a customer\'s orders by order number or by what they bought.">'.$e($ed['description'] ?? '').'</textarea>'
+            .'<label style="display:flex;align-items:center;gap:8px;margin-top:10px"><input type="checkbox" name="enabled" value="1"'.(($ed ? !empty($ed['enabled']) : true) ? ' checked' : '').'> Tool is on (the AI may use it)</label>'
             .'<h3 class="bm-step">2. What should the AI ask the customer for?</h3>'
             .'<div class="muted" style="margin-bottom:8px">Each item becomes a question the AI can ask (an order number, a date, a product name). Add as many as you need.</div>'
-            .'<div data-params></div><button type="button" class="btn-ghost btn-sm" data-add-param>'.Icons::get('plus', 14).' Add another</button>'
+            .'<div data-params data-prefill="'.$e(json_encode($ed['params'] ?? [])).'"></div><button type="button" class="btn-ghost btn-sm" data-add-param>'.Icons::get('plus', 14).' Add another</button>'
             .'<h3 class="bm-step">3. Where is the data?</h3>'
             .'<div data-toolbuilder data-schema-url="'.$e($this->url('/tools/schema')).'" style="background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:14px 16px">'
             .'<div class="row" style="justify-content:space-between"><b>Visual builder</b><span class="muted" data-status>…</span></div>'
             .'<div class="grid2" style="margin-top:8px"><div><label>Table</label><select data-table><option value="">Loading…</option></select></div>'
-            .'<div><label>Who is chatting is identified by <span class="muted">(identity keys, comma-separated)</span></label><input type="text" name="context" value="user_id" placeholder="user_id"></div></div>'
+            .'<div><label>Who is chatting is identified by <span class="muted">(identity keys, comma-separated)</span></label><input type="text" name="context" value="'.$e($ed['context_csv'] ?? 'user_id').'" placeholder="user_id"></div></div>'
             .'<label>Columns the AI may show the customer</label><div data-columns><span class="muted">Pick a table first.</span></div>'
             .'<label style="margin-top:12px">Only show rows where…</label><div data-conditions></div>'
             .'<button type="button" class="btn-ghost btn-sm" data-add-condition>'.Icons::get('plus', 14).' Add a condition</button>'
             .'<div class="muted" style="margin:10px 0 4px">Tip: add a condition on the customer\'s own id using the <i>identity</i> option so every customer only ever sees their own rows.</div>'
             .'<pre class="mono" data-preview style="white-space:pre-wrap;padding:10px 12px;border-radius:8px;margin:8px 0">-- pick a table and at least one column</pre>'
             .'<button type="button" class="btn2 btn-sm" data-apply disabled>'.Icons::get('check', 14).' Use this query</button></div>'
-            .'<details style="margin-top:14px"><summary class="muted" style="cursor:pointer">Advanced: the query the AI will run (editable)</summary>'
+            .'<details style="margin-top:14px"'.($ed ? ' open' : '').'><summary class="muted" style="cursor:pointer">Advanced: the query the AI will run (editable)</summary>'
             .'<label>SQL - SELECT only. <code>:param</code> for values the AI asks for, <code>:_key</code> for identity values</label>'
-            .'<textarea name="sql" required placeholder="SELECT reference, status, total FROM orders WHERE reference = :reference AND user_id = :_user_id"></textarea>'
-            .'<label>Columns the AI may see</label><input type="text" name="columns" required placeholder="reference, status, total"></details>'
-            .'<div style="margin-top:16px"><button type="submit">'.Icons::get('check', 15).' Validate &amp; save tool</button></div></form></div>'
+            .'<textarea name="sql" required placeholder="SELECT reference, status, total FROM orders WHERE reference = :reference AND user_id = :_user_id">'.$e($ed['sql'] ?? '').'</textarea>'
+            .'<label>Columns the AI may see</label><input type="text" name="columns" required placeholder="reference, status, total" value="'.$e($ed['columns_csv'] ?? '').'"></details>'
+            .'<div style="margin-top:16px"><button type="submit">'.Icons::get('check', 15).' '.($ed ? 'Validate &amp; save changes' : 'Validate &amp; save tool').'</button></div></form></div>'
             .Layout::toolBuilderScript();
         return Html::page('Tools', $html, $this->nav('/tools'));
     }
@@ -855,31 +976,40 @@ class Panel
 
     private function providers(string $flash): string
     {
+        $e = fn ($v) => Html::e((string) $v);
+        $editing = null;
+        if (($slug = (string) ($_GET['edit'] ?? '')) !== '') {
+            $row = $this->query('SELECT * FROM banimark_providers WHERE slug = ?', [$slug])[0] ?? null;
+            $editing = $row ? $row + ['has_key' => trim((string) $row['api_key']) !== ''] : null; // the key never reaches the form
+        }
         $rows = '';
-        foreach ($this->query('SELECT * FROM banimark_providers ORDER BY id', []) as $r) {
-            $rows .= '<tr><td><b>'.Html::e($r['slug']).'</b> '.($r['is_default'] ? '<span class="pill ai">DEFAULT</span>' : '').'</td>'
-                .'<td>'.Html::e($r['driver']).'</td><td>'.Html::e($r['model']).'</td>'
-                .'<td class="muted">'.Html::e($r['base_url'] ?: '-').'</td><td>'.Html::e($r['temperature']).'</td>'
-                .'<td>'.($r['enabled'] ? 'enabled' : 'disabled').'</td>'
-                .'<td><form method="post" action="'.Html::e($this->url('/providers/delete')).'">'.$this->csrfField().'<input type="hidden" name="slug" value="'.Html::e($r['slug']).'"><button class="btn-danger" data-confirm="Remove?">×</button></form></td></tr>';
+        foreach ($this->query('SELECT * FROM banimark_providers ORDER BY enabled DESC, id', []) as $r) {
+            $rows .= '<tr'.($r['enabled'] ? '' : ' style="opacity:.6"').'><td><div class="row">'.Icons::get('providers', 15).'<b>'.$e($r['slug']).'</b>'
+                .(trim((string) $r['api_key']) === '' ? '<span class="pill closed" title="No API key yet">NO KEY</span>' : '').'</div></td>'
+                .'<td class="muted">'.$e($r['driver']).'</td><td><code>'.$e($r['model']).'</code></td>'
+                .'<td class="muted">'.$e($r['base_url'] ?: '—').'</td><td style="font-variant-numeric:tabular-nums">'.$e($r['temperature']).'</td>'
+                .'<td>'.($r['enabled'] ? '<span class="pill good">ANSWERING</span>'
+                    : '<form method="post" action="'.$e($this->url('/providers/activate')).'">'.$this->csrfField().'<input type="hidden" name="slug" value="'.$e($r['slug']).'"><button class="btn2 btn-sm">Use this</button></form>').'</td>'
+                .'<td class="row" style="gap:4px"><a class="btn-ghost btn-sm" href="'.$e($this->url('/providers').'?edit='.rawurlencode($r['slug'])).'#edit">Edit</a>'
+                .'<form method="post" action="'.$e($this->url('/providers/delete')).'">'.$this->csrfField().'<input type="hidden" name="slug" value="'.$e($r['slug']).'"><button class="btn-ghost btn-icon" data-confirm="Remove this provider?" title="Remove">'.Icons::get('trash', 15).'</button></form></td></tr>';
         }
         if ($rows === '') {
-            $rows = '<tr><td colspan="7" class="muted">No providers yet - the chat cannot answer until you add one.</td></tr>';
+            $rows = '<tr><td colspan="7">'.Chart::empty('No providers yet', 'The chat cannot answer until you add one.').'</td></tr>';
         }
-        return Html::page('AI Providers', $flash.'<div class="bm-card"><h2>AI Providers</h2>'
-            .'<div class="muted">The default enabled provider answers the widget. Keys are stored server-side and never shown again.</div>'
-            .'<table><tr><th>Slug</th><th>Driver</th><th>Model</th><th>Base URL</th><th>Temp</th><th>Status</th><th></th></tr>'.$rows.'</table></div>'
-            .'<div class="bm-card"><h2>Add / update a provider</h2>'
-            .'<form method="post" action="'.Html::e($this->url('/providers')).'">'.$this->csrfField()
-            .'<div class="grid2"><div><label>Slug</label><input type="text" name="slug" required placeholder="gemini"></div>'
-            .'<div><label>Driver</label><select name="driver"><option value="gemini">gemini</option><option value="openai-compat">openai-compat (OpenAI / DeepSeek / SiliconFlow / local)</option><option value="anthropic">anthropic</option></select></div>'
-            .'<div><label>Model</label><input type="text" name="model" required placeholder="gemini-2.5-flash"></div>'
-            .'<div><label>Base URL (openai-compat only)</label><input type="text" name="base_url" placeholder="https://api.deepseek.com"></div>'
-            .'<div><label>API key (blank keeps existing)</label><input type="password" name="api_key" autocomplete="new-password"></div>'
-            .'<div><label>Temperature</label><input type="number" name="temperature" step="0.05" value="0.4"></div></div>'
-            .'<label><input type="checkbox" name="enabled" value="1" checked> Enabled</label>'
-            .'<label><input type="checkbox" name="is_default" value="1"> Make default</label>'
-            .'<div style="margin-top:12px;"><button type="submit">Save provider</button></div></form></div>', $this->nav('/providers'));
+        $sel = fn (string $d) => ($editing['driver'] ?? 'gemini') === $d ? ' selected' : '';
+        return Html::page('AI providers', $flash.'<div class="bm-card pad0"><div class="t-wrap"><table><tr><th>Provider</th><th>Driver</th><th>Model</th><th>Base URL</th><th>Temp</th><th>Status</th><th></th></tr>'.$rows.'</table></div></div>'
+            .'<div class="bm-card" id="edit"><div class="bm-sec-h"><div><h2>'.($editing ? 'Edit provider: '.$e($editing['slug']) : 'Add a provider').'</h2>'
+            .'<div class="muted">Keys are stored server-side and never shown again. '.($editing ? 'Leave the key blank to keep the stored one.' : 'Only one provider answers the chat at a time - turning this one on turns the others off.').'</div></div>'
+            .($editing ? '<a class="btn-ghost btn-sm" href="'.$e($this->url('/providers')).'">Cancel - add a new one instead</a>' : '').'</div>'
+            .'<form method="post" action="'.$e($this->url('/providers')).'">'.$this->csrfField()
+            .'<div class="grid2"><div><label>Slug <span class="muted">(its name in this list)</span></label><input type="text" name="slug" required placeholder="gemini" value="'.$e($editing['slug'] ?? '').'"'.($editing ? ' readonly' : '').'></div>'
+            .'<div><label>Driver</label><select name="driver"><option value="gemini"'.$sel('gemini').'>gemini</option><option value="openai-compat"'.$sel('openai-compat').'>openai-compat (OpenAI / DeepSeek / SiliconFlow / local)</option><option value="anthropic"'.$sel('anthropic').'>anthropic</option></select></div>'
+            .'<div><label>Model</label><input type="text" name="model" required placeholder="gemini-2.5-flash" value="'.$e($editing['model'] ?? '').'"></div>'
+            .'<div><label>Base URL (openai-compat only)</label><input type="text" name="base_url" placeholder="https://api.deepseek.com" value="'.$e($editing['base_url'] ?? '').'"></div>'
+            .'<div><label>API key'.($editing ? ' <span class="muted">('.($editing['has_key'] ? 'a key is stored - blank keeps it' : 'none stored yet').')</span>' : '').'</label><input type="password" name="api_key" autocomplete="new-password" placeholder="'.($editing && $editing['has_key'] ? '•••••••• (unchanged)' : 'paste your API key').'"></div>'
+            .'<div><label>Temperature</label><input type="number" name="temperature" step="0.05" value="'.$e($editing['temperature'] ?? '0.4').'"></div></div>'
+            .'<div class="row" style="margin-top:14px;gap:20px"><label style="display:flex;align-items:center;gap:8px;margin:0"><input type="checkbox" name="enabled" value="1"'.(($editing ? !empty($editing['enabled']) : true) ? ' checked' : '').'> This provider answers the chat <span class="muted">(switches the others off)</span></label></div>'
+            .'<div style="margin-top:16px"><button type="submit">'.($editing ? 'Save changes' : 'Save provider').'</button></div></form></div>', $this->nav('/providers'), 'Bring your own key - it never leaves your server');
     }
 
     private function widget(string $flash): string
@@ -890,6 +1020,7 @@ class Panel
             .'<form method="post" action="'.Html::e($this->url('/widget')).'">'.$this->csrfField()
             .'<div class="grid2"><div><label>Accent color</label><input type="text" name="color" value="'.Html::e($s->get('color', '#6F04D9')).'"></div>'
             .'<div><label>Position</label><select name="position"><option value="right"'.($s->get('position') === 'right' ? ' selected' : '').'>right</option><option value="left"'.($s->get('position') === 'left' ? ' selected' : '').'>left</option></select></div>'
+            .'<div><label>Theme</label><select name="theme"><option value="auto"'.($s->get('theme', 'auto') === 'auto' ? ' selected' : '').'>Auto - follow the visitor\'s device</option><option value="light"'.($s->get('theme') === 'light' ? ' selected' : '').'>Always light</option><option value="dark"'.($s->get('theme') === 'dark' ? ' selected' : '').'>Always dark</option></select><div class="hint">Applies to the website widget, the shareable chat link and the Flutter SDK.</div></div>'
             .'<div><label>Header title</label><input type="text" name="title" value="'.Html::e($s->get('title', 'Support')).'"></div>'
             .'<div><label>Greeting bubble</label><input type="text" name="greeting" value="'.Html::e($s->get('greeting', '')).'"></div></div>'
             .'<div class="divider"></div><div class="grid2">'
@@ -909,7 +1040,11 @@ class Panel
             .'<div class="muted">Anonymous visitors:</div>'
             .'<textarea readonly rows="2">&lt;script src="'.$widgetUrl.'" defer&gt;&lt;/script&gt;</textarea>'
             .'<div class="muted" style="margin-top:10px;">Logged-in users - mint a token server-side with your identity secret (settings key identity_secret) via \\Banimark\\Identity\\VisitorToken::mint([\'user_id\' =&gt; $userId], $secret) and pass it as data-token on the script tag.</div>'
-            .'</div>'.$this->flutterCard($s->get('title', 'Support')), $this->nav('/widget'));
+            .'</div>'
+            .'<div class="bm-card"><h2>Share as a link</h2><div class="muted">The same chat as a full page - for email signatures, QR codes, SMS, or anywhere the widget cannot be embedded. Guests are asked who they are according to your <i>Ask guests</i> setting above.</div>'
+            .'<textarea readonly rows="1" data-select-all style="margin-top:10px">'.Html::e(Master::siteUrlFromServer($_SERVER).$this->base.'/chat-page').'</textarea>'
+            .'<div class="hint">Signed-in users: append <code>?t=</code> and a <code>VisitorToken</code> minted server-side (24 h) so their lookups are scoped. Never put a long-lived token in an email.</div></div>'
+            .$this->flutterCard($s->get('title', 'Support')), $this->nav('/widget'));
     }
 
     /** "Mobile apps": the Flutter SDK as advertised by HQ (version + link), with a ready snippet. */
@@ -944,32 +1079,81 @@ class Panel
         if (!$this->auth->isOwner()) {
             return Html::page('Staff', '<div class="bm-card"><h2>Staff</h2><p class="muted">Only an owner can manage staff.</p></div>', $this->nav('/agents'));
         }
+        $e = fn ($v) => Html::e((string) $v);
+        $csrf = $this->csrfField();
+        $P = \Banimark\Auth\Permissions::class;
+        $permBoxes = function (array $have) use ($e, $P): string {
+            $out = '<div class="bm-perms">';
+            foreach ($P::ALL as $key => $label) {
+                $out .= '<label><input type="checkbox" name="perms[]" value="'.$e($key).'"'.(in_array($key, $have, true) ? ' checked' : '').'> <b>'.$e($key).'</b> <span class="muted">'.$e($label).'</span></label>';
+            }
+            return $out.'</div>';
+        };
+        $presetSelect = function (string $current, string $target) use ($e, $P): string {
+            $out = '<select name="preset" data-preset-for="'.$e($target).'">';
+            foreach ($P::PRESETS as $k => $preset) {
+                $out .= '<option value="'.$k.'"'.($current === $k ? ' selected' : '').'>'.$e($preset['label']).'</option>';
+            }
+            return $out.'<option value="custom"'.($current === 'custom' ? ' selected' : '').'>Custom - tick below</option></select>';
+        };
+        $meId = (int) $this->auth->id();
         $rows = '';
         foreach ($this->agents->all() as $a) {
-            $rows .= '<tr><td><b>'.Html::e($a['name']).'</b></td><td>'.Html::e($a['email']).'</td>'
-                .'<td><span class="pill '.($a['role'] === 'owner' ? 'ai' : 'agent').'">'.strtoupper(Html::e($a['role'])).'</span></td>'
-                .'<td>'.($a['enabled'] ? 'active' : 'disabled').'</td>'
+            $perms = $P::of($a); $preset = $P::presetOf($perms); $pending = ($a['status'] ?? 'active') === 'pending'; $id = (int) $a['id'];
+            $rows .= '<tr><td><div class="row"><span class="avatar">'.$e(strtoupper(substr($a['name'], 0, 1))).'</span><b>'.$e($a['name']).'</b>'.($id === $meId ? '<span class="muted">(you)</span>' : '').'</div></td>'
+                .'<td class="muted">'.$e($a['email']).'</td>'
+                .'<td><span class="pill '.($a['role'] === 'owner' ? 'ai' : 'agent').'">'.strtoupper($e($a['role'])).'</span></td>'
+                .'<td>'.($a['role'] === 'owner' ? '<span class="muted">everything</span>' : '<span class="pill closed">'.$e(strtoupper($P::PRESETS[$preset]['label'] ?? 'custom')).'</span> <button type="button" class="btn-ghost btn-sm" data-toggle="#access-'.$id.'">Edit</button>').'</td>'
+                .'<td>'.($pending ? '<span class="pill expired" title="Invited '.$e($a['invited_at']).'">PENDING</span>' : '<span class="pill '.($a['enabled'] ? 'good' : 'closed').'">'.($a['enabled'] ? 'ACTIVE' : 'DISABLED').'</span>').'</td>'
                 .'<td>'.(!empty($a['totp_enabled'])
-                    ? '<div class="row" style="gap:6px"><span class="pill good">ON</span><form method="post" action="'.Html::e($this->url('/agents/2fa-reset')).'">'.$this->csrfField().'<input type="hidden" name="id" value="'.(int) $a['id'].'"><button class="btn-ghost btn-sm" data-confirm="Reset 2FA for this account? They sign in with just their password until they enrol again.">Reset</button></form></div>'
+                    ? '<div class="row" style="gap:6px"><span class="pill good">ON</span><form method="post" action="'.$e($this->url('/agents/2fa-reset')).'">'.$csrf.'<input type="hidden" name="id" value="'.$id.'"><button class="btn-ghost btn-sm" data-confirm="Reset 2FA for this account? They sign in with just their password until they enrol again.">Reset</button></form></div>'
                     : '<span class="pill closed">OFF</span>').'</td>'
-                .'<td><form method="post" action="'.Html::e($this->url('/agents/delete')).'">'.$this->csrfField().'<input type="hidden" name="id" value="'.(int) $a['id'].'"><button class="btn-danger" data-confirm="Remove this staff account?">×</button></form></td></tr>';
+                .'<td class="row" style="gap:4px">'
+                .($pending ? '<form method="post" action="'.$e($this->url('/agents/reinvite')).'">'.$csrf.'<input type="hidden" name="id" value="'.$id.'"><button class="btn2 btn-sm" title="Send a fresh activation link">Resend invite</button></form>' : '')
+                .'<form method="post" action="'.$e($this->url('/agents/delete')).'">'.$csrf.'<input type="hidden" name="id" value="'.$id.'"><button class="btn-ghost btn-icon" data-confirm="Remove this staff account?" title="Remove">'.Icons::get('trash', 15).'</button></form></td></tr>';
+            if ($a['role'] !== 'owner') {
+                $rows .= '<tr id="access-'.$id.'" hidden><td colspan="7" style="background:var(--surface-2)">'
+                    .'<form method="post" action="'.$e($this->url('/agents/permissions')).'" class="row" style="align-items:flex-start;gap:24px;flex-wrap:wrap">'.$csrf.'<input type="hidden" name="id" value="'.$id.'">'
+                    .'<div style="min-width:220px"><label>Role</label><select name="role"><option value="agent" selected>Staff</option><option value="owner">Owner - full control</option></select>'
+                    .'<label style="margin-top:10px">Preset</label>'.$presetSelect($preset, '#access-'.$id).'</div>'
+                    .'<div style="flex:1;min-width:260px"><label>What '.$e($a['name']).' can do</label>'.$permBoxes($perms).'</div>'
+                    .'<div style="align-self:flex-end"><button type="submit" class="btn-sm">Save access</button></div></form></td></tr>';
+            }
         }
-        return Html::page('Staff', $flash.'<div class="bm-card"><h2>Staff</h2>'
-            .'<div class="muted">Staff can attend to escalated conversations from the inbox. Owners can also manage staff and settings.</div>'
-            .'<table><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>2FA</th><th></th></tr>'.$rows.'</table></div>'
+        return Html::page('Staff', $flash.'<div class="bm-card pad0"><div class="t-wrap"><table><tr><th>Name</th><th>Email</th><th>Role</th><th>Access</th><th>Status</th><th>2FA</th><th></th></tr>'.$rows.'</table></div></div>'
             .'<div class="bm-card"><h2>Two-factor policy</h2>'
             .'<div class="muted">When on, every staff member (owners included) must set up an authenticator app before they can use the panel. Anyone locked out can be reset above.</div>'
-            .'<form method="post" action="'.Html::e($this->url('/agents/2fa-require')).'" class="row" style="margin-top:12px;gap:14px">'.$this->csrfField()
+            .'<form method="post" action="'.$e($this->url('/agents/2fa-require')).'" class="row" style="margin-top:12px;gap:14px">'.$csrf
             .'<label style="display:flex;align-items:center;gap:10px;margin:0"><span class="switch"><input type="checkbox" name="require_2fa" value="1"'.($this->settings->get('require_2fa', '0') === '1' ? ' checked' : '').'><span class="sl"></span></span> Require 2FA for all staff</label>'
             .'<button type="submit" class="btn2 btn-sm">Save policy</button>'
-            .'<a class="btn-ghost btn-sm" href="'.Html::e($this->url('/security')).'">'.Icons::get('shield', 14).' My own 2FA</a></form></div>'
-            .'<div class="bm-card"><h2>Add staff</h2>'
-            .'<form method="post" action="'.Html::e($this->url('/agents')).'">'.$this->csrfField()
+            .'<a class="btn-ghost btn-sm" href="'.$e($this->url('/security')).'">'.Icons::get('shield', 14).' My own 2FA</a></form></div>'
+            .'<div class="bm-card"><h2>Invite a colleague</h2>'
+            .'<div class="muted">They get an email with a link to choose their own password. The account is <b>pending</b> and cannot sign in until they do.</div>'
+            .'<form method="post" action="'.$e($this->url('/agents')).'">'.$csrf
             .'<div class="grid2"><div><label>Name</label><input type="text" name="name" required></div>'
-            .'<div><label>Email (their login)</label><input type="text" name="email" required></div>'
-            .'<div><label>Password (min 8)</label><input type="password" name="password" required></div>'
-            .'<div><label>Role</label><select name="role"><option value="agent">Agent (handles chats)</option><option value="owner">Owner (full control)</option></select></div></div>'
-            .'<div style="margin-top:12px;"><button type="submit">Add staff</button></div></form></div>', $this->nav('/agents'));
+            .'<div><label>Email (their login - the invitation goes here)</label><input type="text" name="email" required></div>'
+            .'<div><label>Role</label><select name="role"><option value="agent">Staff - access set below</option><option value="owner">Owner - full control</option></select></div>'
+            .'<div><label>Access preset</label>'.$presetSelect('agent', '#invite-perms').'</div></div>'
+            .'<div id="invite-perms" style="margin-top:12px">'.$permBoxes($P::preset('agent')).'</div>'
+            .'<div style="margin-top:16px"><button type="submit">'.Icons::get('send', 15).' Send invitation</button></div></form></div>', $this->nav('/agents'), 'Invite colleagues, decide what each of them can do');
+    }
+
+    /** Email the activation link; when mail is not set up, hand the owner the link to share. */
+    private function sendInvite(array $agent, string $token): string
+    {
+        $url = Master::siteUrlFromServer($_SERVER).$this->url('/activate/'.$token);
+        [$subject, $body] = \Banimark\Notify\Invite::message((string) $agent['name'], $this->auth->name(), (string) $this->settings->get('title', 'Support'), $url);
+        $sent = false;
+        try {
+            $sent = MailerFactory::make($this->settings->all())->send([(string) $agent['email']], $subject, $body);
+        } catch (\Throwable $e) {
+        }
+        // the owner always gets the link too: on many hosts mail() "succeeds" into
+        // the void, and an owner can paste a link into chat far faster than debugging SMTP
+        $link = '<br>You can also share this link with them directly (works for 7 days):<br><code style="user-select:all">'.Html::e($url).'</code>';
+        return $sent
+            ? '<div class="flash-ok">Invitation emailed to '.Html::e($agent['email']).'. The account stays pending until they set a password.'.$link.'</div>'
+            : '<div class="flash-err">Invitation created for '.Html::e($agent['email']).', but the email could not be sent (check Notifications → Email).'.$link.'</div>';
     }
 
     private function escalationPage(string $flash): string
@@ -1096,33 +1280,80 @@ class Panel
 
     private function licensePage(string $flash): string
     {
+        $e = fn ($v) => Html::e((string) $v);
         $support = (string) $this->settings->get('support_email', '');
+        $supportUrl = (string) $this->settings->get('support_url', '');
         if (!$this->auth->isOwner()) {
             // staff never touch licensing; while locked they can only sign out
             $lock = $this->auth->lockReason();
             return Html::page('Licence', '<div class="bm-card"><div class="empty"><b>'
                 .($lock ? 'This desk is locked' : 'Owners only').'</b><div>'
                 .($lock ? 'Ask the account owner to check the licence.' : 'Only an owner can manage the licence.')
-                .($support !== '' ? '<br>Need help? <a href="mailto:'.Html::e($support).'">'.Html::e($support).'</a>' : '')
+                .($support !== '' ? '<br>Need help? <a href="mailto:'.$e($support).'">'.$e($support).'</a>' : '')
                 .'</div></div></div>', $this->nav('/license'));
         }
+        $key = (string) $this->settings->get('license_key', '');
         $status = (string) $this->settings->get('license_status', '');
         $last = (int) $this->settings->get('license_last_ping', '0');
-        $pill = ['active' => 'ai', 'expired' => 'agent'][$status] ?? 'closed';
         $lock = $this->auth->lockReason();
-        $banner = $lock !== null ? '<div class="flash-err"><b>Admin locked.</b> '.Html::e($lock['message'])
-            .($support !== '' ? ' Need help? <a href="mailto:'.Html::e($support).'">'.Html::e($support).'</a>' : '').'</div>' : '';
-        // an ACTIVE key is read-only: swapping it is how a licence walks to another install
-        $keyLocked = $status === 'active' && $lock === null;
+        $verdict = Master::verify($key, (string) $this->settings->get('license_token', ''), null, (string) ($_SERVER['HTTP_HOST'] ?? ''));
+        $details = json_decode((string) $this->settings->get('license_details', ''), true) ?: [];
+        $isTrial = ($details['plan'] ?? $verdict['plan'] ?? '') === 'trial';
+        $active = $status === 'active' && $lock === null;
+        $expiresAt = (string) ($details['expires_at'] ?? $verdict['expires_at'] ?? '');
+        $daysLeft = $expiresAt !== '' ? (int) ceil((strtotime($expiresAt.' 23:59:59') - time()) / 86400) : null;
+        $modules = $verdict['modules'] ?: ($details['modules'] ?? []);
+        $masked = $key !== '' ? preg_replace('/^(BM-[A-Z0-9]{4})-[A-Z0-9-]+-([A-Z0-9]{4})$/', '$1-••••-••••-$2', $key) : '';
+        $csrf = $this->csrfField();
+        $banner = $lock !== null ? '<div class="flash-err">'.Icons::get('shield', 16).'<span><b>Admin locked.</b> '.$e($lock['message'])
+            .($supportUrl !== '' ? ' <a href="'.$e($supportUrl).'" target="_blank" rel="noopener">Buy or renew a licence</a>.' : '')
+            .($support !== '' ? ' Need help? <a href="mailto:'.$e($support).'">'.$e($support).'</a>' : '').'</span></div>' : '';
+        $widgetNote = '<div class="divider"></div><div class="row" style="align-items:flex-start;gap:9px">'.Icons::get('widget', 16).'<div class="muted">Your chat widget keeps working no matter what your licence says. Only this admin panel is gated.</div></div>';
 
-        return Html::page('License', $flash.$banner.'<div class="bm-card"><h2>License</h2>'
-            .'<div class="muted">Your Banimark license key from the purchase email. Checked at most once a day, from this panel only - the check sends the key, this site\'s URL and version numbers, nothing else. An expired or unreachable license never affects the widget or this panel; it only pauses updates.</div>'
-            .($status !== '' ? '<p>Status: <span class="pill '.$pill.'">'.strtoupper(Html::e($status)).'</span>'
-                .($last > 0 ? ' <span class="muted">checked '.date('d M H:i', $last).'</span>' : '').'</p>' : '')
-            .'<form method="post" action="'.Html::e($this->url('/license')).'">'.$this->csrfField()
-            .'<label>License key</label><input type="text" name="license_key" value="'.Html::e($this->settings->get('license_key', '')).'" placeholder="BM-XXXX-XXXX-XXXX-XXXX"'.($keyLocked ? ' readonly style="opacity:.7"' : '').'>'
-            .($keyLocked ? '<div class="hint">Your licence is active, so the key is locked. It becomes editable if the licence expires or is revoked.</div>' : '')
-            .'<div style="margin-top:12px;"><button type="submit">Save &amp; check now</button></div></form></div>', $this->nav('/license'));
+        if ($active) {
+            $pills = '';
+            foreach ($modules as $m) { $pills .= '<span class="pill active">'.$e(strtoupper(str_replace('-', ' ', $m))).'</span> '; }
+            $trialBlock = '';
+            if ($isTrial && $daysLeft !== null) {
+                $issued = strtotime((string) ($details['issued_at'] ?? '')) ?: time();
+                $total = max(1, (int) ceil((strtotime($expiresAt.' 23:59:59') - $issued) / 86400));
+                $pct = min(100, max(4, (int) round(100 * max(0, $daysLeft) / $total)));
+                $trialBlock = '<div style="margin:14px 0 6px"><div class="row" style="justify-content:space-between"><b>'.max(0, $daysLeft).' day'.($daysLeft === 1 ? '' : 's').' left</b><span class="muted">ends '.date('j M Y', strtotime($expiresAt)).'</span></div>'
+                    .'<div class="hbar" style="margin-top:6px"><span class="fill" style="width:'.$pct.'%;display:block"></span></div></div>'
+                    .'<div class="muted">When the trial ends the admin panel locks until you enter a purchased key. Your chat widget keeps working.</div>'
+                    .($supportUrl !== '' ? '<div style="margin-top:12px"><a class="btn" href="'.$e($supportUrl).'" target="_blank" rel="noopener">'.Icons::get('key', 15).' Buy a licence</a></div>' : '');
+            }
+            $left = '<div class="bm-card"><div class="bm-sec-h"><div class="row" style="gap:10px"><span class="avatar">'.Icons::get('license', 16).'</span><div>'
+                .'<h2 style="margin:0">'.($isTrial ? 'Free trial' : $e(ucfirst((string) ($details['plan'] ?? 'Licence')))).' <span class="pill active">ACTIVE</span></h2><div class="muted">'.$e($details['customer'] ?? '').'</div></div></div></div>'
+                .$trialBlock
+                .'<dl class="bm-dl" style="margin-top:14px"><dt>Key</dt><dd class="mono">'.$e($masked).'</dd>'
+                .'<dt>Site</dt><dd>'.$e($details['domain'] ?? ($_SERVER['HTTP_HOST'] ?? '')).'</dd>'
+                .'<dt>Modules</dt><dd>'.$pills.'</dd>'
+                .'<dt>Issued</dt><dd>'.(!empty($details['issued_at']) ? date('j M Y', strtotime($details['issued_at'])) : '—').'</dd>'
+                .'<dt>Expires</dt><dd>'.($expiresAt !== '' ? date('j M Y', strtotime($expiresAt)).($daysLeft !== null ? ' · '.max(0, $daysLeft).' days' : '') : 'Never - renewals keep updates flowing').'</dd>'
+                .'<dt>Last verified</dt><dd>'.($last > 0 ? date('j M Y, H:i', $last) : '—').' <span class="muted">· checked daily</span></dd>'
+                .($support !== '' ? '<dt>Support</dt><dd><a href="mailto:'.$e($support).'">'.$e($support).'</a></dd>' : '').'</dl>'
+                .'<form method="post" action="'.$e($this->url('/license/recheck')).'" style="margin-top:12px">'.$csrf.'<button type="submit" class="btn2 btn-sm">Re-check with HQ now</button></form></div>';
+            $right = '<div class="bm-card">'.($isTrial
+                ? '<h2>Have a licence key?</h2><div class="muted">Enter your purchased key to replace the trial. Everything you have set up stays.</div>'
+                    .'<form method="post" action="'.$e($this->url('/license')).'" style="margin-top:10px">'.$csrf.'<label>License key</label><input type="text" name="license_key" value="" placeholder="BM-XXXX-XXXX-XXXX-XXXX" class="mono">'
+                    .'<div style="margin-top:14px"><button type="submit">'.Icons::get('check', 15).' Activate key</button></div></form>'
+                : '<h2>Your key is locked</h2><div class="muted">An active licence is bound to this site, so the key cannot be changed here - that is what stops a key walking to another install. It becomes editable if the licence expires or is revoked. Moving servers? '.($support !== '' ? 'Email '.$e($support) : 'Contact support').' and we release it.</div>')
+                .$widgetNote.'</div>';
+            return Html::page('License', $flash.$banner.'<div class="bm-grid c2">'.$left.$right.'</div>', $this->nav('/license'), 'Your Banimark licence');
+        }
+
+        $trialCard = $key === '' ? '<div class="bm-card"><div class="row" style="gap:10px"><span class="avatar">'.Icons::get('bolt', 16).'</span><div><h2 style="margin:0">Start your free trial</h2><div class="muted">Full access, no card. Your vendor sets the length.</div></div></div>'
+            .'<p style="margin:12px 0">One trial per site. When it ends, the panel locks until you enter a purchased key - the chat widget keeps working throughout.</p>'
+            .'<form method="post" action="'.$e($this->url('/license/trial')).'">'.$csrf.'<button type="submit">'.Icons::get('bolt', 15).' Start free trial</button></form></div>' : '';
+        $expiredTrial = ($status === 'expired' && $isTrial) ? '<div class="flash-warn" style="margin-top:10px">'.Icons::get('escalation', 16).'<span>Your free trial ended'.($expiresAt !== '' ? ' on '.date('j M Y', strtotime($expiresAt)) : '').'. Enter a purchased key to continue.'.($supportUrl !== '' ? ' <a href="'.$e($supportUrl).'" target="_blank" rel="noopener">Buy a licence</a>.' : '').'</span></div>' : '';
+        $keyCard = '<div class="bm-card"><div class="bm-sec-h"><div><h2>'.($key === '' ? 'Or enter a licence key' : 'Licence key').'</h2>'
+            .'<div class="muted">Checked once a day from this panel. The check sends only your key, this site\'s URL and version numbers - never your data.</div></div><div class="spacer"></div>'
+            .($status !== '' ? '<span class="pill '.($status === 'expired' ? 'expired' : 'revoked').'">'.$e(strtoupper($status)).'</span>' : '').'</div>'.$expiredTrial
+            .'<form method="post" action="'.$e($this->url('/license')).'">'.$csrf.'<label>License key</label><input type="text" name="license_key" value="'.$e($key).'" placeholder="BM-XXXX-XXXX-XXXX-XXXX" class="mono">'
+            .'<div style="margin-top:16px"><button type="submit">'.Icons::get('check', 15).' Save &amp; check now</button></div></form>'
+            .($last > 0 ? '<div class="muted" style="margin-top:8px">Last checked '.date('d M Y, H:i', $last).'</div>' : '').$widgetNote.'</div>';
+        return Html::page('License', $flash.$banner.'<div class="bm-grid c2">'.$trialCard.$keyCard.'</div>', $this->nav('/license'), 'Activate your Banimark licence');
     }
 
     /* ---------------- plumbing ---------------- */

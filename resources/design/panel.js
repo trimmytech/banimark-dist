@@ -208,3 +208,25 @@
     save();
   });
 })();
+
+/* Access presets: picking a preset ticks the matching permissions; ticking by
+   hand flips the preset to "custom". The preset list is shared with the server. */
+(function () {
+  'use strict';
+  var PRESETS = { viewer: ['dashboard.view', 'inbox.view'], agent: ['dashboard.view', 'inbox.view', 'inbox.reply', 'inbox.close'], editor: 'all' };
+  document.addEventListener('change', function (ev) {
+    var sel = ev.target.closest('[data-preset-for]');
+    if (sel) {
+      var box = document.querySelector(sel.getAttribute('data-preset-for'));
+      if (!box || sel.value === 'custom') return;
+      var set = PRESETS[sel.value];
+      Array.prototype.forEach.call(box.querySelectorAll('input[name="perms[]"]'), function (cb) { cb.checked = set === 'all' || set.indexOf(cb.value) > -1; });
+      return;
+    }
+    var cb = ev.target.closest('input[name="perms[]"]');
+    if (cb) {
+      var form = cb.closest('form'); var preset = form && form.querySelector('[data-preset-for]');
+      if (preset) preset.value = 'custom';
+    }
+  });
+})();

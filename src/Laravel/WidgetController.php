@@ -45,6 +45,43 @@ class WidgetController
         ]));
     }
 
+    /**
+     * GET /banimark/chat-page - the chat as a stand-alone page, for links in
+     * emails, signatures, QR codes... anywhere the widget cannot be embedded.
+     * No inline script (host CSPs): the widget reads its mode from data-mode
+     * and an optional short-lived identity token from ?t=.
+     */
+    public function page(Request $request)
+    {
+        $token = preg_replace('/[^A-Za-z0-9._~-]/', '', (string) $request->query('t', ''));
+        $cfg = WidgetConfig::build($this->settings(), url('/banimark/chat'));
+        $html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
+            .'<title>'.htmlspecialchars((string) $cfg['title'], ENT_QUOTES).'</title>'
+            .'<style>html,body{margin:0;height:100%;background:'.($cfg['theme'] === 'dark' ? '#101015' : '#f7f7fb').'}</style></head><body>'
+            .'<script src="'.htmlspecialchars(route('banimark.widget'), ENT_QUOTES).'" defer data-mode="page"'
+            .($token !== '' ? ' data-token="'.htmlspecialchars($token, ENT_QUOTES).'"' : '').'></script>'
+            .'</body></html>';
+        return response($html, 200, ['Content-Type' => 'text/html; charset=utf-8', 'X-Frame-Options' => 'SAMEORIGIN']);
+    }
+
+    /** GET /banimark/widget/appearance - the public widget settings as JSON (the Flutter SDK reads these). */
+    public function appearance()
+    {
+        $cfg = WidgetConfig::build($this->settings(), url('/banimark/chat'));
+        unset($cfg['endpoint']);
+        return response()->json($cfg)->header('Cache-Control', 'public, max-age=300');
+    }
+
+    private function settings(): array
+    {
+        $settings = (array) config('banimark.widget', []);
+        try {
+            $settings = array_merge($settings, \Illuminate\Support\Facades\DB::table('banimark_settings')->pluck('value', 'key')->all());
+        } catch (\Throwable $e) {
+        }
+        return $settings;
+    }
+
     /** GET /banimark/widget.js - the widget with server-side config injected */
     public function script()
     {

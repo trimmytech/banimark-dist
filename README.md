@@ -93,6 +93,12 @@ Embed it with:
 
 ## Your licence
 
+**Free trial.** A fresh install asks HQ for a trial automatically (or from
+*License → Start free trial*). Your vendor sets the length; one trial per site.
+When it ends the admin panel locks until a purchased key is entered — the chat
+widget keeps working. Once active, the License page shows plan, site, modules,
+dates and a *Re-check with HQ now* button.
+
 Enter your key under **License** in the admin panel, or set it in `.env`:
 
 ```
@@ -134,8 +140,11 @@ writing needed — plain sentences work: *"Never promise a refund date."*
 
 ## Staff, 2FA and the live inbox
 
-- **Staff** (owners only): add agents and owners. Banimark has its own login,
-  independent of your app's users.
+- **Staff** (owners only): invite colleagues by email. They choose their own
+  password from the link (valid 7 days) and the account stays *pending* until
+  they do. Give each person a preset (*View only*, *Agent*, *Editor*) or tick
+  exactly what they may open and do; the sidebar follows. Banimark has its own
+  login, independent of your app's users.
 - **Security**: every staff member can turn on two-factor authentication with any
   authenticator app. Owners can *require* it for everyone and reset a colleague
   who lost their phone.
@@ -143,6 +152,13 @@ writing needed — plain sentences work: *"Never promise a refund date."*
   they arrive, replies go out without a reload, and one-tap *quick replies*
   (edit them under Notifications) speed things up. A chime and a badge announce
   new messages and handovers on every page; the bell in the header mutes it.
+
+## The widget as a link
+
+*Widget → Share as a link* gives a full-page version of the chat for email
+signatures, QR codes, SMS — anywhere a script cannot be embedded. Theme
+(light / dark / follow the device) is set under *Widget → Theme* and applies to
+the widget, the page and the Flutter SDK.
 
 ## Mobile apps (Flutter)
 

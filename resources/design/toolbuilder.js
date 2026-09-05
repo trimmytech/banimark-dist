@@ -167,6 +167,10 @@
   });
 
   function init() {
+    // editing an existing tool: the server hands the saved parameters over as JSON
+    var pre = [];
+    try { pre = JSON.parse(paramsWrap.getAttribute('data-prefill') || '[]'); } catch (e) { pre = []; }
+    if (Array.isArray(pre) && pre.length) { pre.forEach(function (p) { paramsWrap.appendChild(paramRow(p)); }); }
     if (!paramsWrap.children.length) { paramsWrap.appendChild(paramRow()); }
     reindexParams();
     loadSchema();

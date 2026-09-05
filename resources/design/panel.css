@@ -434,3 +434,13 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monosp
 /* a caution that is not an error: licence could not be re-verified, still inside grace */
 .flash-warn { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: var(--r); margin-bottom: 14px; background: color-mix(in srgb, var(--s2) 12%, var(--surface)); border: 1px solid color-mix(in srgb, var(--s2) 40%, transparent); color: var(--text); }
 .flash-warn svg { flex: none; color: var(--s2); margin-top: 1px; }
+
+/* definition list on the licence page */
+.bm-dl { display: grid; grid-template-columns: 130px 1fr; gap: 8px 14px; margin: 0; font-size: 13.5px; }
+.bm-dl dt { color: var(--muted); } .bm-dl dd { margin: 0; }
+
+/* permission tick-list */
+.bm-perms { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 6px 14px; }
+.bm-perms label { display: flex; gap: 8px; align-items: flex-start; margin: 0; font-weight: 400; font-size: 13px; cursor: pointer; }
+.bm-perms label b { font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 600; }
+.bm-perms input { margin-top: 3px; }

@@ -4,6 +4,8 @@ use Banimark\Laravel\WidgetController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/banimark/widget.js', [WidgetController::class, 'script'])->name('banimark.widget');
+Route::get('/banimark/chat-page', [WidgetController::class, 'page'])->name('banimark.chat.page');
+Route::get('/banimark/widget/appearance', [WidgetController::class, 'appearance'])->name('banimark.widget.appearance');
 Route::get('/banimark/chat/poll', [WidgetController::class, 'poll'])
     ->middleware('throttle:banimark-chat')
     ->name('banimark.chat.poll');

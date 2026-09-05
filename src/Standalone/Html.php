@@ -41,16 +41,35 @@ class Html
     }
 
     /** The sign-in screen. */
-    public static function auth(string $action, string $error = ''): string
+    public static function auth(string $action, string $error = '', string $notice = ''): string
     {
         return self::bare('Sign in', '<div class="bm-card" style="max-width:372px;margin:0 auto">'
             .'<div class="head"><div class="bm-logo"></div><h2>Welcome back</h2>'
             .'<p class="muted">Sign in to your Banimark support desk.</p></div>'
+            .($notice !== '' ? '<div class="flash-ok"><span>'.self::e($notice).'</span></div>' : '')
             .($error !== '' ? '<div class="flash-err"><span>'.self::e($error).'</span></div>' : '')
             .'<form method="post" action="'.self::e($action).'">'
             .'<label>Email</label><input type="text" name="email" autofocus autocomplete="username" placeholder="you@company.com">'
             .'<label>Password</label><input type="password" name="password" autocomplete="current-password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;">'
             .'<button type="submit" style="width:100%;margin-top:18px">Sign in</button></form></div>');
+    }
+
+    /** An invited colleague sets their own password. $agent null = link expired or used. */
+    public static function activate(string $action, string $loginUrl, ?array $agent, string $error = ''): string
+    {
+        $head = $agent
+            ? '<h2>Welcome, '.self::e($agent['name']).'</h2><p class="muted">Choose a password to activate your support desk account ('.self::e($agent['email']).').</p>'
+            : '<h2>This link has expired</h2><p class="muted">Invitation links work for 7 days and once only. Ask an owner to resend yours.</p>';
+        $body = $agent
+            ? '<form method="post" action="'.self::e($action).'">'
+                .'<label>Your name</label><input type="text" name="name" value="'.self::e($agent['name']).'" autocomplete="name">'
+                .'<label>Password <span class="muted">(at least 8 characters)</span></label><input type="password" name="password" autocomplete="new-password" autofocus>'
+                .'<label>Password again</label><input type="password" name="password_confirmation" autocomplete="new-password">'
+                .'<button type="submit" style="width:100%;margin-top:18px">Activate &amp; sign in</button></form>'
+            : '<a class="btn-ghost" href="'.self::e($loginUrl).'" style="display:block;text-align:center">Back to sign in</a>';
+        return self::bare('Activate your account', '<div class="bm-card" style="max-width:372px;margin:0 auto">'
+            .'<div class="head"><div class="bm-logo"></div>'.$head.'</div>'
+            .($error !== '' ? '<div class="flash-err"><span>'.self::e($error).'</span></div>' : '').$body.'</div>');
     }
 
     /** Second sign-in step: the authenticator code. */

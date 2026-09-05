@@ -57,6 +57,10 @@
     };
     var POLL_MS = Math.max(3, Math.min(600, parseInt(cfg.poll_seconds, 10) || 10)) * 1000;
     var GUEST = ['off', 'optional', 'required'].indexOf(cfg.guest_mode) >= 0 ? cfg.guest_mode : 'off';
+    // theme is set in the admin panel (auto follows the visitor's OS); page mode
+    // turns the widget into a full-page chat, for links in emails and elsewhere
+    var THEME = ['auto', 'light', 'dark'].indexOf(cfg.theme) >= 0 ? cfg.theme : 'auto';
+    var MODE = (script && script.getAttribute('data-mode')) || cfg.mode || 'widget';
     try {
         var savedGuest = JSON.parse(localStorage.getItem('banimark_guest') || 'null');
         if (savedGuest && !visitor.email) { visitor = savedGuest; }
@@ -87,7 +91,12 @@
         ':host{all:initial}',
         '*{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif}',
         '.w{--a:' + cfg.color + ';--on:' + onAccent + ';--bg:#fff;--fg:#12131a;--mut:#8a8fa3;--bd:rgba(16,18,32,.10);--panel:#f7f7fb;}',
-        '@media (prefers-color-scheme:dark){.w{--bg:#16161c;--fg:#f2f3f7;--mut:#9297aa;--bd:rgba(255,255,255,.12);--panel:#101015;}}',
+        // theme comes from the admin panel: auto follows the visitor's OS, dark/light force it
+        '.w.dark{--bg:#16161c;--fg:#f2f3f7;--mut:#9297aa;--bd:rgba(255,255,255,.12);--panel:#101015;}',
+        '@media (prefers-color-scheme:dark){.w.auto{--bg:#16161c;--fg:#f2f3f7;--mut:#9297aa;--bd:rgba(255,255,255,.12);--panel:#101015;}}',
+        // page mode: the chat IS the page (shared as a link) - no launcher, no close, fills the viewport
+        '.w.page .btn,.w.page .teaser,.w.page .x{display:none}',
+        '.w.page .p{position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;border-radius:0;bottom:auto;' + side + ':auto;box-shadow:none}',
 
         /* launcher */
         '.btn{width:56px;height:56px;border-radius:18px;border:none;cursor:pointer;background:var(--a);color:var(--on);',
@@ -177,7 +186,7 @@
     };
 
     var wrap = document.createElement('div');
-    wrap.className = 'w';
+    wrap.className = 'w' + (THEME === 'light' ? '' : ' ' + THEME) + (MODE === 'page' ? ' page' : '');
     wrap.innerHTML =
         '<div class="p" role="dialog" aria-label="Support chat">' +
             '<div class="hd">' +
@@ -421,4 +430,7 @@
             agentMode = res.mode === 'agent';
         });
     }
+
+    // shared as a link: the chat is the whole page, open from the first paint
+    if (MODE === 'page') { openPanel(); }
 })();

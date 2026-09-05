@@ -24,6 +24,7 @@ class WidgetConfig
         'poll_seconds',
         'guest_mode',
         'offline_note',
+        'theme',
     ];
 
     public const DEFAULTS = [
@@ -34,6 +35,7 @@ class WidgetConfig
         'poll_seconds' => 10,
         'guest_mode' => 'off',
         'offline_note' => '',
+        'theme' => 'auto', // auto = follow the visitor's OS; light / dark force it
     ];
 
     /**
@@ -52,6 +54,7 @@ class WidgetConfig
         $cfg['poll_seconds'] = max(3, min(600, (int) $cfg['poll_seconds']));
         $cfg['position'] = $cfg['position'] === 'left' ? 'left' : 'right';
         $cfg['guest_mode'] = in_array($cfg['guest_mode'], ['off', 'optional', 'required'], true) ? $cfg['guest_mode'] : 'off';
+        $cfg['theme'] = in_array($cfg['theme'], ['auto', 'light', 'dark'], true) ? $cfg['theme'] : 'auto';
         if (!preg_match('/^#[0-9a-fA-F]{6}$/', (string) $cfg['color'])) {
             $cfg['color'] = self::DEFAULTS['color'];
         }

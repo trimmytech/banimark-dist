@@ -128,6 +128,21 @@ class Installer
             return ['ok' => false, 'error' => 'Installation failed: '.$e->getMessage()];
         }
 
+        // 5. the free trial - best effort: HQ decides, one per site, and an
+        // unreachable HQ just means the owner starts it later from the License page
+        try {
+            if (($input['skip_trial'] ?? '') !== '1') {
+                \Banimark\Licensing\PhoneHome::startTrial(
+                    $settings->all(),
+                    \Banimark\Licensing\Master::siteUrlFromServer($_SERVER),
+                    fn (string $k, string $v) => $settings->set($k, $v),
+                    fn (string $k) => $settings->set($k, ''),
+                );
+            }
+        } catch (\Throwable $e) {
+            // never fail an install over licensing
+        }
+
         // 5. write the bootstrap config the front controller reads
         $config = "<?php\n\nreturn ".var_export([
             'dsn' => $dsn,
