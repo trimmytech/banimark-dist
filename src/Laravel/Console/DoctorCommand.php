@@ -41,6 +41,20 @@ class DoctorCommand extends Command
         }
         $check('database tables', $tables, 'run: php artisan banimark:install');
 
+        // the upgrade trap: Laravel will not re-run a recorded migration, so a
+        // customer who only ran `composer update` can sit on an old schema
+        $current = true;
+        foreach ([['banimark_rule_folders', null], ['banimark_rules', 'folder_id'],
+                  ['banimark_agents', 'totp_enabled'], ['banimark_conversations', 'escalated_at']] as [$t, $col]) {
+            try {
+                DB::select('SELECT '.($col ?? '1').' FROM '.$t.' LIMIT 1');
+            } catch (\Throwable $e) {
+                $current = false;
+                break;
+            }
+        }
+        $check('schema up to date for '.\Banimark\Licensing\Master::PACKAGE_VERSION, $current, 'run: php artisan migrate');
+
         // provider
         $provider = null;
         try {

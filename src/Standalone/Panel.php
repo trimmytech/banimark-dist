@@ -86,6 +86,11 @@ class Panel
             return;
         }
 
+        // an existing standalone install never re-runs the installer, so this is
+        // where a package update reaches the database: once per version, on a
+        // staff visit. The widget/chat path never pays for it.
+        \Banimark\Storage\Schema::ensureCurrent($this->pdo, Master::PACKAGE_VERSION);
+
         // CSRF on every mutation
         if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && !$this->auth->csrfOk($_POST['_csrf'] ?? null)) {
             http_response_code(419);

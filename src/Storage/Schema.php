@@ -117,6 +117,37 @@ class Schema
     }
 
     /**
+     * Bring an EXISTING install up to date, once per version.
+     *
+     * Fresh installs get everything from create(); upgrades are the path that
+     * bites - Laravel will not re-run a migration it has already recorded, and
+     * the standalone installer only ever runs once. So both runtimes call this
+     * and it re-runs the idempotent create() whenever the stored schema version
+     * differs from the running package.
+     *
+     * Never throws: a panel that cannot write a settings row must still open.
+     *
+     * @return bool whether anything was brought up to date
+     */
+    public static function ensureCurrent(\PDO $pdo, string $version, string $prefix = 'banimark_'): bool
+    {
+        try {
+            $st = $pdo->prepare("SELECT `value` FROM {$prefix}settings WHERE `key` = 'schema_version'");
+            $st->execute();
+            $stored = (string) ($st->fetchColumn() ?: '');
+            if ($stored === $version) {
+                return false;
+            }
+            self::create($pdo, $prefix);
+            $pdo->prepare("DELETE FROM {$prefix}settings WHERE `key` = 'schema_version'")->execute();
+            $pdo->prepare("INSERT INTO {$prefix}settings (`key`, `value`) VALUES ('schema_version', ?)")->execute([$version]);
+            return true;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
      * Columns added after 1.0 of a table. CREATE TABLE IF NOT EXISTS is a
      * no-op on an existing install, so every later column has to arrive by
      * ALTER as well - and idempotently, since create() runs on every boot of
