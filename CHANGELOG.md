@@ -3,11 +3,11 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
-## 0.12.0
-- **See when an update is available.** The License page now shows the version
-  you are running, whether a newer one exists, the release notes for each
-  version, and the command to update. It works whether or not your licence is
-  active — you should never be the last to know there is a new release.
+## 0.12.1
+- **Changelog** is now its own page in the sidebar, for owners. It shows one
+  clear notice when an update is available, with the command to run, followed by
+  the release notes. Reachable whether or not your licence is active — you
+  should never be the last to know there is a new release.
 
 ## 0.11.0
 - **Licences are now per module.** Your key lists what it covers — the Support

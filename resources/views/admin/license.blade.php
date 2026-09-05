@@ -3,42 +3,6 @@
 @section('title', 'License')
 @section('sub', 'Your Banimark subscription')
 @section('content')
-    <div class="bm-card">
-        <div class="bm-sec-h">
-            <div>
-                <h2>Version</h2>
-                <div class="muted">You are running <b>{{ \Banimark\Licensing\Master::PACKAGE_VERSION }}</b></div>
-            </div>
-            <div class="spacer"></div>
-            @if($updates['outdated'])
-                <span class="pill expired">UPDATE AVAILABLE — {{ $updates['latest'] }}</span>
-            @elseif($updates['ok'])
-                <span class="pill good">UP TO DATE</span>
-            @else
-                <span class="pill unknown">COULD NOT CHECK</span>
-            @endif
-        </div>
-
-        @if($updates['outdated'])
-            <div class="muted">To update, run this in your project and follow any upgrade note below:</div>
-            <textarea readonly rows="2" onclick="this.select()">{{ $updates['update_command'] }}
-php artisan banimark:install</textarea>
-        @endif
-
-        @forelse($updates['releases'] as $r)
-            <div style="border-top:1px solid var(--border);padding:12px 0 2px">
-                <div class="row" style="gap:8px">
-                    <b>{{ $r['version'] }}</b>
-                    @if($r['version'] === \Banimark\Licensing\Master::PACKAGE_VERSION)<span class="pill active">INSTALLED</span>@endif
-                    <span class="muted">{{ $r['released_at'] }}</span>
-                </div>
-                <div class="muted" style="white-space:pre-wrap;margin-top:4px">{{ $r['notes'] }}</div>
-            </div>
-        @empty
-            <div class="muted" style="margin-top:8px">No release notes available right now.</div>
-        @endforelse
-    </div>
-
     @if($lock)
         <div class="flash-err">{!! Icons::get('shield', 16) !!}<span><b>Admin locked.</b> {{ $lock['message'] }}</span></div>
     @endif

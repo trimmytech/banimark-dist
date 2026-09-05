@@ -19,6 +19,9 @@
             {!! Layout::navLink(['href' => route('banimark.admin.escalation'), 'icon' => 'escalation', 'label' => 'Notifications', 'on' => request()->routeIs('banimark.admin.escalation')]) !!}
             {!! Layout::navLink(['href' => route('banimark.admin.agents'), 'icon' => 'staff', 'label' => 'Staff', 'on' => request()->routeIs('banimark.admin.agents')]) !!}
             {!! Layout::navLink(['href' => route('banimark.admin.license'), 'icon' => 'license', 'label' => 'License', 'on' => request()->routeIs('banimark.admin.license')]) !!}
+            @if(app(\Banimark\Auth\AgentAuth::class)->isOwner())
+                {!! Layout::navLink(['href' => route('banimark.admin.changelog'), 'icon' => 'bolt', 'label' => 'Changelog', 'on' => request()->routeIs('banimark.admin.changelog')]) !!}
+            @endif
         </nav>
         <div class="bm-side-foot">
             <form method="post" action="{{ route('banimark.admin.logout') }}">@csrf

@@ -71,7 +71,7 @@ class Panel
         // license lock: no valid license = no admin, pages AND actions. The
         // verdict comes from AgentAuth->lockReason() (encoded Master), not a
         // local call, so it cannot be stripped here. Widget/chat is never gated.
-        if (!in_array($route, ['/license', '/logout'], true) && $this->auth->lockReason() !== null) {
+        if (!in_array($route, ['/license', '/changelog', '/logout'], true) && $this->auth->lockReason() !== null) {
             header('Location: '.$this->url('/license'));
             return;
         }
@@ -95,6 +95,7 @@ class Panel
             $route === '/escalation', $route === '/escalation/test' => $this->escalationPage($flash),
             $route === '/widget' => $this->widget($flash),
             $route === '/license' => $this->licensePage($flash),
+            $route === '/changelog' => $this->changelogPage($flash),
             default => Html::page('Not found', '<div class="bm-card"><h2>Not found</h2></div>', $this->nav()),
         };
     }
@@ -319,6 +320,9 @@ class Panel
             $items[] = ['/agents', 'staff', 'Staff'];
         }
         $items[] = ['/license', 'license', 'License'];
+        if ($this->auth->isOwner()) {
+            $items[] = ['/changelog', 'bolt', 'Changelog'];
+        }
 
         $out = '';
         foreach ($items as $it) {
@@ -654,15 +658,13 @@ class Panel
         return Html::page('Notifications', $body, $this->nav('/escalation'), 'Escalation alerts, outgoing email, and visitor follow-ups');
     }
 
-    private function licensePage(string $flash): string
+    /**
+     * Version + release notes from HQ, cached in settings. Never licence-gated
+     * and always fail-open: the owner must be able to see that a newer release
+     * exists even while the panel is locked.
+     */
+    private function updates(): array
     {
-        $status = (string) $this->settings->get('license_status', '');
-        $last = (int) $this->settings->get('license_last_ping', '0');
-        $pill = ['active' => 'ai', 'expired' => 'agent'][$status] ?? 'closed';
-        $lock = $this->auth->lockReason();
-
-        // version + changelog from HQ. Never licence-gated, always fail-open:
-        // a lapsed customer must still see what is new and how to get it.
         $cache = json_decode((string) $this->settings->get('updates_cache', ''), true);
         $cache = is_array($cache) ? $cache : null;
         if (\Banimark\Update\UpdateCheck::due($this->settings->get('updates_checked_at', '0'))) {
@@ -680,28 +682,52 @@ class Panel
             }
         }
         $cache = $cache ?: ['ok' => false, 'latest' => null, 'releases' => [], 'update_command' => 'composer update banimark/banimark'];
-        $outdated = \Banimark\Update\UpdateCheck::isNewer($cache['latest'] ?? null);
+        $cache['outdated'] = \Banimark\Update\UpdateCheck::isNewer($cache['latest'] ?? null);
+        return $cache;
+    }
 
-        $versionPill = $outdated
-            ? '<span class="pill expired">UPDATE AVAILABLE - '.Html::e((string) $cache['latest']).'</span>'
-            : ($cache['ok'] ? '<span class="pill good">UP TO DATE</span>' : '<span class="pill unknown">COULD NOT CHECK</span>');
+    /** Owner-only: one update advisory, then the release notes. */
+    private function changelogPage(string $flash): string
+    {
+        if (!$this->auth->isOwner()) {
+            return Html::page('Changelog', '<div class="bm-card"><div class="empty"><b>Owners only</b>'
+                .'<div>Only an owner can see release information.</div></div></div>', $this->nav('/changelog'));
+        }
+        $u = $this->updates();
+
+        $advice = $u['outdated']
+            ? '<div class="bm-card" style="border-color:color-mix(in srgb, var(--warn) 40%, transparent)">'
+                .'<h2>Update available - '.Html::e((string) $u['latest']).'</h2>'
+                .'<div class="muted">You are running '.Html::e(Master::PACKAGE_VERSION)
+                .'. Run this in your project, then reload the installer once:</div>'
+                .'<textarea readonly rows="1" onclick="this.select()">'.Html::e((string) $u['update_command']).'</textarea></div>'
+            : '<div class="bm-card"><b>You are up to date</b><div class="muted">Running '
+                .Html::e(Master::PACKAGE_VERSION)
+                .(!$u['ok'] ? ' - could not reach Banimark to check for newer releases' : '').'</div></div>';
+
         $notes = '';
-        foreach ((array) $cache['releases'] as $r) {
-            $notes .= '<div style="border-top:1px solid var(--border);padding:12px 0 2px">'
+        foreach ((array) $u['releases'] as $r) {
+            $notes .= '<div style="border-top:1px solid var(--border);padding:14px 0 2px">'
                 .'<div class="row" style="gap:8px"><b>'.Html::e((string) $r['version']).'</b>'
                 .((string) $r['version'] === Master::PACKAGE_VERSION ? '<span class="pill active">INSTALLED</span>' : '')
                 .'<span class="muted">'.Html::e((string) $r['released_at']).'</span></div>'
-                .'<div class="muted" style="white-space:pre-wrap;margin-top:4px">'.Html::e((string) $r['notes']).'</div></div>';
+                .'<div class="muted" style="white-space:pre-wrap;margin-top:5px">'.Html::e((string) $r['notes']).'</div></div>';
         }
-        $versionCard = '<div class="bm-card"><div class="bm-sec-h"><div><h2>Version</h2>'
-            .'<div class="muted">You are running <b>'.Html::e(Master::PACKAGE_VERSION).'</b></div></div>'
-            .'<div class="spacer"></div>'.$versionPill.'</div>'
-            .($outdated ? '<div class="muted">To update, run this in your project:</div>'
-                .'<textarea readonly rows="1" onclick="this.select()">'.Html::e((string) $cache['update_command']).'</textarea>' : '')
+
+        return Html::page('Changelog', $flash.$advice
+            .'<div class="bm-card"><h2>Release notes</h2>'
             .($notes ?: '<div class="muted" style="margin-top:8px">No release notes available right now.</div>')
-            .'</div>';
-        $banner = $lock !== null ? '<div class="flash-err"><b>Admin locked.</b> '.Html::e($lock['message']).'</div>' : '';
-        return Html::page('License', $flash.$banner.$versionCard.'<div class="bm-card"><h2>License</h2>'
+            .'</div>', $this->nav('/changelog'), 'What is new in Banimark');
+    }
+
+    private function licensePage(string $flash): string
+    {
+        $status = (string) $this->settings->get('license_status', '');
+        $last = (int) $this->settings->get('license_last_ping', '0');
+        $pill = ['active' => 'ai', 'expired' => 'agent'][$status] ?? 'closed';
+        $lock = $this->auth->lockReason();
+
+        return Html::page('License', $flash.$banner.'<div class="bm-card"><h2>License</h2>'
             .'<div class="muted">Your Banimark license key from the purchase email. Checked at most once a day, from this panel only - the check sends the key, this site\'s URL and version numbers, nothing else. An expired or unreachable license never affects the widget or this panel; it only pauses updates.</div>'
             .($status !== '' ? '<p>Status: <span class="pill '.$pill.'">'.strtoupper(Html::e($status)).'</span>'
                 .($last > 0 ? ' <span class="muted">checked '.date('d M H:i', $last).'</span>' : '').'</p>' : '')

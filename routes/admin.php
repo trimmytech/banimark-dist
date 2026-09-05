@@ -27,6 +27,7 @@ Route::get('/tools', [PanelController::class, 'tools'])->name('banimark.admin.to
 Route::post('/tools', [PanelController::class, 'saveTool'])->name('banimark.admin.tools.save');
 Route::post('/tools/delete', [PanelController::class, 'deleteTool'])->name('banimark.admin.tools.delete');
 Route::get('/widget', [PanelController::class, 'widget'])->name('banimark.admin.widget');
+Route::get('/changelog', [PanelController::class, 'changelog'])->name('banimark.admin.changelog');
 Route::get('/license', [PanelController::class, 'license'])->name('banimark.admin.license');
 Route::post('/license', [PanelController::class, 'saveLicense'])->name('banimark.admin.license.save');
 Route::post('/widget', [PanelController::class, 'saveWidget'])->name('banimark.admin.widget.save');

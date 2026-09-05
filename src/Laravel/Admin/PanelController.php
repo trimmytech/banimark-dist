@@ -142,7 +142,6 @@ class PanelController
         $status = (string) ($s['license_status'] ?? '');
         $verdict = Master::verify($key, (string) ($s['license_token'] ?? ''), null, (string) request()->getHost());
         return view('banimark::admin.license', [
-            'updates' => $this->updates($s),
             'lock' => $auth->lockReason(),
             'modules' => $verdict['modules'] ?? [],
             'key' => $key,
@@ -181,6 +180,20 @@ class PanelController
         $cached = $cached ?: ['ok' => false, 'latest' => null, 'releases' => [], 'update_command' => 'composer update banimark/banimark'];
         $cached['outdated'] = \Banimark\Update\UpdateCheck::isNewer($cached['latest'] ?? null);
         return $cached;
+    }
+
+    /**
+     * What's new, and whether to update. Owner-only, and NOT licence-gated:
+     * the person who pays for renewals must be able to see that a release
+     * exists even while the panel is locked.
+     */
+    public function changelog(AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth, false)) { return $r; }
+        if (!$auth->isOwner()) {
+            return redirect()->route('banimark.admin.dashboard');
+        }
+        return view('banimark::admin.changelog', ['updates' => $this->updates($this->licenseSettings())]);
     }
 
     public function saveLicense(Request $request, AgentAuth $auth)
