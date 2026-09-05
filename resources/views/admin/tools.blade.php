@@ -21,7 +21,7 @@
                         <td>
                             <form method="post" action="{{ route('banimark.admin.tools.delete') }}">@csrf
                                 <input type="hidden" name="name" value="{{ $r->name }}">
-                                <button class="btn-ghost btn-icon" onclick="return confirm('Delete this tool?')" title="Delete">{!! Icons::get('trash', 15) !!}</button>
+                                <button class="btn-ghost btn-icon" data-confirm="Delete this tool?" title="Delete">{!! Icons::get('trash', 15) !!}</button>
                             </form>
                         </td>
                     </tr>

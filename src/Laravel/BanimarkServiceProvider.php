@@ -133,6 +133,21 @@ class BanimarkServiceProvider extends ServiceProvider
                 // controller method can bypass or forget it
                 [\Banimark\Laravel\Http\Middleware\EnsureBanimarkAccess::class],
             )));
+            // panel CSS/JS as same-origin files - OUTSIDE the gate: the login page
+            // needs them before any session exists, and they carry no secrets.
+            // A customer's Content-Security-Policy ('self') allows these where
+            // it blocks every inline block and onclick= attribute.
+            \Illuminate\Support\Facades\Route::get(
+                (string) config('banimark.admin.prefix', 'banimark/admin').'/assets/{name}',
+                [\Banimark\Laravel\Admin\PanelController::class, 'asset']
+            )->where('name', '[a-z]+\\.(css|js)')->name('banimark.admin.asset');
+
+            \Illuminate\Support\Facades\View::composer('banimark::admin.*', function () {
+                \Banimark\Ui\Layout::configure([
+                    'assets' => url((string) config('banimark.admin.prefix', 'banimark/admin').'/assets'),
+                ]);
+            });
+
             \Illuminate\Support\Facades\Route::group([
                 'prefix' => (string) config('banimark.admin.prefix', 'banimark/admin'),
                 'middleware' => $middleware,

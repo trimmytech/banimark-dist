@@ -46,6 +46,7 @@ Layout::configure(['events' => route('banimark.admin.events'), 'conversation' =>
             {!! Layout::themeButton() !!}
         </header>
         <div class="bm-wrap">
+            {!! \Banimark\Licensing\HqNotice::html(\Banimark\Laravel\BanimarkServiceProvider::settings(), request()->getSchemeAndHttpHost()) !!}
             @if(session('bm_ok'))<div class="flash-ok">{!! Icons::get('check', 16) !!}<span>{{ session('bm_ok') }}</span></div>@endif
             @if(session('bm_error'))<div class="flash-err">{!! Icons::get('escalation', 16) !!}<span>{{ session('bm_error') }}</span></div>@endif
             @yield('content')

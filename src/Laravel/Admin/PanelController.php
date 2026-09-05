@@ -38,6 +38,15 @@ class PanelController
         return null;
     }
 
+    /** Panel CSS/JS as files (see Ui\Assets). Public: no secrets, needed on the login page. */
+    public function asset(string $name)
+    {
+        if (!\Banimark\Ui\Assets::exists($name)) {
+            abort(404);
+        }
+        return response(\Banimark\Ui\Assets::content($name), 200, \Banimark\Ui\Assets::headers($name));
+    }
+
     /* ---------------- banimark's own staff login ---------------- */
 
     public function login(AgentAuth $auth)
@@ -177,38 +186,12 @@ class PanelController
 
     /* ---------------- licensing ---------------- */
 
-    /**
-     * Daily, fail-open licensing ping - admin landing only, NEVER the chat
-     * path. Reads env directly as the fallback so a stale published config
-     * (no 'license' block) still works. Stamped BEFORE the request so an
-     * unreachable HQ cannot slow the inbox for a day.
-     */
-    private function maybePhoneHome(Request $request): void
-    {
-        try {
-            $s = $this->licenseSettings();
-            $key = $this->licenseKey($s);
-            if ($key === '') { return; }
-            if (!Master::due(isset($s['license_last_ping']) ? (string) $s['license_last_ping'] : null)) { return; }
-            DB::table('banimark_settings')->updateOrInsert(['key' => 'license_last_ping'], ['value' => (string) time()]);
-            $result = (new Master($this->hqEndpoint($s), $key, $request->getSchemeAndHttpHost()))->ping();
-            DB::table('banimark_settings')->updateOrInsert(['key' => 'license_status'], ['value' => $result['license']]);
-            if (($result['support_email'] ?? '') !== '') {
-                DB::table('banimark_settings')->updateOrInsert(['key' => 'support_email'], ['value' => (string) $result['support_email']]);
-            }
-            if (($result['token'] ?? '') !== '') {
-                DB::table('banimark_settings')->updateOrInsert(['key' => 'license_token'], ['value' => (string) $result['token']]);
-            }
-        } catch (\Throwable $e) {
-            // licensing must never break the panel
-        }
-    }
 
     /** @return array<string, string> the license_* / hq_url settings rows */
     private function licenseSettings(): array
     {
         return DB::table('banimark_settings')
-            ->whereIn('key', ['license_key', 'license_status', 'license_last_ping', 'license_token', 'hq_url', 'updates_cache', 'updates_checked_at', 'support_email'])
+            ->whereIn('key', ['license_key', 'license_status', 'license_last_ping', 'license_token', 'license_unreachable_since', 'hq_url', 'updates_cache', 'updates_checked_at', 'support_email'])
             ->pluck('value', 'key')->all();
     }
 
@@ -314,12 +297,20 @@ class PanelController
             DB::table('banimark_settings')->whereIn('key', ['license_status', 'license_token'])->delete();
             return back()->with('bm_ok', 'License settings saved.');
         }
-        $result = (new Master($this->hqEndpoint($this->licenseSettings()), $key, $request->getSchemeAndHttpHost()))->ping();
-        DB::table('banimark_settings')->updateOrInsert(['key' => 'license_last_ping'], ['value' => (string) time()]);
-        DB::table('banimark_settings')->updateOrInsert(['key' => 'license_status'], ['value' => $result['license']]);
-        DB::table('banimark_settings')->updateOrInsert(['key' => 'license_token'], ['value' => (string) ($result['token'] ?? '')]);
-        if (($result['support_email'] ?? '') !== '') {
-            DB::table('banimark_settings')->updateOrInsert(['key' => 'support_email'], ['value' => (string) $result['support_email']]);
+        // immediate check - through the same fail-open path as the daily one, so
+        // pressing the button during an HQ outage can never lock an active licence
+        $settings = $this->licenseSettings();
+        $settings['license_key'] = $key;
+        $settings['hq_url'] = $this->hqEndpoint($settings);
+        $result = \Banimark\Licensing\PhoneHome::run(
+            $settings,
+            $request->getSchemeAndHttpHost(),
+            fn (string $k, string $v) => DB::table('banimark_settings')->updateOrInsert(['key' => $k], ['value' => $v]),
+            fn (string $k) => DB::table('banimark_settings')->where('key', $k)->delete(),
+            force: true,
+        );
+        if ($result === null || empty($result['ok'])) {
+            return back()->with('bm_error', \Banimark\Licensing\PhoneHome::unreachableMessage($settings));
         }
         if ($result['license'] === 'active') {
             // activated: straight into the module this licence unlocks
@@ -390,7 +381,7 @@ class PanelController
     public function dashboard(Request $request, AgentAuth $auth, PdoStore $store)
     {
         if ($r = $this->gate($auth)) { return $r; }
-        $this->maybePhoneHome($request);
+        // the daily HQ re-check now lives in EnsureBanimarkAccess (before the verdict)
         $analytics = new Analytics(DB::connection()->getPdo());
         return view('banimark::admin.dashboard', [
             'a' => $analytics->overview(),
@@ -684,8 +675,11 @@ class PanelController
     {
         if ($r = $this->gate($auth)) { return $r; }
         $settings = DB::table('banimark_settings')->pluck('value', 'key')->all();
+        $updates = $this->updates($settings);
         return view('banimark::admin.widget', [
             'cfg' => array_merge((array) config('banimark.widget', []), $settings),
+            'flutter' => $updates['sdks']['flutter'] ?? null, // advertised by HQ; null = not published yet
+            'supportEmail' => (string) ($settings['support_email'] ?? ''),
         ]);
     }
 

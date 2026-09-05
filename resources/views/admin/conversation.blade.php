@@ -10,7 +10,7 @@
     </form>
     <form method="post" action="{{ route('banimark.admin.conversation.mode', $sessionId) }}" style="display:inline">@csrf
         <input type="hidden" name="mode" value="closed">
-        <button class="btn-danger btn-sm" onclick="return confirm('Close this conversation?')">Close</button>
+        <button class="btn-danger btn-sm" data-confirm="Close this conversation?">Close</button>
     </form>
 @endsection
 @section('content')

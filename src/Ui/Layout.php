@@ -15,22 +15,38 @@ class Layout
 
     public static function css(): string
     {
-        return self::$css ??= (string) @file_get_contents(__DIR__.'/../../resources/design/panel.css');
+        return self::$css ??= Assets::content('panel.css');
     }
 
     public static function js(): string
     {
-        return self::$js ??= (string) @file_get_contents(__DIR__.'/../../resources/design/panel.js');
+        return self::$js ??= Assets::content('panel.js');
     }
 
-    /** <style> + the theme pre-paint guard, for a layout's <head>. */
+    /**
+     * URL of a panel asset, when the runtime has told us where it serves them
+     * (configure(['assets' => ...])). Null = not configured (the standalone
+     * installer runs before any route exists) - callers fall back to inline.
+     */
+    public static function assetUrl(string $name): ?string
+    {
+        $base = (string) (self::$config['assets'] ?? '');
+        return $base === '' ? null : rtrim($base, '/').'/'.$name.'?v='.Assets::version();
+    }
+
+    /**
+     * The <head>: stylesheet + the theme pre-paint guard. External files when
+     * an assets URL is configured (CSP-safe); inline only as the fallback.
+     */
     public static function head(string $title): string
     {
-        return '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
-            .'<title>'.self::e($title).'</title>'
-            // set the theme before first paint so a dark-mode reload never flashes white
-            .'<script>try{var t=localStorage.getItem("bm-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}</script>'
-            .'<style>'.self::css().'</style>';
+        $out = '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
+            .'<title>'.self::e($title).'</title>';
+        if (($css = self::assetUrl('panel.css')) !== null) {
+            return $out.'<link rel="stylesheet" href="'.self::e($css).'">'
+                .'<script src="'.self::e((string) self::assetUrl('theme.js')).'"></script>';
+        }
+        return $out.'<script>'.Assets::content('theme.js').'</script><style>'.self::css().'</style>';
     }
 
     /** @var array<string, mixed> runtime facts the panel script needs (event feed url, current user) */
@@ -42,16 +58,32 @@ class Layout
         self::$config = array_merge(self::$config, $config);
     }
 
+    /**
+     * Runtime facts travel in a JSON data block - CSP never executes those, so
+     * no nonce is needed - and the behaviour is an external file.
+     */
     public static function scripts(): string
     {
-        return '<script>window.BM='.json_encode(self::$config, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS).';</script>'
-            .'<script>'.self::js().'</script>';
+        $config = '<script type="application/json" id="bm-config">'
+            .json_encode(self::$config, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS).'</script>';
+        if (($js = self::assetUrl('panel.js')) !== null) {
+            return $config.'<script src="'.self::e($js).'" defer></script>';
+        }
+        return $config.'<script>'.self::js().'</script>';
     }
 
-    /** Live staff conversation view, inlined on that page only. */
+    /** Live staff conversation view, on that page only. */
     public static function chatScript(): string
     {
-        return '<script>'.(string) @file_get_contents(__DIR__.'/../../resources/design/chat.js').'</script>';
+        return self::script('chat.js');
+    }
+
+    private static function script(string $name): string
+    {
+        if (($url = self::assetUrl($name)) !== null) {
+            return '<script src="'.self::e($url).'" defer></script>';
+        }
+        return '<script>'.Assets::content($name).'</script>';
     }
 
     /** Header button: staff can mute/unmute the new-message chime (remembered per browser). */
@@ -60,10 +92,10 @@ class Layout
         return '<button type="button" class="btn-ghost btn-icon" data-sound-toggle title="New message sound">'.Icons::get('bell', 16).'</button>';
     }
 
-    /** The visual Tool Builder, inlined on the tools page only. */
+    /** The visual Tool Builder, on the tools page only. */
     public static function toolBuilderScript(): string
     {
-        return '<script>'.(string) @file_get_contents(__DIR__.'/../../resources/design/toolbuilder.js').'</script>';
+        return self::script('toolbuilder.js');
     }
 
     /** Product mark + wordmark used in the sidebar and on the auth screen. */

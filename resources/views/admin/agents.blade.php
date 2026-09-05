@@ -21,7 +21,7 @@
                                 <div class="row" style="gap:6px"><span class="pill good">ON</span>
                                 <form method="post" action="{{ route('banimark.admin.agents.totp.reset') }}">@csrf
                                     <input type="hidden" name="id" value="{{ $a['id'] }}">
-                                    <button class="btn-ghost btn-sm" onclick="return confirm('Reset 2FA for {{ $a['name'] }}? They sign in with just their password until they enrol again.')">Reset</button>
+                                    <button class="btn-ghost btn-sm" data-confirm="Reset 2FA for {{ $a['name'] }}? They sign in with just their password until they enrol again.">Reset</button>
                                 </form></div>
                             @else
                                 <span class="pill closed">OFF</span>
@@ -30,7 +30,7 @@
                         <td>
                             <form method="post" action="{{ route('banimark.admin.agents.delete') }}">@csrf
                                 <input type="hidden" name="id" value="{{ $a['id'] }}">
-                                <button class="btn-ghost btn-icon" onclick="return confirm('Remove this staff account?')" title="Remove">{!! Icons::get('trash', 15) !!}</button>
+                                <button class="btn-ghost btn-icon" data-confirm="Remove this staff account?" title="Remove">{!! Icons::get('trash', 15) !!}</button>
                             </form>
                         </td>
                     </tr>

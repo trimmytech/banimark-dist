@@ -52,7 +52,9 @@
     if (e.target.closest('[data-remove-param]')) { e.target.closest('.bm-param').remove(); reindexParams(); }
   });
   paramsWrap.addEventListener('input', function (e) { if (e.target.name === 'param_name[]') refreshParamOptions(); });
-  if (!paramsWrap.children.length) { paramsWrap.appendChild(paramRow()); reindexParams(); }
+  // NOTE: the first row is added in init() at the bottom - reindexParams() reaches
+  // into the builder's nodes, which are only looked up below. Calling it here threw
+  // and killed the whole script before the schema was ever requested ("Loading…").
 
   /* ---------- visual builder ---------- */
   var tableSel = root.querySelector('[data-table]');
@@ -164,5 +166,10 @@
     status.textContent = 'Applied - review the SQL below, then Validate & save.';
   });
 
-  loadSchema();
+  function init() {
+    if (!paramsWrap.children.length) { paramsWrap.appendChild(paramRow()); }
+    reindexParams();
+    loadSchema();
+  }
+  init();
 })();

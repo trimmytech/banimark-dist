@@ -16,7 +16,7 @@
                     </div>
                 </div>
             </div>
-            <textarea readonly rows="2" onclick="this.select()">{{ $updates['update_command'] }}
+            <textarea readonly rows="2" data-select-all>{{ $updates['update_command'] }}
 php artisan banimark:install</textarea>
         </div>
     @else

@@ -3,6 +3,30 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.13.2
+- **Works under your app's Content-Security-Policy.** If your app sets a CSP
+  (many do), the panel's buttons and scripts were being blocked - the theme
+  switch, *New folder*, the Tool Builder's table list ("Loading…"). The panel
+  now serves its scripts and styles as normal files from your own domain and
+  uses no inline handlers, so a `script-src 'self'` policy is all it needs
+  (plus `style-src 'unsafe-inline'`, which almost every policy already has).
+- **Licence checks when HQ is unreachable.** If Banimark HQ cannot be reached,
+  the panel now says so at the top of every page - since when, and the date the
+  grace window closes - instead of staying silent. Nothing changes to your
+  licence when HQ does not answer: pressing *Save & check* during an outage no
+  longer locks the panel (it used to), and the standalone runtime now re-checks
+  daily on its own like the Laravel package does. The chat widget is never
+  affected.
+- **Tool Builder fix:** the table list was also stuck on "Loading…" because of
+  a script error, so the visual builder could not be used even without a CSP.
+  It now loads your tables straight away.
+- **Rules page:** folders are collapsible — click a folder to open it, with the
+  number of rules shown on each. *Expand all* / *Collapse all* at the top, and
+  the panel remembers which folders you left open.
+- **Widget page → Mobile apps:** a new card points to the Flutter SDK
+  (`banimark_flutter`) with the current version and download link as published
+  by your vendor, plus a ready-to-paste snippet aimed at your site.
+
 ## 0.13.1
 - **Fixes upgrading from an earlier version.** On an existing install
   `composer update` alone left the new tables and columns missing, so the Rules

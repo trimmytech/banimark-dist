@@ -155,6 +155,12 @@ BanimarkChat(config: BanimarkConfig.laravel('https://yourapp.com', token: userTo
 
 Ask support for the package; its README covers theming and the signed visitor token.
 
+## Content-Security-Policy
+
+The panel needs only `script-src 'self'` (its scripts are served from your own
+domain, nothing inline) and `style-src 'unsafe-inline'`. No nonce, no hash, no
+allow-list changes. The visitor widget is a same-origin script too.
+
 ## Settings worth knowing
 
 | Where | What |

@@ -3,7 +3,9 @@
 @section('title', 'Rules')
 @section('sub', 'How your assistant behaves — organised in folders, applied in order')
 @section('actions')
-    <button type="button" class="btn btn-sm" onclick="document.getElementById('new-folder').hidden=false;document.querySelector('#new-folder input[name=title]').focus()">{!! Icons::get('plus', 15) !!} New folder</button>
+    <button type="button" class="btn-ghost btn-sm" data-collapse-all="open" title="Expand every folder">Expand all</button>
+    <button type="button" class="btn-ghost btn-sm" data-collapse-all="close" title="Collapse every folder">Collapse all</button>
+    <button type="button" class="btn btn-sm" data-reveal="#new-folder">{!! Icons::get('plus', 15) !!} New folder</button>
 @endsection
 @section('content')
     <div class="bm-card" id="new-folder" hidden>
@@ -14,26 +16,28 @@
                 <div><label>Folder name</label><input type="text" name="title" required placeholder="Refund policy"></div>
                 <div><label>What goes in here <span class="muted">(optional)</span></label><input type="text" name="description" placeholder="Everything the assistant may and may not promise about refunds"></div>
             </div>
-            <div class="row" style="margin-top:12px"><button type="submit">Create folder</button><button type="button" class="btn-ghost" onclick="this.closest('.bm-card').hidden=true">Cancel</button></div>
+            <div class="row" style="margin-top:12px"><button type="submit">Create folder</button><button type="button" class="btn-ghost" data-dismiss=".bm-card">Cancel</button></div>
         </form>
     </div>
 
     @forelse($folders as $fi => $f)
-        <div class="bm-card pad0" style="{{ $f['enabled'] ? '' : 'opacity:.6' }}">
-            <div class="bm-sec-h" style="padding:16px 20px 12px;align-items:center;border-bottom:1px solid var(--border)">
+        <div class="bm-card pad0" data-collapsible style="{{ $f['enabled'] ? '' : 'opacity:.6' }}">
+            {{-- the header is the toggle; its buttons still work without toggling --}}
+            <div class="bm-sec-h bm-fold" data-collapse="folder-{{ $f['id'] }}" style="padding:16px 20px 12px;align-items:center;border-bottom:1px solid var(--border)" title="Click to open or close this folder">
                 <div class="row" style="gap:10px">
                     <span class="avatar">{{ $fi + 1 }}</span>
                     <div>
-                        <h2 style="margin:0">{{ $f['title'] }} @unless($f['enabled'])<span class="pill closed">OFF</span>@endunless</h2>
+                        <h2 style="margin:0">{{ $f['title'] }} <span class="muted" style="font-weight:500;font-size:13px">· {{ count($f['rules']) }} {{ count($f['rules']) === 1 ? 'rule' : 'rules' }}</span> @unless($f['enabled'])<span class="pill closed">OFF</span>@endunless</h2>
                         @if($f['description'] !== '')<div class="muted">{{ $f['description'] }}</div>@endif
                     </div>
                 </div>
                 <div class="spacer"></div>
+                <span class="bm-chevron" aria-hidden="true"></span>
                 <div class="row" style="gap:4px">
                     <form method="post" action="{{ route('banimark.admin.rules.folder.move') }}">@csrf<input type="hidden" name="id" value="{{ $f['id'] }}"><input type="hidden" name="direction" value="-1"><button class="btn-ghost btn-icon" title="Move up" {{ $fi === 0 ? 'disabled' : '' }}>&uarr;</button></form>
                     <form method="post" action="{{ route('banimark.admin.rules.folder.move') }}">@csrf<input type="hidden" name="id" value="{{ $f['id'] }}"><input type="hidden" name="direction" value="1"><button class="btn-ghost btn-icon" title="Move down" {{ $fi === count($folders) - 1 ? 'disabled' : '' }}>&darr;</button></form>
-                    <button type="button" class="btn-ghost btn-sm" onclick="document.getElementById('edit-folder-{{ $f['id'] }}').hidden ^= true">Edit</button>
-                    <form method="post" action="{{ route('banimark.admin.rules.folder.delete') }}">@csrf<input type="hidden" name="id" value="{{ $f['id'] }}"><button class="btn-ghost btn-icon" title="Delete folder and its rules" onclick="return confirm('Delete this folder and every rule in it?')">{!! Icons::get('trash', 15) !!}</button></form>
+                    <button type="button" class="btn-ghost btn-sm" data-toggle="#edit-folder-{{ $f['id'] }}">Edit</button>
+                    <form method="post" action="{{ route('banimark.admin.rules.folder.delete') }}">@csrf<input type="hidden" name="id" value="{{ $f['id'] }}"><button class="btn-ghost btn-icon" title="Delete folder and its rules" data-confirm="Delete this folder and every rule in it?">{!! Icons::get('trash', 15) !!}</button></form>
                 </div>
             </div>
 
@@ -49,7 +53,7 @@
                 </div>
             </form>
 
-            <div style="padding:6px 20px 4px">
+            <div data-collapse-body hidden style="padding:6px 20px 4px">
                 @forelse($f['rules'] as $ri => $r)
                     <div style="display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--border);{{ $r['enabled'] ? '' : 'opacity:.55' }}">
                         <div style="flex:1;min-width:0">
@@ -71,8 +75,8 @@
                         <div class="row" style="gap:2px;flex:none">
                             <form method="post" action="{{ route('banimark.admin.rules.move') }}">@csrf<input type="hidden" name="id" value="{{ $r['id'] }}"><input type="hidden" name="direction" value="-1"><button class="btn-ghost btn-icon" title="Up" {{ $ri === 0 ? 'disabled' : '' }}>&uarr;</button></form>
                             <form method="post" action="{{ route('banimark.admin.rules.move') }}">@csrf<input type="hidden" name="id" value="{{ $r['id'] }}"><input type="hidden" name="direction" value="1"><button class="btn-ghost btn-icon" title="Down" {{ $ri === count($f['rules']) - 1 ? 'disabled' : '' }}>&darr;</button></form>
-                            <button type="button" class="btn-ghost btn-sm" onclick="document.getElementById('edit-rule-{{ $r['id'] }}').hidden ^= true">Edit</button>
-                            <form method="post" action="{{ route('banimark.admin.rules.delete') }}">@csrf<input type="hidden" name="id" value="{{ $r['id'] }}"><button class="btn-ghost btn-icon" title="Delete" onclick="return confirm('Delete this rule?')">{!! Icons::get('trash', 15) !!}</button></form>
+                            <button type="button" class="btn-ghost btn-sm" data-toggle="#edit-rule-{{ $r['id'] }}">Edit</button>
+                            <form method="post" action="{{ route('banimark.admin.rules.delete') }}">@csrf<input type="hidden" name="id" value="{{ $r['id'] }}"><button class="btn-ghost btn-icon" title="Delete" data-confirm="Delete this rule?">{!! Icons::get('trash', 15) !!}</button></form>
                         </div>
                     </div>
                 @empty

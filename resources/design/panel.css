@@ -422,3 +422,15 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monosp
 .bm-toast b { font-size: 13px; } .bm-toast span { font-size: 12px; color: var(--muted); }
 .bm-toast + .bm-toast { bottom: 96px; } .bm-toast + .bm-toast + .bm-toast { bottom: 174px; }
 .bm-secret { font-family: ui-monospace, Menlo, monospace; font-size: 20px; letter-spacing: .12em; padding: 14px 16px; background: var(--surface-2); border: 1px dashed var(--border); border-radius: 12px; text-align: center; word-break: break-all; }
+
+/* collapsible folders */
+.bm-fold { cursor: pointer; user-select: none; }
+.bm-fold:hover { background: var(--surface-2); }
+.bm-chevron { width: 10px; height: 10px; margin: 0 6px 0 10px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg); transition: transform .18s; flex: none; }
+.bm-fold.open .bm-chevron { transform: rotate(45deg); }
+.bm-fold.open { border-bottom-color: var(--border); }
+[data-collapsible]:not(:has(.bm-fold.open)) .bm-sec-h { border-bottom-color: transparent !important; }
+
+/* a caution that is not an error: licence could not be re-verified, still inside grace */
+.flash-warn { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: var(--r); margin-bottom: 14px; background: color-mix(in srgb, var(--s2) 12%, var(--surface)); border: 1px solid color-mix(in srgb, var(--s2) 40%, transparent); color: var(--text); }
+.flash-warn svg { flex: none; color: var(--s2); margin-top: 1px; }

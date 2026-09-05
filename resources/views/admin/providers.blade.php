@@ -23,7 +23,7 @@
                         <td>
                             <form method="post" action="{{ route('banimark.admin.providers.delete') }}">@csrf
                                 <input type="hidden" name="slug" value="{{ $r->slug }}">
-                                <button class="btn-ghost btn-icon" onclick="return confirm('Remove this provider?')" title="Remove">{!! Icons::get('trash', 15) !!}</button>
+                                <button class="btn-ghost btn-icon" data-confirm="Remove this provider?" title="Remove">{!! Icons::get('trash', 15) !!}</button>
                             </form>
                         </td>
                     </tr>

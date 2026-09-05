@@ -52,11 +52,11 @@
         <div class="bm-card">
             <h2>Embed</h2>
             <div class="muted">Anonymous visitors — drop this before <code>&lt;/body&gt;</code>:</div>
-            <textarea readonly rows="2" onclick="this.select()">&lt;script src="{{ url('banimark/widget.js') }}" defer&gt;&lt;/script&gt;</textarea>
+            <textarea readonly rows="2" data-select-all>&lt;script src="{{ url('banimark/widget.js') }}" defer&gt;&lt;/script&gt;</textarea>
 
             <div class="divider"></div>
             <div class="muted">Signed-in users — mint a token server-side so the AI can look up <em>their</em> data:</div>
-            <textarea readonly rows="4" onclick="this.select()">$token = \Banimark\Identity\VisitorToken::mint(
+            <textarea readonly rows="4" data-select-all>$token = \Banimark\Identity\VisitorToken::mint(
     ['user_id' => auth()->id()],
     config('banimark.identity_secret')
 );</textarea>
@@ -64,9 +64,36 @@
 
             <div class="divider"></div>
             <div class="muted">Or pass known details at init — used to label the chat and to follow up by email, never to scope a tool query:</div>
-            <textarea readonly rows="4" onclick="this.select()">window.__BANIMARK_CFG = Object.assign(window.__BANIMARK_CFG || {}, {
+            <textarea readonly rows="4" data-select-all>window.__BANIMARK_CFG = Object.assign(window.__BANIMARK_CFG || {}, {
   user: { name: "Ada Lovelace", email: "ada@example.com" }
 });</textarea>
         </div>
+    </div>
+
+    <div class="bm-card">
+        <div class="bm-sec-h">
+            <div><h2>Mobile apps (Flutter)</h2>
+                <div class="muted">The same chat, native in your iOS and Android app — themeable bubbles, human handover with live replies, resumes where the visitor left off, guest mode.</div>
+            </div>
+            @if($flutter)
+                <span class="pill active">banimark_flutter {{ $flutter['version'] }}</span>
+            @endif
+        </div>
+        @if($flutter)
+            <div class="row" style="gap:10px;margin:10px 0 4px">
+                @if(!empty($flutter['url']))<a class="btn2 btn-sm" href="{{ $flutter['url'] }}" target="_blank" rel="noopener">{!! Icons::get('widget', 14) !!} Get the SDK</a>@endif
+                @if(!empty($flutter['notes']))<span class="muted">{{ $flutter['notes'] }}</span>@endif
+            </div>
+        @else
+            <div class="hint">Your vendor publishes the SDK's version and download link here.{{ $supportEmail !== '' ? ' Ask '.$supportEmail.' for access.' : '' }}</div>
+        @endif
+        <div class="divider"></div>
+        <div class="muted">Drop it in a route, a bottom sheet or a tab. Point it at this site:</div>
+        <textarea readonly rows="5" data-select-all>BanimarkChat(
+  config: BanimarkConfig.laravel('{{ url('/') }}', token: userToken), // token: mint it server-side like the widget's data-token; null = guest
+  theme: BanimarkTheme.fromScheme(Theme.of(context).colorScheme)
+      .copyWith(title: '{{ $cfg['title'] ?? 'Support' }}'),
+)</textarea>
+        <div class="hint">Everything is themeable — colours, radii, avatars, every string. The SDK's README covers it.</div>
     </div>
 @endsection

@@ -33,11 +33,11 @@ class UpdateCheck
     }
 
     /**
-     * @return array{ok: bool, latest: ?string, releases: array, update_command: string}
+     * @return array{ok: bool, latest: ?string, releases: array, update_command: string, sdks: array}
      */
     public function fetch(): array
     {
-        $empty = ['ok' => false, 'latest' => null, 'releases' => [], 'update_command' => 'composer update banimark/banimark'];
+        $empty = ['ok' => false, 'latest' => null, 'releases' => [], 'update_command' => 'composer update banimark/banimark', 'sdks' => []];
         try {
             $res = ($this->transport)($this->endpoint);
             $data = ($res['status'] ?? 0) === 200 ? json_decode((string) ($res['body'] ?? ''), true) : null;
@@ -49,6 +49,8 @@ class UpdateCheck
                 'latest' => isset($data['latest']) ? (string) $data['latest'] : null,
                 'releases' => array_values((array) ($data['releases'] ?? [])),
                 'update_command' => (string) ($data['update_command'] ?? $empty['update_command']),
+                // companion SDKs the vendor advertises (e.g. sdks.flutter = {version,url,notes})
+                'sdks' => is_array($data['sdks'] ?? null) ? $data['sdks'] : [],
             ];
         } catch (\Throwable $e) {
             return $empty; // never break the panel over a version check

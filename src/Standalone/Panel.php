@@ -46,6 +46,24 @@ class Panel
 
     public function dispatch(string $route): void
     {
+        // panel CSS/JS as same-origin FILES, before any auth: the login page needs
+        // them, they carry no secrets, and a customer's Content-Security-Policy
+        // ('self') allows them where it blocks inline blocks and onclick= attributes
+        Layout::configure(['assets' => $this->url('/assets')]);
+        if (str_starts_with($route, '/assets/')) {
+            $name = substr($route, 8);
+            if (!preg_match('#^[a-z]+\.(?:css|js)$#', $name) || !\Banimark\Ui\Assets::exists($name)) {
+                http_response_code(404); // anything else under /assets/ is nothing, not the login page
+                return;
+            }
+            $m = [null, $name];
+            foreach (\Banimark\Ui\Assets::headers($m[1]) as $h => $v) {
+                header($h.': '.$v);
+            }
+            echo \Banimark\Ui\Assets::content($m[1]);
+            return;
+        }
+
         // login / logout
         if ($route === '/login' && ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             $result = $this->auth->attempt((string) ($_POST['email'] ?? ''), (string) ($_POST['password'] ?? ''));
@@ -98,6 +116,7 @@ class Panel
             return;
         }
 
+        // (the daily HQ re-check runs in App::maybePhoneHome(), before we get here)
         // license lock: no valid license = no admin, pages AND actions. The
         // verdict comes from AgentAuth->lockReason() (encoded Master), not a
         // local call, so it cannot be stripped here. Widget/chat is never gated.
@@ -120,6 +139,7 @@ class Panel
                 return; // redirected
             }
         }
+        $flash = \Banimark\Licensing\HqNotice::html($this->settings->all(), (string) ($_SERVER['HTTP_HOST'] ?? '')).$flash;
 
         if ($route === '/events') {
             header('Content-Type: application/json');
@@ -316,17 +336,17 @@ class Panel
                 $this->settings->set('license_token', '');
                 return '<div class="flash-ok">License settings saved.</div>';
             }
-            // immediate check so the result shows right away
-            $result = (new Master(
-                (string) ($this->settings->get('hq_url', '') ?: Master::DEFAULT_ENDPOINT),
-                $key,
+            // immediate check - through the same fail-open path as the daily one, so
+            // pressing the button during an HQ outage can never lock an active licence
+            $result = \Banimark\Licensing\PhoneHome::run(
+                $this->settings->all(),
                 Master::siteUrlFromServer($_SERVER),
-            ))->ping();
-            $this->settings->set('license_last_ping', (string) time());
-            $this->settings->set('license_status', $result['license']);
-            $this->settings->set('license_token', (string) ($result['token'] ?? ''));
-            if (($result['support_email'] ?? '') !== '') {
-                $this->settings->set('support_email', (string) $result['support_email']);
+                fn (string $k, string $v) => $this->settings->set($k, $v),
+                fn (string $k) => $this->settings->set($k, ''),
+                force: true,
+            );
+            if ($result === null || empty($result['ok'])) {
+                return '<div class="flash-err">'.Html::e(\Banimark\Licensing\PhoneHome::unreachableMessage($this->settings->all())).'</div>';
             }
             if ($result['license'] === 'active') {
                 header('Location: '.$this->url()); // activated: straight into the module dashboard
@@ -560,7 +580,7 @@ class Panel
             $quick .= '<button type="button" data-quick="'.$e($q).'">'.$e(mb_strimwidth($q, 0, 42, '…')).'</button>';
         }
         $modeForm = fn (string $to, string $label, string $cls, string $confirm = '') => '<form method="post" action="'.$e($this->url('/conversation/'.$sessionId.'/mode')).'" style="display:inline">'.$this->csrfField()
-            .'<input type="hidden" name="mode" value="'.$to.'"><button class="'.$cls.' btn-sm"'.($confirm !== '' ? ' onclick="return confirm(\''.$confirm.'\')"' : '').'>'.$label.'</button></form>';
+            .'<input type="hidden" name="mode" value="'.$to.'"><button class="'.$cls.' btn-sm"'.($confirm !== '' ? ' data-confirm="'.$e($confirm).'"' : '').'>'.$label.'</button></form>';
         $actions = '<a class="btn2 btn-sm" href="'.$e($this->url('/inbox')).'">'.Icons::get('back', 15).' Inbox</a>'
             .($mode === 'agent' ? $modeForm('ai', 'Hand back to AI', 'btn2') : $modeForm('agent', 'Take over', 'btn2'))
             .$modeForm('closed', 'Close', 'btn-danger', 'Close this conversation?');
@@ -635,7 +655,7 @@ class Panel
             $left .= '<p style="margin-top:14px">2FA is protecting this account. To switch it off, confirm with a current code.</p>'
                 .'<form method="post" action="'.$e($this->url('/security/disable')).'" class="row" style="gap:8px">'.$csrf
                 .'<input type="text" name="code" inputmode="numeric" maxlength="6" placeholder="123 456" autocomplete="one-time-code" style="width:140px;text-align:center;letter-spacing:.2em">'
-                .'<button type="submit" class="btn-danger btn-sm" onclick="return confirm(\'Turn off two-factor authentication for your account?\')">Turn off 2FA</button></form>';
+                .'<button type="submit" class="btn-danger btn-sm" data-confirm="Turn off two-factor authentication for your account?">Turn off 2FA</button></form>';
         } elseif ($pending === '') {
             $left .= '<p style="margin-top:14px">You will need an authenticator app: Google Authenticator, Authy, 1Password, Microsoft Authenticator - any of them works.</p>'
                 .'<form method="post" action="'.$e($this->url('/security/begin')).'">'.$csrf.'<button type="submit">'.Icons::get('shield', 15).' Set up 2FA</button></form>';
@@ -673,7 +693,7 @@ class Panel
                 .'<td class="muted">'.($e(implode(', ', array_keys(json_decode($r['parameters'], true) ?: []))) ?: '&mdash;').'</td>'
                 .'<td style="font-variant-numeric:tabular-nums">'.(int) $r['max_rows'].'</td>'
                 .'<td><form method="post" action="'.$e($this->url('/tools/delete')).'">'.$this->csrfField().'<input type="hidden" name="name" value="'.$e($r['name']).'">'
-                .'<button class="btn-ghost btn-icon" onclick="return confirm(\'Delete this tool?\')" title="Delete">'.Icons::get('trash', 15).'</button></form></td></tr>';
+                .'<button class="btn-ghost btn-icon" data-confirm="Delete this tool?" title="Delete">'.Icons::get('trash', 15).'</button></form></td></tr>';
         }
         if ($rows === '') {
             $rows = '<tr><td colspan="5">'.Chart::empty('No tools yet', 'The AI can chat, but it cannot look anything up until you build one.').'</td></tr>';
@@ -773,8 +793,11 @@ class Panel
             .'<div class="grid2"><div><label>Folder name</label><input type="text" name="title" required placeholder="Refund policy"></div>'
             .'<div><label>What goes in here <span class="muted">(optional)</span></label><input type="text" name="description" placeholder="What the assistant may and may not promise about refunds"></div></div>'
             .'<div class="row" style="margin-top:12px"><button type="submit">Create folder</button>'
-            .'<button type="button" class="btn-ghost" onclick="this.closest(\'.bm-card\').hidden=true">Cancel</button></div></form></div>'
-            .'<div class="row" style="margin:0 0 14px"><div class="spacer"></div><button type="button" class="btn-sm" onclick="document.getElementById(\'new-folder\').hidden=false;document.querySelector(\'#new-folder input[name=title]\').focus()">'.Icons::get('plus', 15).' New folder</button></div>';
+            .'<button type="button" class="btn-ghost" data-dismiss=".bm-card">Cancel</button></div></form></div>'
+            .'<div class="row" style="margin:0 0 14px"><div class="spacer"></div>'
+            .'<button type="button" class="btn-ghost btn-sm" data-collapse-all="open" title="Expand every folder">Expand all</button>'
+            .'<button type="button" class="btn-ghost btn-sm" data-collapse-all="close" title="Collapse every folder">Collapse all</button>'
+            .'<button type="button" class="btn-sm" data-reveal="#new-folder">'.Icons::get('plus', 15).' New folder</button></div>';
 
         if ($folders === []) {
             $html .= '<div class="bm-card">'.Chart::empty('No folders yet', 'Create a folder, then add rules to it.').'</div>';
@@ -782,23 +805,25 @@ class Panel
         $nF = count($folders);
         foreach ($folders as $fi => $f) {
             $fid = (int) $f['id'];
-            $html .= '<div class="bm-card pad0"'.($f['enabled'] ? '' : ' style="opacity:.6"').'>'
-                .'<div class="bm-sec-h" style="padding:16px 20px 12px;align-items:center;border-bottom:1px solid var(--border)">'
-                .'<div class="row" style="gap:10px"><span class="avatar">'.($fi + 1).'</span><div><h2 style="margin:0">'.$e($f['title']).($f['enabled'] ? '' : ' <span class="pill closed">OFF</span>').'</h2>'
-                .($f['description'] !== '' ? '<div class="muted">'.$e($f['description']).'</div>' : '').'</div></div><div class="spacer"></div>'
+            $nR = count($f['rules']);
+            // the header is the toggle; its buttons still work without toggling
+            $html .= '<div class="bm-card pad0" data-collapsible'.($f['enabled'] ? '' : ' style="opacity:.6"').'>'
+                .'<div class="bm-sec-h bm-fold" data-collapse="folder-'.$fid.'" style="padding:16px 20px 12px;align-items:center;border-bottom:1px solid var(--border)" title="Click to open or close this folder">'
+                .'<div class="row" style="gap:10px"><span class="avatar">'.($fi + 1).'</span><div><h2 style="margin:0">'.$e($f['title'])
+                .' <span class="muted" style="font-weight:500;font-size:13px">· '.$nR.($nR === 1 ? ' rule' : ' rules').'</span>'.($f['enabled'] ? '' : ' <span class="pill closed">OFF</span>').'</h2>'
+                .($f['description'] !== '' ? '<div class="muted">'.$e($f['description']).'</div>' : '').'</div></div><div class="spacer"></div><span class="bm-chevron" aria-hidden="true"></span>'
                 .'<div class="row" style="gap:4px">'
                 .$post('/rules/folder/move', ['id' => $fid, 'direction' => -1], '<button class="btn-ghost btn-icon" title="Move up"'.($fi === 0 ? ' disabled' : '').'>&uarr;</button>')
                 .$post('/rules/folder/move', ['id' => $fid, 'direction' => 1], '<button class="btn-ghost btn-icon" title="Move down"'.($fi === $nF - 1 ? ' disabled' : '').'>&darr;</button>')
-                .'<button type="button" class="btn-ghost btn-sm" onclick="document.getElementById(\'edit-folder-'.$fid.'\').hidden ^= true">Edit</button>'
-                .$post('/rules/folder/delete', ['id' => $fid], '<button class="btn-ghost btn-icon" title="Delete folder and its rules" onclick="return confirm(\'Delete this folder and every rule in it?\')">'.Icons::get('trash', 15).'</button>')
+                .'<button type="button" class="btn-ghost btn-sm" data-toggle="#edit-folder-'.$fid.'">Edit</button>'
+                .$post('/rules/folder/delete', ['id' => $fid], '<button class="btn-ghost btn-icon" title="Delete folder and its rules" data-confirm="Delete this folder and every rule in it?">'.Icons::get('trash', 15).'</button>')
                 .'</div></div>'
                 .'<form method="post" action="'.$e($this->url('/rules/folder')).'" id="edit-folder-'.$fid.'" hidden style="padding:12px 20px;border-bottom:1px solid var(--border);background:var(--surface-2)">'.$csrf
                 .'<input type="hidden" name="id" value="'.$fid.'"><div class="grid2"><div><label>Folder name</label><input type="text" name="title" value="'.$e($f['title']).'" required></div>'
                 .'<div><label>Description</label><input type="text" name="description" value="'.$e($f['description']).'"></div></div>'
                 .'<div class="row" style="margin-top:10px;gap:14px"><label style="display:flex;align-items:center;gap:8px;margin:0"><input type="checkbox" name="enabled" value="1"'.($f['enabled'] ? ' checked' : '').'> Folder is active</label>'
                 .'<button type="submit" class="btn-sm">Save folder</button></div></form>'
-                .'<div style="padding:6px 20px 4px">';
-            $nR = count($f['rules']);
+                .'<div data-collapse-body hidden style="padding:6px 20px 4px">';
             if ($nR === 0) {
                 $html .= '<div class="muted" style="padding:10px 0">No rules in this folder yet.</div>';
             }
@@ -815,8 +840,8 @@ class Panel
                     .'<div class="row" style="gap:2px;flex:none">'
                     .$post('/rules/move', ['id' => $rid, 'direction' => -1], '<button class="btn-ghost btn-icon" title="Up"'.($ri === 0 ? ' disabled' : '').'>&uarr;</button>')
                     .$post('/rules/move', ['id' => $rid, 'direction' => 1], '<button class="btn-ghost btn-icon" title="Down"'.($ri === $nR - 1 ? ' disabled' : '').'>&darr;</button>')
-                    .'<button type="button" class="btn-ghost btn-sm" onclick="document.getElementById(\'edit-rule-'.$rid.'\').hidden ^= true">Edit</button>'
-                    .$post('/rules/delete', ['id' => $rid], '<button class="btn-ghost btn-icon" title="Delete" onclick="return confirm(\'Delete this rule?\')">'.Icons::get('trash', 15).'</button>')
+                    .'<button type="button" class="btn-ghost btn-sm" data-toggle="#edit-rule-'.$rid.'">Edit</button>'
+                    .$post('/rules/delete', ['id' => $rid], '<button class="btn-ghost btn-icon" title="Delete" data-confirm="Delete this rule?">'.Icons::get('trash', 15).'</button>')
                     .'</div></div>';
             }
             $html .= '<form method="post" action="'.$e($this->url('/rules')).'" style="padding:12px 0 14px">'.$csrf
@@ -836,7 +861,7 @@ class Panel
                 .'<td>'.Html::e($r['driver']).'</td><td>'.Html::e($r['model']).'</td>'
                 .'<td class="muted">'.Html::e($r['base_url'] ?: '-').'</td><td>'.Html::e($r['temperature']).'</td>'
                 .'<td>'.($r['enabled'] ? 'enabled' : 'disabled').'</td>'
-                .'<td><form method="post" action="'.Html::e($this->url('/providers/delete')).'">'.$this->csrfField().'<input type="hidden" name="slug" value="'.Html::e($r['slug']).'"><button class="btn-danger" onclick="return confirm(\'Remove?\')">×</button></form></td></tr>';
+                .'<td><form method="post" action="'.Html::e($this->url('/providers/delete')).'">'.$this->csrfField().'<input type="hidden" name="slug" value="'.Html::e($r['slug']).'"><button class="btn-danger" data-confirm="Remove?">×</button></form></td></tr>';
         }
         if ($rows === '') {
             $rows = '<tr><td colspan="7" class="muted">No providers yet - the chat cannot answer until you add one.</td></tr>';
@@ -884,7 +909,34 @@ class Panel
             .'<div class="muted">Anonymous visitors:</div>'
             .'<textarea readonly rows="2">&lt;script src="'.$widgetUrl.'" defer&gt;&lt;/script&gt;</textarea>'
             .'<div class="muted" style="margin-top:10px;">Logged-in users - mint a token server-side with your identity secret (settings key identity_secret) via \\Banimark\\Identity\\VisitorToken::mint([\'user_id\' =&gt; $userId], $secret) and pass it as data-token on the script tag.</div>'
-            .'</div>', $this->nav('/widget'));
+            .'</div>'.$this->flutterCard($s->get('title', 'Support')), $this->nav('/widget'));
+    }
+
+    /** "Mobile apps": the Flutter SDK as advertised by HQ (version + link), with a ready snippet. */
+    private function flutterCard(string $title): string
+    {
+        $e = fn ($v) => Html::e((string) $v);
+        $sdk = $this->updates()['sdks']['flutter'] ?? null;
+        $support = (string) $this->settings->get('support_email', '');
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $entry = $scheme.'://'.($_SERVER['HTTP_HOST'] ?? 'yourapp.com').$this->base;
+        $html = '<div class="bm-card"><div class="bm-sec-h"><div><h2>Mobile apps (Flutter)</h2>'
+            .'<div class="muted">The same chat, native in your iOS and Android app - themeable bubbles, human handover with live replies, resumes where the visitor left off, guest mode.</div></div>'
+            .($sdk ? '<span class="pill active">banimark_flutter '.$e($sdk['version'] ?? '').'</span>' : '').'</div>';
+        if ($sdk) {
+            $html .= '<div class="row" style="gap:10px;margin:10px 0 4px">'
+                .(!empty($sdk['url']) ? '<a class="btn2 btn-sm" href="'.$e($sdk['url']).'" target="_blank" rel="noopener">'.Icons::get('widget', 14).' Get the SDK</a>' : '')
+                .(!empty($sdk['notes']) ? '<span class="muted">'.$e($sdk['notes']).'</span>' : '').'</div>';
+        } else {
+            $html .= '<div class="hint">Your vendor publishes the SDK\'s version and download link here.'.($support !== '' ? ' Ask '.$e($support).' for access.' : '').'</div>';
+        }
+        return $html.'<div class="divider"></div><div class="muted">Drop it in a route, a bottom sheet or a tab. Point it at this install:</div>'
+            .'<textarea readonly rows="5" data-select-all>BanimarkChat(
+  config: BanimarkConfig.standalone(\''.$e($entry).'\', token: userToken), // token: mint it server-side like the widget\'s data-token; null = guest
+  theme: BanimarkTheme.fromScheme(Theme.of(context).colorScheme)
+      .copyWith(title: \''.$e(str_replace("'", "\\'", $title)).'\'),
+)</textarea>'
+            .'<div class="hint">Everything is themeable - colours, radii, avatars, every string. The SDK\'s README covers it.</div></div>';
     }
 
     private function agentsPage(string $flash): string
@@ -898,9 +950,9 @@ class Panel
                 .'<td><span class="pill '.($a['role'] === 'owner' ? 'ai' : 'agent').'">'.strtoupper(Html::e($a['role'])).'</span></td>'
                 .'<td>'.($a['enabled'] ? 'active' : 'disabled').'</td>'
                 .'<td>'.(!empty($a['totp_enabled'])
-                    ? '<div class="row" style="gap:6px"><span class="pill good">ON</span><form method="post" action="'.Html::e($this->url('/agents/2fa-reset')).'">'.$this->csrfField().'<input type="hidden" name="id" value="'.(int) $a['id'].'"><button class="btn-ghost btn-sm" onclick="return confirm(\'Reset 2FA for this account? They sign in with just their password until they enrol again.\')">Reset</button></form></div>'
+                    ? '<div class="row" style="gap:6px"><span class="pill good">ON</span><form method="post" action="'.Html::e($this->url('/agents/2fa-reset')).'">'.$this->csrfField().'<input type="hidden" name="id" value="'.(int) $a['id'].'"><button class="btn-ghost btn-sm" data-confirm="Reset 2FA for this account? They sign in with just their password until they enrol again.">Reset</button></form></div>'
                     : '<span class="pill closed">OFF</span>').'</td>'
-                .'<td><form method="post" action="'.Html::e($this->url('/agents/delete')).'">'.$this->csrfField().'<input type="hidden" name="id" value="'.(int) $a['id'].'"><button class="btn-danger" onclick="return confirm(\'Remove this staff account?\')">×</button></form></td></tr>';
+                .'<td><form method="post" action="'.Html::e($this->url('/agents/delete')).'">'.$this->csrfField().'<input type="hidden" name="id" value="'.(int) $a['id'].'"><button class="btn-danger" data-confirm="Remove this staff account?">×</button></form></td></tr>';
         }
         return Html::page('Staff', $flash.'<div class="bm-card"><h2>Staff</h2>'
             .'<div class="muted">Staff can attend to escalated conversations from the inbox. Owners can also manage staff and settings.</div>'
@@ -1022,7 +1074,7 @@ class Panel
                 .'<h2>Update available - '.Html::e((string) $u['latest']).'</h2>'
                 .'<div class="muted">You are running '.Html::e(Master::PACKAGE_VERSION)
                 .'. Run this in your project, then reload the installer once:</div>'
-                .'<textarea readonly rows="1" onclick="this.select()">'.Html::e((string) $u['update_command']).'</textarea></div>'
+                .'<textarea readonly rows="1" data-select-all>'.Html::e((string) $u['update_command']).'</textarea></div>'
             : '<div class="bm-card"><b>You are up to date</b><div class="muted">Running '
                 .Html::e(Master::PACKAGE_VERSION)
                 .(!$u['ok'] ? ' - could not reach Banimark to check for newer releases' : '').'</div></div>';

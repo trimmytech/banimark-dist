@@ -1,7 +1,42 @@
-/* Banimark panel behaviour: theme toggle, mobile nav, chart tooltips.
-   Vanilla, tiny, inlined by both runtimes - no framework, no build step. */
+/* Banimark panel behaviour: theme toggle, mobile nav, chart tooltips, and the
+   small interactions that used to be onclick= attributes. Vanilla, no build
+   step - and served as a FILE, because customer apps carry Content-Security-
+   Policies that block inline scripts and inline handlers outright. */
 (function () {
   'use strict';
+
+  /* a marker a real browser can show us: set only if this file actually ran
+     (a Content-Security-Policy that blocked it leaves the attribute absent) */
+  document.documentElement.setAttribute('data-bm-ready', '1');
+
+  /* runtime facts arrive in a JSON data block (CSP never executes those) */
+  try {
+    var cfgEl = document.getElementById('bm-config');
+    if (cfgEl) window.BM = JSON.parse(cfgEl.textContent || '{}');
+  } catch (e) { window.BM = window.BM || {}; }
+
+  /* declarative replacements for inline handlers:
+       data-confirm="…"      ask before the click goes through (works on submit buttons)
+       data-select-all       click a readonly box → select its text
+       data-reveal="#id"     un-hide a target, focus its first field
+       data-dismiss=".sel"   hide the closest matching ancestor
+       data-toggle="#id"     flip a target's hidden state */
+  document.addEventListener('click', function (ev) {
+    var c = ev.target.closest('[data-confirm]');
+    if (c && !window.confirm(c.getAttribute('data-confirm'))) { ev.preventDefault(); ev.stopImmediatePropagation(); return; }
+    var s = ev.target.closest('[data-select-all]');
+    if (s && s.select) { s.select(); return; }
+    var r = ev.target.closest('[data-reveal]');
+    if (r) {
+      var target = document.querySelector(r.getAttribute('data-reveal'));
+      if (target) { target.hidden = false; var f = target.querySelector('input,textarea,select'); if (f) f.focus(); }
+      return;
+    }
+    var d = ev.target.closest('[data-dismiss]');
+    if (d) { var box = d.closest(d.getAttribute('data-dismiss')); if (box) box.hidden = true; return; }
+    var t = ev.target.closest('[data-toggle]');
+    if (t) { var el = document.querySelector(t.getAttribute('data-toggle')); if (el) el.hidden = !el.hidden; }
+  }, true);
 
   /* theme: remembered per browser, falls back to the OS setting */
   var root = document.documentElement;
@@ -133,4 +168,43 @@
   }
   poll();
   setInterval(poll, cfg.eventsEvery || 10000);
+})();
+
+
+/* Collapsible sections (rule folders): [data-collapse=key] toggles the
+   [data-collapse-body] in its [data-collapsible] card. Open state is remembered
+   per browser; controls inside the header (move/edit/delete) never toggle. */
+(function () {
+  'use strict';
+  var KEY = 'bm-open';
+  var open = {};
+  try { open = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) {}
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(open)); } catch (e) {} }
+  function apply(head) {
+    var key = head.getAttribute('data-collapse');
+    var card = head.closest('[data-collapsible]');
+    var body = card ? card.querySelector('[data-collapse-body]') : null;
+    if (!body) return;
+    var isOpen = !!open[key];
+    body.hidden = !isOpen;
+    head.classList.toggle('open', isOpen);
+  }
+  var heads = document.querySelectorAll('[data-collapse]');
+  if (!heads.length) return;
+  Array.prototype.forEach.call(heads, apply);
+  document.addEventListener('click', function (ev) {
+    var all = ev.target.closest('[data-collapse-all]');
+    if (all) {
+      var to = all.getAttribute('data-collapse-all') === 'open';
+      Array.prototype.forEach.call(heads, function (h) { open[h.getAttribute('data-collapse')] = to; apply(h); });
+      save();
+      return;
+    }
+    var head = ev.target.closest('[data-collapse]');
+    if (!head || ev.target.closest('a,button,form,input,select,textarea,label')) return;
+    var key = head.getAttribute('data-collapse');
+    open[key] = !open[key];
+    apply(head);
+    save();
+  });
 })();

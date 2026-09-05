@@ -19,7 +19,7 @@
                 <p style="margin-top:14px">2FA is protecting this account. To switch it off, confirm with a current code.</p>
                 <form method="post" action="{{ route('banimark.admin.security.disable') }}" class="row" style="gap:8px">@csrf
                     <input type="text" name="code" inputmode="numeric" maxlength="6" placeholder="123 456" autocomplete="one-time-code" style="width:140px;text-align:center;letter-spacing:.2em">
-                    <button type="submit" class="btn-danger btn-sm" onclick="return confirm('Turn off two-factor authentication for your account?')">Turn off 2FA</button>
+                    <button type="submit" class="btn-danger btn-sm" data-confirm="Turn off two-factor authentication for your account?">Turn off 2FA</button>
                 </form>
             @elseif($pendingSecret === '')
                 <p style="margin-top:14px">You will need an authenticator app: Google Authenticator, Authy, 1Password, Microsoft Authenticator - any of them works.</p>
