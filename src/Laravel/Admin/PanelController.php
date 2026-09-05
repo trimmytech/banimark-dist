@@ -4,6 +4,9 @@ namespace Banimark\Laravel\Admin;
 
 use Banimark\Auth\AgentAuth;
 use Banimark\Auth\Agents;
+use Banimark\Auth\Totp;
+use Banimark\Desk\QuickReplies;
+use Banimark\Storage\TranscriptView;
 use Banimark\Licensing\Master;
 use Banimark\Storage\Analytics;
 use Banimark\Storage\PdoStore;
@@ -47,10 +50,93 @@ class PanelController
 
     public function doLogin(Request $request, AgentAuth $auth)
     {
-        if ($auth->attempt((string) $request->input('email'), (string) $request->input('password'))) {
+        $result = $auth->attempt((string) $request->input('email'), (string) $request->input('password'));
+        if ($result === '2fa') {
+            return redirect()->route('banimark.admin.login.2fa');
+        }
+        if ($result) {
             return redirect()->route('banimark.admin.dashboard');
         }
         return back()->with('bm_error', 'Wrong email or password.');
+    }
+
+    /** Second login step for accounts with 2FA on. */
+    public function login2fa(AgentAuth $auth)
+    {
+        if (!$auth->pendingTotp()) {
+            return redirect()->route('banimark.admin.login');
+        }
+        return view('banimark::admin.login-2fa');
+    }
+
+    public function doLogin2fa(Request $request, AgentAuth $auth)
+    {
+        if ($auth->verifyTotp((string) $request->input('code'))) {
+            return redirect()->route('banimark.admin.dashboard');
+        }
+        return back()->with('bm_error', 'That code did not match. Codes change every 30 seconds - try the current one.');
+    }
+
+    /* ---------------- security: my 2FA ---------------- */
+
+    public function security(AgentAuth $auth, Agents $agents)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        $me = $agents->find((int) $auth->id()) ?? [];
+        $enabled = (int) ($me['totp_enabled'] ?? 0) === 1;
+        $pending = !$enabled ? (string) ($me['totp_secret'] ?? '') : '';
+        return view('banimark::admin.security', [
+            'enabled' => $enabled,
+            'pendingSecret' => $pending,
+            'uri' => $pending !== '' ? Totp::uri($pending, (string) ($me['email'] ?? ''), 'Banimark') : '',
+            'required' => (\Banimark\Laravel\BanimarkServiceProvider::settings()['require_2fa'] ?? '0') === '1',
+        ]);
+    }
+
+    public function securityBegin(AgentAuth $auth, Agents $agents)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        $agents->beginTotp((int) $auth->id());
+        return redirect()->route('banimark.admin.security');
+    }
+
+    public function securityConfirm(Request $request, AgentAuth $auth, Agents $agents)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        if ($agents->confirmTotp((int) $auth->id(), (string) $request->input('code'))) {
+            return redirect()->route('banimark.admin.security')->with('bm_ok', 'Two-factor authentication is on. You will be asked for a code at every sign-in.');
+        }
+        return back()->with('bm_error', 'That code did not match - check the time on your phone and try the current code.');
+    }
+
+    public function securityDisable(Request $request, AgentAuth $auth, Agents $agents)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        $me = $agents->find((int) $auth->id()) ?? [];
+        if (!Totp::verify((string) ($me['totp_secret'] ?? ''), (string) $request->input('code'))) {
+            return back()->with('bm_error', 'Enter a current code from your app to switch 2FA off.');
+        }
+        $agents->resetTotp((int) $auth->id());
+        return redirect()->route('banimark.admin.security')->with('bm_ok', 'Two-factor authentication is off for your account.');
+    }
+
+    /* ---------------- staff 2FA policy (owners) ---------------- */
+
+    public function staffTotpReset(Request $request, AgentAuth $auth, Agents $agents)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        if (!$auth->isOwner()) { return back()->with('bm_error', 'Only an owner can reset 2FA.'); }
+        $agents->resetTotp((int) $request->input('id'));
+        return back()->with('bm_ok', '2FA reset - they sign in with their password and can enrol again.');
+    }
+
+    public function staffTotpRequire(Request $request, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        if (!$auth->isOwner()) { return back()->with('bm_error', 'Only an owner can change this.'); }
+        $on = $request->boolean('require_2fa');
+        DB::table('banimark_settings')->updateOrInsert(['key' => 'require_2fa'], ['value' => $on ? '1' : '0']);
+        return back()->with('bm_ok', $on ? 'Every staff member must now set up 2FA before using the panel.' : '2FA is optional again.');
     }
 
     public function logout(AgentAuth $auth)
@@ -64,7 +150,10 @@ class PanelController
     public function agents(AgentAuth $auth, Agents $agents)
     {
         if ($r = $this->gate($auth)) { return $r; }
-        return view('banimark::admin.agents', ['rows' => $agents->all(), 'isOwner' => $auth->isOwner()]);
+        return view('banimark::admin.agents', [
+            'rows' => $agents->all(), 'isOwner' => $auth->isOwner(), 'meId' => (int) $auth->id(),
+            'require2fa' => (\Banimark\Laravel\BanimarkServiceProvider::settings()['require_2fa'] ?? '0') === '1',
+        ]);
     }
 
     public function saveAgent(Request $request, AgentAuth $auth, Agents $agents)
@@ -104,6 +193,9 @@ class PanelController
             DB::table('banimark_settings')->updateOrInsert(['key' => 'license_last_ping'], ['value' => (string) time()]);
             $result = (new Master($this->hqEndpoint($s), $key, $request->getSchemeAndHttpHost()))->ping();
             DB::table('banimark_settings')->updateOrInsert(['key' => 'license_status'], ['value' => $result['license']]);
+            if (($result['support_email'] ?? '') !== '') {
+                DB::table('banimark_settings')->updateOrInsert(['key' => 'support_email'], ['value' => (string) $result['support_email']]);
+            }
             if (($result['token'] ?? '') !== '') {
                 DB::table('banimark_settings')->updateOrInsert(['key' => 'license_token'], ['value' => (string) $result['token']]);
             }
@@ -116,7 +208,7 @@ class PanelController
     private function licenseSettings(): array
     {
         return DB::table('banimark_settings')
-            ->whereIn('key', ['license_key', 'license_status', 'license_last_ping', 'license_token', 'hq_url', 'updates_cache', 'updates_checked_at'])
+            ->whereIn('key', ['license_key', 'license_status', 'license_last_ping', 'license_token', 'hq_url', 'updates_cache', 'updates_checked_at', 'support_email'])
             ->pluck('value', 'key')->all();
     }
 
@@ -137,11 +229,19 @@ class PanelController
     public function license(AgentAuth $auth)
     {
         if ($r = $this->gate($auth, false)) { return $r; }
+        if (!$auth->isOwner()) {
+            // staff never touch licensing; while locked they can only sign out
+            return $auth->lockReason() ? view('banimark::admin.locked-staff') : redirect()->route('banimark.admin.dashboard');
+        }
         $s = $this->licenseSettings();
         $key = $this->licenseKey($s);
         $status = (string) ($s['license_status'] ?? '');
         $verdict = Master::verify($key, (string) ($s['license_token'] ?? ''), null, (string) request()->getHost());
         return view('banimark::admin.license', [
+            // an ACTIVE key is read-only: swapping it is how a licence walks to
+            // another install. Editable again the moment it is expired/revoked.
+            'keyLocked' => $status === 'active' && $auth->lockReason() === null,
+            'supportEmail' => (string) ($s['support_email'] ?? ''),
             'lock' => $auth->lockReason(),
             'modules' => $verdict['modules'] ?? [],
             'key' => $key,
@@ -199,7 +299,13 @@ class PanelController
     public function saveLicense(Request $request, AgentAuth $auth)
     {
         if ($r = $this->gate($auth, false)) { return $r; }
+        if (!$auth->isOwner()) { return redirect()->route('banimark.admin.dashboard'); }
         $key = trim((string) $request->input('license_key', ''));
+        $current = $this->licenseSettings();
+        if (($current['license_status'] ?? '') === 'active' && $auth->lockReason() === null
+            && $key !== '' && $key !== $this->licenseKey($current)) {
+            return back()->with('bm_error', 'Your licence is active. To move to a different key, contact support.');
+        }
         DB::table('banimark_settings')->updateOrInsert(['key' => 'license_key'], ['value' => $key]);
         // hq_url is deliberately NOT a panel field - customers should never have
         // to know it. Support can still override it via BANIMARK_HQ_URL, and an
@@ -212,8 +318,14 @@ class PanelController
         DB::table('banimark_settings')->updateOrInsert(['key' => 'license_last_ping'], ['value' => (string) time()]);
         DB::table('banimark_settings')->updateOrInsert(['key' => 'license_status'], ['value' => $result['license']]);
         DB::table('banimark_settings')->updateOrInsert(['key' => 'license_token'], ['value' => (string) ($result['token'] ?? '')]);
-        return back()->with($result['license'] === 'active' ? 'bm_ok' : 'bm_error',
-            'License checked - status: '.$result['license'].($result['message'] !== '' ? ' · '.$result['message'] : ''));
+        if (($result['support_email'] ?? '') !== '') {
+            DB::table('banimark_settings')->updateOrInsert(['key' => 'support_email'], ['value' => (string) $result['support_email']]);
+        }
+        if ($result['license'] === 'active') {
+            // activated: straight into the module this licence unlocks
+            return redirect()->route('banimark.admin.dashboard')->with('bm_ok', 'Licence active - welcome to your Support Desk.');
+        }
+        return back()->with('bm_error', 'License checked - status: '.$result['license'].($result['message'] !== '' ? ' · '.$result['message'] : ''));
     }
 
     /* ---------------- escalation settings ---------------- */
@@ -302,11 +414,41 @@ class PanelController
     public function conversation(string $sessionId, PdoStore $store, AgentAuth $auth)
     {
         if ($r = $this->gate($auth)) { return $r; }
+        $rows = TranscriptView::rows($store->transcript($sessionId));
         return view('banimark::admin.conversation', [
             'sessionId' => $sessionId,
             'mode' => $store->mode($sessionId),
-            'rows' => $store->transcript($sessionId),
+            'rows' => $rows,
+            'lastId' => $rows === [] ? 0 : end($rows)['id'],
+            'presence' => $store->presence($sessionId),
+            'quick' => QuickReplies::fromSettings(\Banimark\Laravel\BanimarkServiceProvider::settings()),
         ]);
+    }
+
+    /** Live view: rows after a cursor + presence, polled by chat.js. */
+    public function messages(Request $request, string $sessionId, PdoStore $store, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        return response()->json([
+            'ok' => true,
+            'mode' => $store->mode($sessionId),
+            'messages' => TranscriptView::rows($store->messagesSince($sessionId, (int) $request->query('after', 0))),
+            'presence' => $store->presence($sessionId),
+        ]);
+    }
+
+    /** Staff alert feed: new visitor messages + handovers since the browser last asked. */
+    public function events(Request $request, PdoStore $store, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        return response()->json($store->staffEvents((int) $request->query('since', 0)));
+    }
+
+    public function saveQuickReplies(Request $request, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        DB::table('banimark_settings')->updateOrInsert(['key' => 'quick_replies'], ['value' => trim((string) $request->input('quick_replies'))]);
+        return back()->with('bm_ok', 'Quick replies saved.');
     }
 
     /** Agent reply = takeover: the AI goes silent until handed back. */
@@ -314,20 +456,24 @@ class PanelController
     {
         if ($r = $this->gate($auth)) { return $r; }
         $text = trim((string) $request->input('message', ''));
+        $emailed = false;
+        $row = null;
         if ($text !== '') {
             $store->appendAgentMessage($sessionId, $text);
+            $all = $store->transcript($sessionId);
+            $row = $all === [] ? null : TranscriptView::row(end($all));
             // the visitor may have closed the tab - post the reply on to them
             try {
                 $settings = \Banimark\Laravel\BanimarkServiceProvider::settings();
-                $sent = (new \Banimark\Notify\FollowUp($store, app(\Banimark\Notify\Mailer::class), $settings))
+                $emailed = (new \Banimark\Notify\FollowUp($store, app(\Banimark\Notify\Mailer::class), $settings))
                     ->afterAgentReply($sessionId, $text);
-                if ($sent) {
-                    return redirect()->route('banimark.admin.conversation', $sessionId)
-                        ->with('bm_ok', 'Sent. The visitor had left the chat, so we emailed them your reply.');
-                }
             } catch (\Throwable $e) { /* a mail problem must never lose the reply */ }
         }
-        return redirect()->route('banimark.admin.conversation', $sessionId);
+        if ($request->ajax() || $request->expectsJson()) {
+            return response()->json(['ok' => $text !== '', 'message' => $row, 'emailed' => $emailed, 'mode' => $store->mode($sessionId)]);
+        }
+        $redirect = redirect()->route('banimark.admin.conversation', $sessionId);
+        return $emailed ? $redirect->with('bm_ok', 'Sent. The visitor had left the chat, so we emailed them your reply.') : $redirect;
     }
 
     public function setMode(Request $request, string $sessionId, PdoStore $store, AgentAuth $auth)
@@ -388,36 +534,69 @@ class PanelController
     public function rules(AgentAuth $auth)
     {
         if ($r = $this->gate($auth)) { return $r; }
-        return view('banimark::admin.rules', [
-            'rows' => DB::table('banimark_rules')->orderBy('sort')->orderBy('id')->get(),
-        ]);
+        $rules = $this->rulesRepo();
+        $rules->seedDefaults(); // desks installed before folders existed
+        return view('banimark::admin.rules', ['folders' => $rules->tree()]);
     }
 
-    public function saveRule(Request $request)
+    private function rulesRepo(): \Banimark\Storage\Rules
     {
+        return new \Banimark\Storage\Rules(DB::connection()->getPdo());
+    }
+
+    public function saveFolder(Request $request, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
         $title = trim((string) $request->input('title'));
-        $content = trim((string) $request->input('content'));
-        if ($title === '' || $content === '') {
-            return back()->with('bm_error', 'Title and content are required.');
-        }
-        $data = [
-            'title' => $title, 'content' => $content,
-            'sort' => (int) $request->input('sort', 0),
-            'enabled' => (bool) $request->input('enabled'),
-            'updated_at' => now(),
-        ];
-        $id = (int) $request->input('id');
-        if ($id > 0) {
-            DB::table('banimark_rules')->where('id', $id)->update($data);
-        } else {
-            DB::table('banimark_rules')->insert($data + ['created_at' => now()]);
-        }
-        return back()->with('bm_ok', 'Rule saved.');
+        if ($title === '') { return back()->with('bm_error', 'A folder needs a name.'); }
+        $id = (int) $request->input('id', 0);
+        $id > 0
+            ? $this->rulesRepo()->updateFolder($id, $title, (string) $request->input('description', ''), $request->boolean('enabled'))
+            : $this->rulesRepo()->createFolder($title, (string) $request->input('description', ''));
+        return back()->with('bm_ok', $id > 0 ? 'Folder updated.' : 'Folder added.');
     }
 
-    public function deleteRule(Request $request)
+    public function deleteFolder(Request $request, AgentAuth $auth)
     {
-        DB::table('banimark_rules')->where('id', (int) $request->input('id'))->delete();
+        if ($r = $this->gate($auth)) { return $r; }
+        $this->rulesRepo()->deleteFolder((int) $request->input('id'));
+        return back()->with('bm_ok', 'Folder and its rules removed.');
+    }
+
+    public function moveFolder(Request $request, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        $this->rulesRepo()->moveFolder((int) $request->input('id'), (int) $request->input('direction', 1));
+        return back();
+    }
+
+    public function moveRule(Request $request, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        $this->rulesRepo()->moveRule((int) $request->input('id'), (int) $request->input('direction', 1));
+        return back();
+    }
+
+    public function saveRule(Request $request, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        $content = trim((string) $request->input('content'));
+        if ($content === '') { return back()->with('bm_error', 'A rule needs some content.'); }
+        $id = (int) $request->input('id', 0);
+        if ($id > 0) {
+            $this->rulesRepo()->updateRule($id, (string) $request->input('title', ''), $content, $request->boolean('enabled'));
+            return back()->with('bm_ok', 'Rule updated.');
+        }
+        $folder = (int) $request->input('folder_id', 0);
+        if ($folder <= 0) { return back()->with('bm_error', 'Pick a folder for the rule.'); }
+        $this->rulesRepo()->addRule($folder, (string) $request->input('title', ''), $content);
+        return back()->with('bm_ok', 'Rule added.');
+    }
+
+    public function deleteRule(Request $request, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        $this->rulesRepo()->deleteRule((int) $request->input('id'));
         return back()->with('bm_ok', 'Rule removed.');
     }
 
@@ -431,20 +610,36 @@ class PanelController
         ]);
     }
 
+    /** Tables + columns for the visual builder. Owner-gated like every admin route. */
+    public function toolSchema(AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        try {
+            $tables = (new \Banimark\Tools\SchemaInspector(DB::connection()->getPdo()))->all();
+        } catch (\Throwable $e) {
+            $tables = [];
+        }
+        return response()->json(['tables' => $tables]);
+    }
+
     public function saveTool(Request $request)
     {
-        // parameters arrive as parallel arrays from the form
+        // rows arrive as positional arrays; a checkbox only posts when ticked,
+        // so param_required[] carries the INDEXES of the required rows
+        $names = array_values((array) $request->input('param_name', []));
+        $types = array_values((array) $request->input('param_type', []));
+        $descs = array_values((array) $request->input('param_desc', []));
+        $required = array_map('intval', (array) $request->input('param_required', []));
         $params = [];
-        foreach ((array) $request->input('param_name', []) as $i => $name) {
+        foreach ($names as $i => $name) {
             $name = trim((string) $name);
             if ($name === '') {
                 continue;
             }
             $params[$name] = [
-                'type' => in_array($request->input('param_type.'.$i), ['string', 'integer', 'number', 'boolean'], true)
-                    ? $request->input('param_type.'.$i) : 'string',
-                'description' => trim((string) $request->input('param_desc.'.$i, '')),
-                'required' => (bool) $request->input('param_required.'.$i),
+                'type' => in_array($types[$i] ?? '', ['string', 'integer', 'number', 'boolean'], true) ? $types[$i] : 'string',
+                'description' => trim((string) ($descs[$i] ?? '')),
+                'required' => in_array($i, $required, true),
             ];
         }
         $definition = [

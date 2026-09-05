@@ -95,6 +95,10 @@ class PdoStore implements StateStore
     {
         $set = 'mode = ?';
         $args = [$mode];
+        if ($mode === 'agent' && $this->mode($sessionId) !== 'agent') {
+            $set .= ', escalated_at = ?'; // a fresh handover, not a re-save
+            $args[] = time();
+        }
         if ($visitorLabel !== null) {
             $set .= ', visitor_label = ?';
             $args[] = $visitorLabel;
@@ -146,6 +150,53 @@ class PdoStore implements StateStore
             "SELECT id, content, created_at FROM {$this->prefix}messages WHERE conversation_id = ? AND role = 'agent' AND id > ? ORDER BY id",
             [$conv['id'], $afterId],
         );
+    }
+
+    /** Staff live view: every row (all roles) with id > $afterId. */
+    public function messagesSince(string $sessionId, int $afterId): array
+    {
+        $conv = $this->conversation($sessionId);
+        if (!$conv) {
+            return [];
+        }
+        return $this->query(
+            "SELECT id, role, content, payload, created_at FROM {$this->prefix}messages WHERE conversation_id = ? AND id > ? ORDER BY id",
+            [$conv['id'], $afterId],
+        );
+    }
+
+    /**
+     * What happened since a staff browser last asked: new visitor messages and
+     * fresh handovers. Feeds the panel's sound + badge. Bounded lists, newest
+     * first; the caller stores 'now' and passes it back next time.
+     */
+    public function staffEvents(int $since, ?int $now = null): array
+    {
+        $now = $now ?? time();
+        $since = max(0, min($since, $now));
+        $msgs = $this->query(
+            "SELECT c.session_id, c.visitor_label, c.mode, m.content, m.created_at
+             FROM {$this->prefix}messages m JOIN {$this->prefix}conversations c ON c.id = m.conversation_id
+             WHERE m.role = 'user' AND m.created_at > ? AND m.created_at <= ? ORDER BY m.id DESC LIMIT 10",
+            [$since, $now],
+        );
+        $esc = $this->query(
+            "SELECT session_id, visitor_label, escalated_at FROM {$this->prefix}conversations
+             WHERE escalated_at > ? AND escalated_at <= ? ORDER BY escalated_at DESC LIMIT 10",
+            [$since, $now],
+        );
+        $items = [];
+        foreach ($esc as $r) {
+            $items[] = ['kind' => 'escalation', 'session_id' => (string) $r['session_id'], 'label' => (string) ($r['visitor_label'] ?: 'Visitor'),
+                'text' => 'needs a human', 'at' => (int) $r['escalated_at']];
+        }
+        foreach ($msgs as $r) {
+            $items[] = ['kind' => 'message', 'session_id' => (string) $r['session_id'], 'label' => (string) ($r['visitor_label'] ?: 'Visitor'),
+                'text' => mb_substr((string) $r['content'], 0, 120), 'at' => (int) $r['created_at'], 'mode' => (string) $r['mode']];
+        }
+        usort($items, fn ($a, $b) => $b['at'] <=> $a['at']);
+        $waiting = (int) ($this->query("SELECT COUNT(*) AS n FROM {$this->prefix}conversations WHERE mode = 'agent'", [])[0]['n'] ?? 0);
+        return ['now' => $now, 'messages' => count($msgs), 'escalations' => count($esc), 'waiting' => $waiting, 'items' => $items];
     }
 
     /* ---------------- visitor identity & presence ---------------- */

@@ -1,0 +1,32 @@
+<?php
+
+namespace Banimark\Storage;
+
+/**
+ * One rendering of a transcript row for STAFF eyes (page and live JSON alike),
+ * so the server-rendered page and the polled updates never drift apart. Tool
+ * traffic collapses to a one-line note; text rows pass through untouched.
+ */
+final class TranscriptView
+{
+    /** @return array{id:int, role:string, text:string, at:int} */
+    public static function row(array $m): array
+    {
+        $payload = !empty($m['payload']) ? (json_decode((string) $m['payload'], true) ?: []) : [];
+        $role = (string) $m['role'];
+        $text = (string) $m['content'];
+        if ($role === 'tool') {
+            $text = ($payload['for_call']['name'] ?? 'tool').' → '.mb_substr(json_encode($payload['tool_result'] ?? []), 0, 200);
+        } elseif ($role === 'assistant' && !empty($payload['tool_calls'])) {
+            $role = 'tool';
+            $text = 'AI called: '.implode(', ', array_column($payload['tool_calls'], 'name'));
+        }
+        return ['id' => (int) $m['id'], 'role' => $role, 'text' => $text, 'at' => (int) ($m['created_at'] ?? 0)];
+    }
+
+    /** @return array<int, array{id:int, role:string, text:string, at:int}> */
+    public static function rows(array $rows): array
+    {
+        return array_values(array_filter(array_map([self::class, 'row'], $rows), fn ($r) => $r['text'] !== ''));
+    }
+}

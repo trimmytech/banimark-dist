@@ -74,14 +74,11 @@ class EngineFactory
     {
         $base = "You are a helpful, concise customer support agent. Use the provided tools to look up real data before answering; never invent order or account details. If a tool errors, apologise briefly and offer to escalate.";
         try {
-            $rules = DB::table('banimark_rules')->where('enabled', 1)->orderBy('sort')->orderBy('id')->get();
+            // folder by folder, in the owner's order - see Storage\Rules
+            return (new \Banimark\Storage\Rules(DB::connection()->getPdo()))->systemInstruction($base);
         } catch (\Throwable $e) {
             return $base;
         }
-        foreach ($rules as $r) {
-            $base .= "\n\n## ".$r->title."\n".$r->content;
-        }
-        return $base;
     }
 
     private static function toolRows(): array

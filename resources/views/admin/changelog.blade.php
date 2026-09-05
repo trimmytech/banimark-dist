@@ -25,8 +25,13 @@ php artisan banimark:install</textarea>
                 {!! Icons::get('check', 17) !!}
                 <div>
                     <b>You are up to date</b>
+                    {{-- keep directives on their own lines: Blade will not compile
+                         an @directive that is glued to the preceding word --}}
                     <div class="muted">
-                        Running {{ Master::PACKAGE_VERSION }}@if(!$updates['ok']) — could not reach Banimark to check for newer releases@endif
+                        Running {{ Master::PACKAGE_VERSION }}
+                        @if(!$updates['ok'])
+                            — could not reach Banimark to check for newer releases
+                        @endif
                     </div>
                 </div>
             </div>

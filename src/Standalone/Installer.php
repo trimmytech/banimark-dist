@@ -94,6 +94,7 @@ class Installer
         // 3. schema + seed settings
         try {
             Schema::create($pdo);
+            (new \Banimark\Storage\Rules($pdo))->seedDefaults();
             $settings = new Settings($pdo);
             (new Agents($pdo))->create((string) ($input['admin_name'] ?? 'Owner'), $adminEmail, $adminPassword, 'owner');
             $settings->set('identity_secret', bin2hex(random_bytes(32)));

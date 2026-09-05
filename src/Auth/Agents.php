@@ -39,7 +39,7 @@ class Agents
     /** @return array<int, array> */
     public function all(): array
     {
-        return $this->pdo->query("SELECT id, name, email, role, enabled FROM {$this->prefix}agents ORDER BY id")->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        return $this->pdo->query("SELECT id, name, email, role, enabled, totp_enabled FROM {$this->prefix}agents ORDER BY id")->fetchAll(\PDO::FETCH_ASSOC) ?: [];
     }
 
     public function count(): int
@@ -57,6 +57,39 @@ class Agents
         }
         $st = $this->pdo->prepare("DELETE FROM {$this->prefix}agents WHERE id = ?");
         $st->execute([$id]);
+    }
+
+    /* ---------------- two-factor (TOTP) ---------------- */
+
+    /** Start enrolment: a fresh secret, NOT yet enforced until confirmed. */
+    public function beginTotp(int $id): string
+    {
+        $secret = Totp::generateSecret();
+        $this->pdo->prepare("UPDATE {$this->prefix}agents SET totp_secret = ?, totp_enabled = 0 WHERE id = ?")->execute([$secret, $id]);
+        return $secret;
+    }
+
+    /** Confirm enrolment with a code from the app - only then does 2FA switch on. */
+    public function confirmTotp(int $id, string $code): bool
+    {
+        $agent = $this->find($id);
+        if (!$agent || (string) ($agent['totp_secret'] ?? '') === '' || !Totp::verify((string) $agent['totp_secret'], $code)) {
+            return false;
+        }
+        $this->pdo->prepare("UPDATE {$this->prefix}agents SET totp_enabled = 1 WHERE id = ?")->execute([$id]);
+        return true;
+    }
+
+    /** Switch 2FA off and forget the secret (self-service, or an owner resetting a locked-out colleague). */
+    public function resetTotp(int $id): void
+    {
+        $this->pdo->prepare("UPDATE {$this->prefix}agents SET totp_secret = '', totp_enabled = 0 WHERE id = ?")->execute([$id]);
+    }
+
+    public function totpEnabled(int $id): bool
+    {
+        $agent = $this->find($id);
+        return $agent !== null && (int) ($agent['totp_enabled'] ?? 0) === 1;
     }
 
     /** @return string[] every enabled agent's email - the default escalation audience */

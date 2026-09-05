@@ -86,4 +86,12 @@
         </div>
     </div>
 </div>
+<div class="bm-card">
+    <h2>Quick replies</h2>
+    <div class="muted">One per line. Staff tap these in a live conversation to answer in one click.</div>
+    <form method="post" action="{{ route('banimark.admin.quick.save') }}">@csrf
+        <textarea name="quick_replies" rows="5" style="margin-top:10px">{{ implode("\n", \Banimark\Desk\QuickReplies::fromSettings($s)) }}</textarea>
+        <div style="margin-top:10px"><button type="submit" class="btn2 btn-sm">Save quick replies</button></div>
+    </form>
+</div>
 @endsection

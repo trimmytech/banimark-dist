@@ -4,7 +4,9 @@
 @section('sub', 'Your Banimark subscription')
 @section('content')
     @if($lock)
-        <div class="flash-err">{!! Icons::get('shield', 16) !!}<span><b>Admin locked.</b> {{ $lock['message'] }}</span></div>
+        <div class="flash-err">{!! Icons::get('shield', 16) !!}<span><b>Admin locked.</b> {{ $lock['message'] }}
+            @if($supportEmail !== '') Need help? <a href="mailto:{{ $supportEmail }}">{{ $supportEmail }}</a>@endif
+        </span></div>
     @endif
 
     <div class="bm-card" style="max-width:660px">
@@ -35,7 +37,10 @@
         <form method="post" action="{{ route('banimark.admin.license.save') }}">
             @csrf
             <label>License key</label>
-            <input type="text" name="license_key" value="{{ $key }}" placeholder="BM-XXXX-XXXX-XXXX-XXXX" class="mono">
+            <input type="text" name="license_key" value="{{ $key }}" placeholder="BM-XXXX-XXXX-XXXX-XXXX" class="mono" @readonly($keyLocked) @if($keyLocked) style="opacity:.7" @endif>
+            @if($keyLocked)
+                <div class="hint">Your licence is active, so the key is locked. It becomes editable if the licence expires or is revoked.</div>
+            @endif
             <div style="margin-top:16px"><button type="submit">{!! Icons::get('check', 15) !!} Save &amp; check now</button></div>
         </form>
 

@@ -31,7 +31,7 @@ class DoctorCommand extends Command
 
         // tables
         $tables = true;
-        foreach (['banimark_conversations', 'banimark_messages', 'banimark_providers', 'banimark_rules', 'banimark_tools', 'banimark_settings'] as $t) {
+        foreach (['banimark_conversations', 'banimark_messages', 'banimark_providers', 'banimark_rules', 'banimark_rule_folders', 'banimark_tools', 'banimark_agents', 'banimark_settings'] as $t) {
             try {
                 DB::select('SELECT 1 FROM '.$t.' LIMIT 1');
             } catch (\Throwable $e) {

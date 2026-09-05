@@ -26,7 +26,7 @@ class Html
             .'<main class="bm-main">'
             .'<header class="bm-top">'.Layout::burger()
             .'<div><h1>'.self::e($title).'</h1>'.($sub !== '' ? '<div class="sub">'.self::e($sub).'</div>' : '').'</div>'
-            .'<div class="spacer"></div>'.$actions.Layout::themeButton()
+            .'<div class="spacer"></div>'.$actions.Layout::soundButton().Layout::themeButton()
             .'</header>'
             .'<div class="bm-wrap">'.$content.'</div>'
             .'</main></div>'.Layout::scripts().'</body></html>';
@@ -51,6 +51,20 @@ class Html
             .'<label>Email</label><input type="text" name="email" autofocus autocomplete="username" placeholder="you@company.com">'
             .'<label>Password</label><input type="password" name="password" autocomplete="current-password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;">'
             .'<button type="submit" style="width:100%;margin-top:18px">Sign in</button></form></div>');
+    }
+
+    /** Second sign-in step: the authenticator code. */
+    public static function totp(string $action, string $logout, string $error = ''): string
+    {
+        return self::bare('Verify', '<div class="bm-card" style="max-width:372px;margin:0 auto">'
+            .'<div class="head"><div class="bm-logo"></div><h2>One more step</h2>'
+            .'<p class="muted">Enter the 6-digit code from your authenticator app.</p></div>'
+            .($error !== '' ? '<div class="flash-err"><span>'.self::e($error).'</span></div>' : '')
+            .'<form method="post" action="'.self::e($action).'">'
+            .'<label>Code</label><input type="text" name="code" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="6" autofocus placeholder="123 456" style="font-size:22px;letter-spacing:.3em;text-align:center">'
+            .'<button type="submit" style="width:100%;margin-top:18px">Verify</button></form>'
+            .'<a class="btn-ghost" href="'.self::e($logout).'" style="display:block;text-align:center;margin-top:10px">Use a different account</a></div>'
+            .'<p class="muted" style="text-align:center">Lost your device? An owner can reset your 2FA from Staff.</p>');
     }
 
     public static function e(?string $s): string

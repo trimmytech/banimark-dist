@@ -33,9 +33,37 @@ class Layout
             .'<style>'.self::css().'</style>';
     }
 
+    /** @var array<string, mixed> runtime facts the panel script needs (event feed url, current user) */
+    private static array $config = [];
+
+    /** Set once per request by the runtime that knows its URLs; emitted by scripts(). */
+    public static function configure(array $config): void
+    {
+        self::$config = array_merge(self::$config, $config);
+    }
+
     public static function scripts(): string
     {
-        return '<script>'.self::js().'</script>';
+        return '<script>window.BM='.json_encode(self::$config, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS).';</script>'
+            .'<script>'.self::js().'</script>';
+    }
+
+    /** Live staff conversation view, inlined on that page only. */
+    public static function chatScript(): string
+    {
+        return '<script>'.(string) @file_get_contents(__DIR__.'/../../resources/design/chat.js').'</script>';
+    }
+
+    /** Header button: staff can mute/unmute the new-message chime (remembered per browser). */
+    public static function soundButton(): string
+    {
+        return '<button type="button" class="btn-ghost btn-icon" data-sound-toggle title="New message sound">'.Icons::get('bell', 16).'</button>';
+    }
+
+    /** The visual Tool Builder, inlined on the tools page only. */
+    public static function toolBuilderScript(): string
+    {
+        return '<script>'.(string) @file_get_contents(__DIR__.'/../../resources/design/toolbuilder.js').'</script>';
     }
 
     /** Product mark + wordmark used in the sidebar and on the auth screen. */

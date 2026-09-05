@@ -1,17 +1,17 @@
-@php use Banimark\Ui\Chart; use Banimark\Ui\Icons; @endphp
+@php use Banimark\Ui\Chart; use Banimark\Ui\Icons; use Banimark\Ui\Layout; @endphp
 @extends('banimark::admin.layout')
 @section('title', 'Tools')
-@section('sub', 'Read-only lookups the AI can run against your own database')
+@section('sub', 'Let the AI look things up in your own database — safely, read-only')
 @section('content')
     <div class="bm-card pad0">
         <div class="bm-sec-h" style="padding:18px 20px 0">
             <div><h2>Your tools</h2>
-                <div class="muted">Values are always bound. <code>:_key</code> placeholders come from the signed visitor identity and can never be set by the AI.</div>
+                <div class="muted">Each tool is one question the AI can answer from your data, e.g. "find this customer's orders".</div>
             </div>
         </div>
         <div class="t-wrap">
             <table>
-                <tr><th>Name</th><th>Description</th><th>Parameters</th><th>Rows</th><th></th></tr>
+                <tr><th>Name</th><th>What it does</th><th>Asks the customer for</th><th>Rows</th><th></th></tr>
                 @forelse($rows as $r)
                     <tr>
                         <td><div class="row">{!! Icons::get('tools', 15) !!}<b class="mono" style="background:none;padding:0">{{ $r->name }}</b></div></td>
@@ -34,35 +34,49 @@
 
     <div class="bm-card">
         <h2>Build a tool</h2>
-        <div class="muted">Saved only if it passes validation: SELECT-only, no semicolons or comments, every placeholder declared.</div>
+        <div class="muted">Three steps: name it, say what the AI needs to ask the customer, then point at your data. No SQL knowledge needed — the builder writes it for you.</div>
         <form method="post" action="{{ route('banimark.admin.tools.save') }}">
             @csrf
+            <h3 class="bm-step">1. What is this tool?</h3>
             <div class="grid2">
-                <div><label>Name (a–z, 0–9, _)</label><input type="text" name="name" required placeholder="search_order"></div>
-                <div><label>Max rows returned</label><input type="number" name="max_rows" value="10"></div>
+                <div><label>Name <span class="muted">(letters, numbers, underscores)</span></label><input type="text" name="name" required placeholder="find_orders" value="{{ old('name') }}"></div>
+                <div><label>Most rows to return</label><input type="number" name="max_rows" value="{{ old('max_rows', 10) }}" min="1" max="50"></div>
             </div>
-            <label>Description — what the AI reads to decide when to call it</label>
-            <textarea name="description" required placeholder="Look up a customer order by its reference number."></textarea>
+            <label>Describe it in plain words — the AI reads this to know when to use it</label>
+            <textarea name="description" required placeholder="Look up a customer's orders by order number or by what they bought.">{{ old('description') }}</textarea>
 
-            <label>Parameters</label>
-            @for($i = 0; $i < 4; $i++)
-                <div class="row" style="margin-bottom:7px">
-                    <input type="text" name="param_name[{{ $i }}]" placeholder="name e.g. reference" style="flex:2">
-                    <select name="param_type[{{ $i }}]" style="flex:1">
-                        <option>string</option><option>integer</option><option>number</option><option>boolean</option>
-                    </select>
-                    <input type="text" name="param_desc[{{ $i }}]" placeholder="description for the AI" style="flex:3">
-                    <label style="margin:0;white-space:nowrap"><input type="checkbox" name="param_required[{{ $i }}]" value="1">req</label>
+            <h3 class="bm-step">2. What should the AI ask the customer for?</h3>
+            <div class="muted" style="margin-bottom:8px">Each item becomes a question the AI can ask (an order number, a date, a product name). Add as many as you need.</div>
+            <div data-params></div>
+            <button type="button" class="btn-ghost btn-sm" data-add-param>{!! Icons::get('plus', 14) !!} Add another</button>
+
+            <h3 class="bm-step">3. Where is the data?</h3>
+            <div data-toolbuilder data-schema-url="{{ route('banimark.admin.tools.schema') }}" style="background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:14px 16px">
+                <div class="row" style="justify-content:space-between">
+                    <b>Visual builder</b><span class="muted" data-status>…</span>
                 </div>
-            @endfor
-
-            <label>SQL — SELECT only. <code>:param</code> for AI values, <code>:_key</code> for identity values</label>
-            <textarea name="sql" required placeholder="SELECT reference, status, total FROM orders WHERE reference = :reference AND user_id = :_user_id"></textarea>
-            <div class="grid2">
-                <div><label>Columns the AI may see</label><input type="text" name="columns" required placeholder="reference, status, total"></div>
-                <div><label>Identity context keys used</label><input type="text" name="context" value="user_id"></div>
+                <div class="grid2" style="margin-top:8px">
+                    <div><label>Table</label><select data-table><option value="">Loading…</option></select></div>
+                    <div><label>Who is chatting is identified by <span class="muted">(identity keys, comma-separated)</span></label><input type="text" name="context" value="{{ old('context', 'user_id') }}" placeholder="user_id"></div>
+                </div>
+                <label>Columns the AI may show the customer</label>
+                <div data-columns><span class="muted">Pick a table first.</span></div>
+                <label style="margin-top:12px">Only show rows where…</label>
+                <div data-conditions></div>
+                <button type="button" class="btn-ghost btn-sm" data-add-condition>{!! Icons::get('plus', 14) !!} Add a condition</button>
+                <div class="muted" style="margin:10px 0 4px">Tip: add a condition on the customer's own id using the <i>identity</i> option so every customer only ever sees their own rows.</div>
+                <pre class="mono" data-preview style="white-space:pre-wrap;padding:10px 12px;border-radius:8px;margin:8px 0">-- pick a table and at least one column</pre>
+                <button type="button" class="btn2 btn-sm" data-apply disabled>{!! Icons::get('check', 14) !!} Use this query</button>
             </div>
+
+            <details style="margin-top:14px">
+                <summary class="muted" style="cursor:pointer">Advanced: the query the AI will run (editable)</summary>
+                <label>SQL — SELECT only. <code>:param</code> for values the AI asks for, <code>:_key</code> for identity values</label>
+                <textarea name="sql" required placeholder="SELECT reference, status, total FROM orders WHERE reference = :reference AND user_id = :_user_id">{{ old('sql') }}</textarea>
+                <label>Columns the AI may see</label><input type="text" name="columns" required placeholder="reference, status, total" value="{{ old('columns') }}">
+            </details>
             <div style="margin-top:16px"><button type="submit">{!! Icons::get('check', 15) !!} Validate &amp; save tool</button></div>
         </form>
     </div>
+    {!! Layout::toolBuilderScript() !!}
 @endsection

@@ -109,26 +109,51 @@ panel locks — visitors carry on being served.
 
 ## Building a tool
 
-Tools are how the AI answers from your own data. In **Tools**, give it a name, a
-description the AI reads to decide when to call it, the parameters it may pass,
-and a `SELECT` statement:
+**Tools** are read-only lookups the assistant can run against *your* database —
+"find this customer's orders", "check a ticket status". Three steps, no SQL:
 
-```sql
-SELECT reference, status, total, delivered_at
-FROM orders
-WHERE reference = :reference AND user_id = :_user_id
+1. **Name it** and describe it in plain words (the AI reads this to know when to use it).
+2. **What should the AI ask the customer for?** — add as many items as you need
+   (order number, date, product…). Tick *required* where it must have the value.
+3. **Where is the data?** — pick a table, tick the columns the AI may show, add
+   conditions ("reference equals *the order number the customer gave*"). Add a
+   condition on the customer's own id using the *identity* option so every
+   customer only ever sees their own rows.
+
+Click **Use this query**, then **Validate & save**. The query stays visible and
+editable under *Advanced* for anyone who prefers SQL. Every tool goes through the
+same checks: SELECT only, values always bound, results limited to the columns you
+ticked, identity values from the signed visitor token — never from the AI.
+
+## Rules — shaping how the assistant behaves
+
+Rules live in **folders** (Personality, Response behaviour, Business protection,
+Service rules, Custom instructions, plus any you create). Each folder is applied
+in order; switch a folder or a single rule off without deleting it. No prompt
+writing needed — plain sentences work: *"Never promise a refund date."*
+
+## Staff, 2FA and the live inbox
+
+- **Staff** (owners only): add agents and owners. Banimark has its own login,
+  independent of your app's users.
+- **Security**: every staff member can turn on two-factor authentication with any
+  authenticator app. Owners can *require* it for everyone and reset a colleague
+  who lost their phone.
+- **Inbox**: the conversation page updates live — new visitor messages appear as
+  they arrive, replies go out without a reload, and one-tap *quick replies*
+  (edit them under Notifications) speed things up. A chime and a badge announce
+  new messages and handovers on every page; the bell in the header mutes it.
+
+## Mobile apps (Flutter)
+
+`banimark_flutter` gives your app the same chat, native: themeable bubbles,
+human handover with live agent replies, resume on reopen, guest mode.
+
+```dart
+BanimarkChat(config: BanimarkConfig.laravel('https://yourapp.com', token: userToken))
 ```
 
-- `:reference` is supplied by the AI, always as a **bound** parameter
-- `:_user_id` comes from the **signed visitor token**, never from the AI — so a
-  visitor can only ever see their own rows
-- Only the columns you whitelist are returned, and the row cap is yours
-
-Tools are validated when you save: `SELECT` only, no semicolons, comments, or
-write statements, and every placeholder must be declared. If the identity
-context a tool needs is missing, it refuses to run rather than running unscoped.
-
----
+Ask support for the package; its README covers theming and the signed visitor token.
 
 ## Settings worth knowing
 

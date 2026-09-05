@@ -25,6 +25,7 @@ class Schema
             last_seen_at INTEGER NOT NULL DEFAULT 0,
             followup_at INTEGER NOT NULL DEFAULT 0,
             last_message_at INTEGER NOT NULL DEFAULT 0,
+            escalated_at INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL DEFAULT 0
         )");
         self::index($pdo, "{$prefix}conv_session", "{$prefix}conversations", 'session_id', true);
@@ -54,8 +55,20 @@ class Schema
         )");
         self::index($pdo, "{$prefix}provider_slug", "{$prefix}providers", 'slug', true);
 
+        // rules live in FOLDERS (personality, business protection, ...): the
+        // system instruction is built folder by folder, in folder order, so the
+        // owner shapes the prompt's structure without ever seeing a prompt
+        $pdo->exec("CREATE TABLE IF NOT EXISTS {$prefix}rule_folders (
+            id {$pk},
+            title VARCHAR(190) NOT NULL,
+            description VARCHAR(255) NOT NULL DEFAULT '',
+            sort INTEGER NOT NULL DEFAULT 0,
+            enabled {$bool} NOT NULL DEFAULT 1
+        )");
+
         $pdo->exec("CREATE TABLE IF NOT EXISTS {$prefix}rules (
             id {$pk},
+            folder_id INTEGER NOT NULL DEFAULT 0,
             title VARCHAR(190) NOT NULL,
             content TEXT NOT NULL,
             sort INTEGER NOT NULL DEFAULT 0,
@@ -88,6 +101,8 @@ class Schema
             password VARCHAR(255) NOT NULL,
             role VARCHAR(20) NOT NULL DEFAULT 'agent',
             enabled {$bool} NOT NULL DEFAULT 1,
+            totp_secret VARCHAR(64) NOT NULL DEFAULT '',
+            totp_enabled INTEGER NOT NULL DEFAULT 0,
             created_at VARCHAR(32) NULL
         )");
         self::index($pdo, "{$prefix}agent_email", "{$prefix}agents", 'email', true);
@@ -112,6 +127,12 @@ class Schema
         self::addColumn($pdo, "{$prefix}conversations", 'visitor_email', "VARCHAR(190) NOT NULL DEFAULT ''");
         self::addColumn($pdo, "{$prefix}conversations", 'last_seen_at', 'INTEGER NOT NULL DEFAULT 0');
         self::addColumn($pdo, "{$prefix}conversations", 'followup_at', 'INTEGER NOT NULL DEFAULT 0');
+        // when the AI (or an agent) handed the chat to a human - drives the staff alert feed
+        self::addColumn($pdo, "{$prefix}conversations", 'escalated_at', 'INTEGER NOT NULL DEFAULT 0');
+        self::addColumn($pdo, "{$prefix}rules", 'folder_id', 'INTEGER NOT NULL DEFAULT 0');
+        // staff 2FA (TOTP): secret + whether it is switched on for this account
+        self::addColumn($pdo, "{$prefix}agents", 'totp_secret', "VARCHAR(64) NOT NULL DEFAULT ''");
+        self::addColumn($pdo, "{$prefix}agents", 'totp_enabled', 'INTEGER NOT NULL DEFAULT 0');
     }
 
     /** ALTER ... ADD COLUMN works on MySQL and SQLite alike; a duplicate is fine. */

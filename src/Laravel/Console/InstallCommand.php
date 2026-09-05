@@ -31,6 +31,7 @@ class InstallCommand extends Command
         // tables introduced since the first install, e.g. staff accounts)
         $this->callSilent('migrate');
         \Banimark\Storage\Schema::create(\Illuminate\Support\Facades\DB::connection()->getPdo());
+        (new \Banimark\Storage\Rules(\Illuminate\Support\Facades\DB::connection()->getPdo()))->seedDefaults();
         $this->line('✔ tables migrated (banimark_*)');
 
         // 3. identity secret

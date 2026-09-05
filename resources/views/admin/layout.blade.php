@@ -1,4 +1,5 @@
-@php use Banimark\Ui\Layout; use Banimark\Ui\Icons; @endphp
+@php use Banimark\Ui\Layout; use Banimark\Ui\Icons;
+Layout::configure(['events' => route('banimark.admin.events'), 'conversation' => route('banimark.admin.conversation', '__SID__')]); @endphp
 <!doctype html>
 <html lang="en">
 <head>{!! Layout::head('Banimark — '.trim($__env->yieldContent('title', 'Admin'))) !!}</head>
@@ -18,6 +19,7 @@
             <span class="lbl">Account</span>
             {!! Layout::navLink(['href' => route('banimark.admin.escalation'), 'icon' => 'escalation', 'label' => 'Notifications', 'on' => request()->routeIs('banimark.admin.escalation')]) !!}
             {!! Layout::navLink(['href' => route('banimark.admin.agents'), 'icon' => 'staff', 'label' => 'Staff', 'on' => request()->routeIs('banimark.admin.agents')]) !!}
+            {!! Layout::navLink(['href' => route('banimark.admin.security'), 'icon' => 'shield', 'label' => 'Security', 'on' => request()->routeIs('banimark.admin.security')]) !!}
             {!! Layout::navLink(['href' => route('banimark.admin.license'), 'icon' => 'license', 'label' => 'License', 'on' => request()->routeIs('banimark.admin.license')]) !!}
             @if(app(\Banimark\Auth\AgentAuth::class)->isOwner())
                 {!! Layout::navLink(['href' => route('banimark.admin.changelog'), 'icon' => 'bolt', 'label' => 'Changelog', 'on' => request()->routeIs('banimark.admin.changelog')]) !!}
@@ -40,6 +42,7 @@
             </div>
             <div class="spacer"></div>
             @yield('actions')
+            {!! Layout::soundButton() !!}
             {!! Layout::themeButton() !!}
         </header>
         <div class="bm-wrap">

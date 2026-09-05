@@ -53,10 +53,9 @@ class EngineBuilder
             }
         }
 
-        $system = "You are a helpful, concise customer support agent. Use the provided tools to look up real data before answering; never invent order or account details. If a tool errors, apologise briefly and offer to escalate.";
-        foreach ($pdo->query("SELECT title, content FROM {$prefix}rules WHERE enabled = 1 ORDER BY sort, id") as $r) {
-            $system .= "\n\n## ".$r['title']."\n".$r['content'];
-        }
+        $base = "You are a helpful, concise customer support agent. Use the provided tools to look up real data before answering; never invent order or account details. If a tool errors, apologise briefly and offer to escalate.";
+        // folder by folder, in the owner's order - see Storage\Rules
+        $system = (new \Banimark\Storage\Rules($pdo, $prefix))->systemInstruction($base);
 
         return new Engine($manager->driver(), $registry, [
             'system' => $system,

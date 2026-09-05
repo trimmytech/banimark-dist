@@ -3,6 +3,39 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.13.0
+- **Rules are now folders.** Instead of one long list, your assistant's rules
+  live in folders — Personality, Response behaviour, Business protection,
+  Service rules, Custom instructions, and any you add (Refund policy, Opening
+  hours…). Reorder folders and rules, switch any of them off without deleting.
+  Existing rules are kept and appear under *Custom instructions*.
+- **Tool Builder without SQL.** Building a lookup is now three plain steps:
+  name it, list what the AI should ask the customer for (add as many as you
+  like), then pick a table, tick the columns and add conditions — the query is
+  written for you and stays editable under *Advanced*. The table list shows your
+  own data — framework plumbing (queues, caches, sessions, migrations) is kept
+  out of the way. Every tool still passes the same safety checks before it is
+  saved.
+- **Two-factor authentication.** Every staff member can protect their login
+  with an authenticator app (Security page). Owners can require it for all
+  staff and reset anyone who loses their phone.
+- **Live inbox.** The conversation page updates as the visitor types no reload
+  needed — replies land instantly, the visitor's presence is shown, and one-tap
+  *quick replies* (edit them under Notifications) speed up answers. A soft chime
+  and a badge tell staff about new visitor messages and handovers on every page;
+  mute it with the bell in the header.
+- **Flutter SDK.** `banimark_flutter` gives mobile apps the same chat — fully
+  themeable, human handover, resume, guest mode. Ask support for access.
+- Licence page: shows your vendor's support email whenever you are locked out
+  or need help; an active key is read-only until it expires or is revoked.
+
+*Upgrade note:* run `php artisan migrate` (Laravel) or open the panel once
+(standalone) — new tables and columns are added automatically.
+
+## 0.12.2
+- Fixed: the Changelog page returned a 500 (`syntax error, unexpected end of
+  file`). Please update.
+
 ## 0.12.1
 - **Changelog** is now its own page in the sidebar, for owners. It shows one
   clear notice when an update is available, with the command to run, followed by
