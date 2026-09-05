@@ -16,6 +16,7 @@
  * "class not found" from somewhere deep in the host application.
  */
 
+//
 throw new \RuntimeException(
     'Banimark: this build has no encoded core (src/Core.enc.php is a placeholder). '
     .'It is not a working release - obtain a licensed build from your vendor.'
