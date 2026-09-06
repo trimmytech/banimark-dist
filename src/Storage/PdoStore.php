@@ -404,8 +404,39 @@ class PdoStore implements StateStore
         return $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
     }
 
+    /**
+     * Every write goes through here, which is where the emoji safety net sits.
+     *
+     * A MySQL install whose tables are still utf8mb3 answers a 4-byte character
+     * with SQLSTATE[HY000] 1366 "Incorrect string value" - so one 😘 used to
+     * take the whole message, and the visitor got a 500. Schema::ensureUtf8mb4()
+     * is the real fix; this is what stands between a not-yet-upgraded install
+     * and a dead chat: retry once without the characters the column cannot hold,
+     * because losing the emoji beats losing the message.
+     */
     private function exec(string $sql, array $args): void
     {
-        $this->pdo->prepare($sql)->execute($args);
+        try {
+            $this->pdo->prepare($sql)->execute($args);
+        } catch (\PDOException $e) {
+            $plain = self::withoutFourByteChars($args);
+            if ($plain === $args || stripos($e->getMessage(), 'Incorrect string value') === false) {
+                throw $e;
+            }
+            $this->pdo->prepare($sql)->execute($plain);
+        }
+    }
+
+    /** Drop astral-plane characters (emoji, rare CJK) from the bound values. */
+    private static function withoutFourByteChars(array $args): array
+    {
+        foreach ($args as $i => $v) {
+            if (is_string($v) && $v !== '') {
+                // an invalid-UTF-8 subject makes preg_replace return null - then
+                // the value was not the problem and the original stands
+                $args[$i] = preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', $v) ?? $v;
+            }
+        }
+        return $args;
     }
 }

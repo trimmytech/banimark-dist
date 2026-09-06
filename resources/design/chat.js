@@ -152,7 +152,11 @@
     });
   }
 
-  form.addEventListener('submit', function (ev) {
+  // named, because the no-JS fallback below has to unhook it before letting the
+  // browser post the form. (It used to reach for arguments.callee, which is a
+  // hard error under 'use strict' - so a failed reply threw instead of falling
+  // back, and the staff member saw nothing happen at all.)
+  function submitReply(ev) {
     ev.preventDefault();
     var text = box.value.trim();
     var ready = pending.filter(function (p) { return p.id; });
@@ -169,7 +173,7 @@
       if (xhr.readyState !== 4) return;
       send.disabled = false;
       var d = null; try { d = JSON.parse(xhr.responseText); } catch (e) {}
-      if (xhr.status !== 200 || !d || !d.ok) { form.removeEventListener('submit', arguments.callee); form.submit(); return; }
+      if (xhr.status !== 200 || !d || !d.ok) { form.removeEventListener('submit', submitReply); form.submit(); return; }
       box.value = ''; box.style.height = '';
       if (d.message) append([d.message]);
       setMode('agent');
@@ -177,7 +181,8 @@
       box.focus();
     };
     xhr.send(fd);
-  });
+  }
+  form.addEventListener('submit', submitReply);
   // Enter sends, Shift+Enter makes a new line; the box grows with the text
   box.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit ? form.requestSubmit() : form.dispatchEvent(new Event('submit', {cancelable: true})); } });
   box.addEventListener('input', function () { box.style.height = 'auto'; box.style.height = Math.min(160, box.scrollHeight) + 'px'; });

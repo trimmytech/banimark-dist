@@ -14,6 +14,12 @@ class Schema
         $driver = $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME);
         $pk = $driver === 'sqlite' ? 'INTEGER PRIMARY KEY AUTOINCREMENT' : 'BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY';
         $bool = $driver === 'sqlite' ? 'INTEGER' : 'TINYINT(1)';
+        // SQLite is UTF-8 throughout; MySQL is NOT unless it is told. A server
+        // whose default is still `utf8` (= utf8mb3) rejects any 4-byte
+        // character - every emoji - with "Incorrect string value", which used
+        // to surface as a 500 the moment a visitor sent one. Say utf8mb4 here
+        // and convert older installs in ensureUtf8mb4().
+        $tail = $driver === 'sqlite' ? '' : ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
 
         $pdo->exec("CREATE TABLE IF NOT EXISTS {$prefix}conversations (
             id {$pk},
@@ -30,7 +36,7 @@ class Schema
             agent_typing_at INTEGER NOT NULL DEFAULT 0,
             staff_seen_at INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL DEFAULT 0
-        )");
+        ){$tail}");
         self::index($pdo, "{$prefix}conv_session", "{$prefix}conversations", 'session_id', true);
 
         $pdo->exec("CREATE TABLE IF NOT EXISTS {$prefix}messages (
@@ -41,7 +47,7 @@ class Schema
             payload TEXT NULL,
             agent_id INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL DEFAULT 0
-        )");
+        ){$tail}");
 
         // fixed-window counters for flood protection and the daily AI cap
         $pdo->exec("CREATE TABLE IF NOT EXISTS {$prefix}throttle (
@@ -49,7 +55,7 @@ class Schema
             bucket INTEGER NOT NULL,
             hits INTEGER NOT NULL DEFAULT 0,
             expires_at INTEGER NOT NULL DEFAULT 0
-        )");
+        ){$tail}");
         self::index($pdo, "{$prefix}throttle_kb", "{$prefix}throttle", 'k, bucket', true);
         self::index($pdo, "{$prefix}msg_conv", "{$prefix}messages", 'conversation_id, id', false);
 
@@ -65,7 +71,7 @@ class Schema
             is_default {$bool} NOT NULL DEFAULT 0,
             created_at VARCHAR(32) NULL,
             updated_at VARCHAR(32) NULL
-        )");
+        ){$tail}");
         self::index($pdo, "{$prefix}provider_slug", "{$prefix}providers", 'slug', true);
 
         // rules live in FOLDERS (personality, business protection, ...): the
@@ -77,7 +83,7 @@ class Schema
             description VARCHAR(255) NOT NULL DEFAULT '',
             sort INTEGER NOT NULL DEFAULT 0,
             enabled {$bool} NOT NULL DEFAULT 1
-        )");
+        ){$tail}");
 
         $pdo->exec("CREATE TABLE IF NOT EXISTS {$prefix}rules (
             id {$pk},
@@ -88,7 +94,7 @@ class Schema
             enabled {$bool} NOT NULL DEFAULT 1,
             created_at VARCHAR(32) NULL,
             updated_at VARCHAR(32) NULL
-        )");
+        ){$tail}");
 
         // column names match the Laravel layer's queries exactly; backtick
         // quoting works on MySQL/MariaDB AND SQLite
@@ -104,7 +110,7 @@ class Schema
             enabled {$bool} NOT NULL DEFAULT 1,
             created_at VARCHAR(32) NULL,
             updated_at VARCHAR(32) NULL
-        )");
+        ){$tail}");
         self::index($pdo, "{$prefix}tool_name", "{$prefix}tools", 'name', true);
 
         $pdo->exec("CREATE TABLE IF NOT EXISTS {$prefix}agents (
@@ -123,7 +129,7 @@ class Schema
             permissions TEXT NULL,
             last_active_at INTEGER NOT NULL DEFAULT 0,
             created_at VARCHAR(32) NULL
-        )");
+        ){$tail}");
         self::index($pdo, "{$prefix}agent_email", "{$prefix}agents", 'email', true);
 
         // files shared in a chat, by a visitor or by staff. The BYTES live on the
@@ -142,14 +148,14 @@ class Schema
             size INTEGER NOT NULL DEFAULT 0,
             source VARCHAR(10) NOT NULL DEFAULT 'visitor',
             created_at INTEGER NOT NULL DEFAULT 0
-        )");
+        ){$tail}");
         self::index($pdo, "{$prefix}attach_token", "{$prefix}attachments", 'token', true);
         self::index($pdo, "{$prefix}attach_conv", "{$prefix}attachments", 'conversation_id', false);
 
         $pdo->exec("CREATE TABLE IF NOT EXISTS {$prefix}settings (
             `key` VARCHAR(80) NOT NULL,
             `value` TEXT NOT NULL
-        )");
+        ){$tail}");
         self::index($pdo, "{$prefix}settings_key", "{$prefix}settings", '`key`', true);
 
         self::upgrade($pdo, $prefix);
@@ -219,6 +225,51 @@ class Schema
         // 0.16: who sent an agent reply (team page), when staff were last in the panel
         self::addColumn($pdo, "{$prefix}messages", 'agent_id', 'INTEGER NOT NULL DEFAULT 0');
         self::addColumn($pdo, "{$prefix}agents", 'last_active_at', 'INTEGER NOT NULL DEFAULT 0');
+        // 0.16.1: emoji. Installs created before this release inherited the
+        // server's default charset, which on MySQL is usually still utf8mb3.
+        self::ensureUtf8mb4($pdo, $prefix);
+    }
+
+    /**
+     * Bring Banimark's own tables to utf8mb4 on MySQL/MariaDB.
+     *
+     * A table created before 0.16.1 took the DATABASE default, and a database
+     * created before MySQL 8 defaults to `utf8` - three bytes per character,
+     * which cannot hold an emoji: the insert fails with SQLSTATE[HY000] 1366
+     * "Incorrect string value". Only OUR tables are touched; the host
+     * application's own schema is none of our business.
+     *
+     * Every indexed column here is at most VARCHAR(190) (760 bytes in utf8mb4),
+     * so the conversion fits even under the old 767-byte index prefix limit.
+     * Never throws: one stubborn table must not stop the others, and a schema
+     * upgrade must never take the panel - or the chat - down with it.
+     */
+    public static function ensureUtf8mb4(\PDO $pdo, string $prefix = 'banimark_'): void
+    {
+        if ($pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite') {
+            return; // SQLite stores UTF-8 and nothing else
+        }
+        try {
+            // `_` is a LIKE wildcard and the prefix ends in one - escape it, or
+            // "banimark_%" would also claim a host table called "banimarkXlogs"
+            $like = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $prefix).'%';
+            $st = $pdo->prepare(
+                'SELECT TABLE_NAME FROM information_schema.TABLES'
+                .' WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME LIKE ?'
+                ." AND TABLE_COLLATION IS NOT NULL AND TABLE_COLLATION NOT LIKE 'utf8mb4%'"
+            );
+            $st->execute([$like]);
+            foreach ($st->fetchAll(\PDO::FETCH_COLUMN) as $table) {
+                try {
+                    $pdo->exec('ALTER TABLE `'.str_replace('`', '', (string) $table).'` CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+                } catch (\Throwable $e) {
+                    // e.g. an ancient MySQL refusing an index prefix - the
+                    // 4-byte fallback in PdoStore keeps that install chatting
+                }
+            }
+        } catch (\Throwable $e) {
+            // no information_schema rights, or not MySQL at all
+        }
     }
 
     /** ALTER ... ADD COLUMN works on MySQL and SQLite alike; a duplicate is fine. */

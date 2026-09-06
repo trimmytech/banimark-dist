@@ -25,13 +25,27 @@ class WidgetController
             return response()->json(['ok' => false, 'error' => $blocked['error'], 'session_id' => $sid, 'reply' => ''], 429)
                 ->header('Retry-After', (string) $blocked['retry_after']);
         }
-        $out = $endpoint->handle([
-            'message' => (string) $request->input('message', ''),
-            'session_id' => (string) $request->input('session_id', ''),
-            'token' => (string) $request->input('token', ''),
-            'visitor' => (array) $request->input('visitor', []),
-            'attachments' => (array) $request->input('attachments', []),
-        ]);
+        try {
+            $out = $endpoint->handle([
+                'message' => (string) $request->input('message', ''),
+                'session_id' => (string) $request->input('session_id', ''),
+                'token' => (string) $request->input('token', ''),
+                'visitor' => (array) $request->input('visitor', []),
+                'attachments' => (array) $request->input('attachments', []),
+            ]);
+        } catch (\Throwable $e) {
+            // The visitor must never meet a stack trace, and every client
+            // (widget, chat link, Flutter) must get JSON it can act on - a
+            // 500 HTML page is what turned a storage error into a dead chat
+            // with no way to resend. The real reason goes to the owner's log.
+            \Illuminate\Support\Facades\Log::error('Banimark chat failed: '.$e->getMessage(), ['exception' => $e]);
+            return response()->json([
+                'ok' => false,
+                'session_id' => $sid,
+                'reply' => '',
+                'error' => 'We could not deliver that message. Please try again.',
+            ], 500);
+        }
 
         return response()->json($out, $out['ok'] ? 200 : 422);
     }

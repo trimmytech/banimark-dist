@@ -156,6 +156,14 @@
         '.m.bot{align-self:flex-start;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-bottom-left-radius:5px}',
         '.m.sys{align-self:center;background:transparent;color:var(--mut);font-size:12px;text-align:center;padding:4px 8px}',
         '.m.err{align-self:center;background:rgba(229,72,77,.12);color:#e5484d;font-size:12.5px}',
+        // a message that did not arrive: dimmed, and carrying its own way back
+        '.m.fail{opacity:.66}',
+        '.ffoot{display:flex;align-items:center;gap:8px;margin-top:7px;font-size:11px;line-height:1.2}',
+        '.ffoot>span{opacity:.9;white-space:normal}',
+        '.again{border:1px solid currentColor;background:transparent;color:inherit;font:inherit;font-size:11px;',
+        'font-weight:600;padding:2px 9px;border-radius:999px;cursor:pointer;flex:none;opacity:.95}',
+        '.again:hover{opacity:1;background:rgba(255,255,255,.18)}',
+        '.m.bot .again:hover,.m.sys .again:hover{background:rgba(0,0,0,.06)}',
 
         '.typ{align-self:flex-start;background:var(--bg);border:1px solid var(--bd);border-radius:16px;border-bottom-left-radius:5px;',
         'padding:12px 15px;display:flex;gap:4px;animation:mIn .2s both}',
@@ -426,19 +434,39 @@
         }
     });
 
-    form.addEventListener('submit', function (e) {
-        e.preventDefault();
-        var text = input.value.trim();
-        var ready = pending.filter(function (p) { return p.id; });
-        if ((!text && !ready.length) || busy) { return; }
+    /* ---- sending, and resending what did not make it ----
+     * A message that fails stays in the thread, dimmed, with a Retry button on
+     * it: the visitor never loses what they typed and never has to guess
+     * whether it arrived. Attachments were stored before the send, so a retry
+     * re-offers the same ids. The Flutter SDK's controller.retry() is the same
+     * contract, and the shared chat link runs this very file. */
+    function markFailed(bub, why, again) {
+        bub.classList.add('fail');
+        var foot = document.createElement('div');
+        foot.className = 'ffoot';
+        var note = document.createElement('span');
+        note.textContent = why;
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'again';
+        btn.textContent = 'Retry';
+        btn.addEventListener('click', function () {
+            if (busy) { return; }
+            foot.remove();
+            bub.classList.remove('fail');
+            msgs.appendChild(bub); // resent now, so it belongs at the end of the thread
+            again();
+        });
+        foot.appendChild(note);
+        foot.appendChild(btn);
+        bub.appendChild(foot);
+        msgs.scrollTop = msgs.scrollHeight;
+    }
+
+    function postMessage(text, files, bub) {
         busy = true;
         send.disabled = true;
-        input.value = '';
-        resize();
-        bubble('user', text, ready);
-        var sendingIds = ready.map(function (p) { return p.id; });
-        pending = [];
-        drawPending();
+        var sendingIds = files.map(function (p) { return p.id; });
 
         /* The dots appear after a short, slightly random pause - as if the
          * message was read first - and stay up for a moment even when the
@@ -489,7 +517,9 @@
                 if (res.mode === 'agent' && !agentMode) { enterAgentMode(); }
                 startPolling(false);
             } else {
-                bubble('err', (res && res.error) || 'Could not send — please try again.');
+                markFailed(bub, (res && res.error) || 'Not sent', function () {
+                    postMessage(text, files, bub);
+                });
             }
             input.focus();
         }
@@ -500,6 +530,19 @@
             visitor: { name: visitor.name, email: visitor.email },
             attachments: sendingIds
         }));
+    }
+
+    form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var text = input.value.trim();
+        var ready = pending.filter(function (p) { return p.id; });
+        if ((!text && !ready.length) || busy) { return; }
+        input.value = '';
+        resize();
+        var bub = bubble('user', text, ready);
+        pending = [];
+        drawPending();
+        postMessage(text, ready, bub);
     });
 
     /* ---- emoji ---- */

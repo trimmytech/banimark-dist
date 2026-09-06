@@ -3,6 +3,25 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.16.1
+- **Emoji work.** Sending one used to fail with "Could not send" (and a 500 in
+  your log): Banimark's tables were created with whatever character set your
+  database defaults to, and on MySQL that is usually still the three-byte
+  `utf8`, which cannot store an emoji. Its tables are now `utf8mb4`, and
+  upgrading converts the ones you already have - your application's own tables
+  are not touched. Should a database still refuse a character, the message now
+  arrives without it instead of failing outright.
+- **A message that does not send can be sent again.** It stays in the chat,
+  dimmed, with a Retry button, so nothing anyone typed is lost to a dropped
+  connection or a moment's server trouble. In the widget and the shareable chat
+  link; the Flutter app already had it.
+- The chat endpoint always answers with JSON now, even when something breaks
+  behind it - so the widget can say what happened and offer the retry, and your
+  visitors never meet a stack trace.
+
+**Upgrading:** `composer update banimark/banimark` then `php artisan migrate`
+(standalone: open the admin panel once). The migration converts the tables.
+
 ## 0.16.0
 - **The AI can explain itself when a lookup will not run.** A tool that needs a
   signed-in visitor now tells the assistant so (it can ask the visitor to sign
