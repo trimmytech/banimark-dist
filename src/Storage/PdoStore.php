@@ -317,23 +317,75 @@ class PdoStore implements StateStore
      */
     public function visitorTranscript(string $sessionId, int $limit = 50): array
     {
-        $conv = $this->conversation($sessionId);
-        if (!$conv) {
-            return [];
-        }
-        $rows = $this->query(
-            "SELECT id, role, content FROM {$this->prefix}messages
-             WHERE conversation_id = ? AND role IN ('user', 'assistant', 'agent') AND content <> ''
-             ORDER BY id DESC LIMIT ".max(1, $limit),
-            [$conv['id']],
-        );
-        return array_reverse($rows);
+        return $this->visitorPage($sessionId, $limit)['rows'];
     }
 
-    /** Inbox listing, newest activity first. $search matches the visitor or the words said. */
-    public function listConversations(int $limit = 50, ?string $mode = null, string $search = ''): array
+    /**
+     * One page of what the visitor may see, newest $limit messages (or the
+     * $limit before $beforeId), returned oldest-first for drawing. `has_more`
+     * says whether an older page exists - the widget shows "load earlier".
+     *
+     * @return array{rows: array, has_more: bool}
+     */
+    public function visitorPage(string $sessionId, int $limit = 15, int $beforeId = 0): array
+    {
+        $conv = $this->conversation($sessionId);
+        if (!$conv) {
+            return ['rows' => [], 'has_more' => false];
+        }
+        $limit = max(1, min(100, $limit));
+        $args = [$conv['id']];
+        $older = '';
+        if ($beforeId > 0) {
+            $older = ' AND id < ?';
+            $args[] = $beforeId;
+        }
+        // one extra row answers "is there more?" without a second query
+        $rows = $this->query(
+            "SELECT id, role, content FROM {$this->prefix}messages
+             WHERE conversation_id = ? AND role IN ('user', 'assistant', 'agent') AND content <> ''{$older}
+             ORDER BY id DESC LIMIT ".($limit + 1),
+            $args,
+        );
+        $hasMore = count($rows) > $limit;
+        if ($hasMore) {
+            array_pop($rows);
+        }
+        return ['rows' => array_reverse($rows), 'has_more' => $hasMore];
+    }
+
+    /**
+     * "Someone is waiting on us": the conversation is open and the visitor's
+     * last message has no reply after it. The filter and the count share this
+     * one definition, so a row can never be waiting in one place and not the
+     * other - a closed conversation is never waiting, however it ended.
+     */
+    private function waitingSql(): string
+    {
+        return "c.mode <> 'closed' AND EXISTS (SELECT 1 FROM {$this->prefix}messages mw
+                WHERE mw.conversation_id = c.id AND mw.role = 'user'
+                  AND mw.id > COALESCE((SELECT MAX(mx.id) FROM {$this->prefix}messages mx WHERE mx.conversation_id = c.id AND mx.role IN ('agent', 'assistant')), 0))";
+    }
+
+    /**
+     * Inbox listing, newest activity first. $search matches the visitor or the
+     * words said; $filters narrows it further:
+     *   unread  - a visitor spoke after a staff member last opened it
+     *   waiting - the visitor's last message has no reply after it
+     *   files   - something was shared
+     *   known   - the visitor is signed in (not anonymous)
+     *   sort    - 'waiting' puts the longest wait first, else newest activity
+     */
+    public function listConversations(int $limit = 50, ?string $mode = null, string $search = '', array $filters = []): array
     {
         $sql = "SELECT c.*, (SELECT COUNT(*) FROM {$this->prefix}messages m WHERE m.conversation_id = c.id) AS message_count,
+                -- when the visitor's oldest UNANSWERED message arrived: the whole
+                -- inbox's sense of urgency comes from this one number. NULL for a
+                -- closed conversation, so nothing can sort or colour it as waiting.
+                (SELECT MIN(mu.created_at) FROM {$this->prefix}messages mu
+                  WHERE mu.conversation_id = c.id AND mu.role = 'user' AND c.mode <> 'closed'
+                    AND mu.id > COALESCE((SELECT MAX(ma.id) FROM {$this->prefix}messages ma WHERE ma.conversation_id = c.id AND ma.role IN ('agent', 'assistant')), 0)) AS waiting_since,
+                (SELECT COUNT(*) FROM {$this->prefix}messages mn WHERE mn.conversation_id = c.id AND mn.role = 'system') AS note_count,
                 (SELECT content FROM {$this->prefix}messages m2 WHERE m2.conversation_id = c.id AND m2.role <> 'system' AND m2.content <> '' ORDER BY m2.id DESC LIMIT 1) AS last_message,
                 (SELECT role FROM {$this->prefix}messages m3 WHERE m3.conversation_id = c.id AND m3.role <> 'system' AND m3.content <> '' ORDER BY m3.id DESC LIMIT 1) AS last_role,
                 (SELECT a.name FROM {$this->prefix}messages m4 LEFT JOIN {$this->prefix}agents a ON a.id = m4.agent_id WHERE m4.conversation_id = c.id AND m4.role = 'agent' ORDER BY m4.id DESC LIMIT 1) AS last_agent,
@@ -345,6 +397,18 @@ class PdoStore implements StateStore
             $where[] = 'c.mode = ?';
             $args[] = $mode;
         }
+        if (!empty($filters['unread'])) {
+            $where[] = "c.last_message_at > c.staff_seen_at AND c.mode <> 'closed'";
+        }
+        if (!empty($filters['waiting'])) {
+            $where[] = $this->waitingSql();
+        }
+        if (!empty($filters['files'])) {
+            $where[] = "EXISTS (SELECT 1 FROM {$this->prefix}attachments af WHERE af.conversation_id = c.id AND af.sent = 1)";
+        }
+        if (!empty($filters['known'])) {
+            $where[] = "c.identity_hash <> 'anon'";
+        }
         $search = trim($search);
         if ($search !== '') {
             $where[] = "(c.visitor_label LIKE ? OR c.visitor_email LIKE ? OR EXISTS (SELECT 1 FROM {$this->prefix}messages ms WHERE ms.conversation_id = c.id AND ms.content LIKE ?))";
@@ -354,25 +418,36 @@ class PdoStore implements StateStore
         if ($where !== []) {
             $sql .= ' WHERE '.implode(' AND ', $where);
         }
-        $sql .= ' ORDER BY c.last_message_at DESC LIMIT '.max(1, $limit);
-        return $this->query($sql, $args);
+        // longest wait first, with the not-waiting rows after them (portable NULLS LAST)
+        $sql .= ($filters['sort'] ?? '') === 'waiting'
+            ? ' ORDER BY CASE WHEN waiting_since IS NULL THEN 1 ELSE 0 END, waiting_since ASC, c.last_message_at DESC'
+            : ' ORDER BY c.last_message_at DESC';
+        $sql .= ' LIMIT '.max(1, $limit);
+        $rows = $this->query($sql, $args);
+        foreach ($rows as &$r) {
+            $r['has_note'] = (int) ($r['note_count'] ?? 0) > 0;
+        }
+        return $rows;
     }
 
     /**
      * The numbers on the inbox tabs. "Unread" = a visitor said something after
      * the last time a staff member opened the conversation.
      *
-     * @return array{all:int, agent:int, ai:int, closed:int, unread:int}
+     * @return array{all:int, agent:int, ai:int, closed:int, unread:int, waiting:int}
      */
     public function inboxCounts(): array
     {
         $rows = $this->query("SELECT mode, COUNT(*) AS n FROM {$this->prefix}conversations GROUP BY mode", []);
-        $out = ['all' => 0, 'agent' => 0, 'ai' => 0, 'closed' => 0, 'unread' => 0];
+        $out = ['all' => 0, 'agent' => 0, 'ai' => 0, 'closed' => 0, 'unread' => 0, 'waiting' => 0];
         foreach ($rows as $r) {
             $out[(string) $r['mode']] = (int) $r['n'];
             $out['all'] += (int) $r['n'];
         }
         $out['unread'] = (int) ($this->query("SELECT COUNT(*) AS n FROM {$this->prefix}conversations WHERE last_message_at > staff_seen_at AND mode <> 'closed'", [])[0]['n'] ?? 0);
+        // people actually waiting on us right now - the number that should worry staff
+        $out['waiting'] = (int) ($this->query(
+            "SELECT COUNT(*) AS n FROM {$this->prefix}conversations c WHERE ".$this->waitingSql(), [])[0]['n'] ?? 0);
         return $out;
     }
 

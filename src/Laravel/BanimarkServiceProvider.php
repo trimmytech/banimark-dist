@@ -52,7 +52,7 @@ class BanimarkServiceProvider extends ServiceProvider
             return new \Banimark\Http\HistoryEndpoint(
                 $app->make(\Banimark\Storage\PdoStore::class),
                 (string) config('banimark.identity_secret', ''),
-                50,
+                15,
                 $app->make(\Banimark\Storage\Attachments::class),
             );
         });

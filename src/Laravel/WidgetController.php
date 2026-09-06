@@ -67,6 +67,8 @@ class WidgetController
         return response()->json($endpoint->handle([
             'session_id' => (string) $request->query('session_id', ''),
             'token' => (string) $request->query('token', ''),
+            'before' => (int) $request->query('before', 0), // page before this message id
+            'limit' => (int) $request->query('limit', 0),
         ]));
     }
 
@@ -107,11 +109,12 @@ class WidgetController
             return redirect()->away($out['redirect']);
         }
         return response($out['bytes'], 200, [
-            'Content-Type' => $out['mime'] ?: 'application/octet-stream',
+            'Content-Type' => $out['mime'],
             // never let a shared file execute in the browser
-            'Content-Disposition' => ($out['download'] ? 'attachment' : 'inline').'; filename="'.addslashes($out['name']).'"',
+            'Content-Disposition' => $out['disposition'],
             'X-Content-Type-Options' => 'nosniff',
             'Content-Security-Policy' => "default-src 'none'; img-src 'self'; sandbox",
+            'Referrer-Policy' => 'no-referrer',
             'Cache-Control' => 'private, max-age=600',
         ]);
     }

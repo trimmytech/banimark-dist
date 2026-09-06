@@ -3,6 +3,40 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.17.1
+- **The inbox now shows what needs you.** Every conversation carries a coloured
+  rail and a plain-English badge: **Waiting 12m** (red once someone has waited
+  ten minutes, amber before that), **With a person**, **AI is answering** or
+  **Closed**. Small marks beside the name say the visitor is signed in, how
+  many files were shared, and whether something went wrong in that chat.
+- **Filters you can combine.** Waiting for a reply, new to you, has files,
+  signed in - each with a count where it helps - plus **Longest waiting** to
+  put the person who has waited most at the top. Search keeps your filters.
+- The page title says it plainly: "3 people are waiting for a reply", or
+  "Nobody is waiting - everything is answered".
+
+*Upgrade note:* no database change.
+
+## 0.17.0
+- **A roomier message box.** The text field now takes the full width of the
+  widget, with emoji, attach and send on their own row underneath.
+- **Long conversations open fast.** The widget, the chat link and the Flutter
+  SDK draw the last 15 messages and fetch earlier ones when you scroll to the
+  top (or tap "Load earlier messages"), keeping your place.
+- **You will not miss a reply.** A chime when a member of the team writes back
+  (it now sounds reliably - browsers only allow sound after you have clicked
+  in the chat), an unread count on the launcher, and "(2) Acme Help" in the
+  browser tab while you are on another tab. Cleared the moment you look.
+  Flutter: `unread` and an `onStaffMessage` callback for your own sound/badge.
+- **File uploads, hardened.** Every file's bytes are checked against what its
+  name claims (a "photo.png" that is really a web page or a script is refused);
+  SVG, HTML, XML and scripts are never accepted, even if added to the allowed
+  list; files are stored under opaque `.bin` names so an exposed folder can
+  only hand out downloads; download headers cannot be broken out of; at most
+  10 unsent uploads per conversation, swept after a day with their bytes.
+
+*Upgrade note:* no database change. Flutter apps: `flutter pub get`.
+
 ## 0.16.1
 - **Emoji work.** Sending one used to fail with "Could not send" (and a 500 in
   your log): Banimark's tables were created with whatever character set your

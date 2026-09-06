@@ -171,14 +171,18 @@
         '.typ i:nth-child(2){animation-delay:.16s}.typ i:nth-child(3){animation-delay:.32s}',
         '@keyframes bob{0%,60%,100%{transform:translateY(0);opacity:.45}30%{transform:translateY(-5px);opacity:1}}',
 
-        '.f{display:flex;align-items:flex-end;gap:8px;padding:10px 12px;border-top:1px solid var(--bd);background:var(--bg)}',
-        '.in{flex:1;border:1px solid var(--bd);background:var(--panel);color:var(--fg);outline:none;padding:10px 13px;',
-        'font-size:13.5px;resize:none;max-height:110px;border-radius:14px;line-height:1.45;transition:border-color .16s,box-shadow .16s}',
-        '.in:focus{border-color:var(--a);box-shadow:0 0 0 3px rgba(0,0,0,.04)}',
+        /* composer: one bordered box - the text gets the whole width, the tools sit on a row underneath */
+        '.f{padding:10px 12px 12px;border-top:1px solid var(--bd);background:var(--bg)}',
+        '.box{border:1px solid var(--bd);background:var(--panel);border-radius:16px;transition:border-color .15s,box-shadow .15s}',
+        '.box:focus-within{border-color:var(--a);box-shadow:0 0 0 3px rgba(0,0,0,.04)}',
+        '.in{display:block;width:100%;box-sizing:border-box;border:none;background:transparent;color:var(--fg);outline:none;',
+        'padding:11px 14px 4px;font:inherit;font-size:14px;line-height:1.45;resize:none;max-height:120px;min-height:40px}',
         '.in::placeholder{color:var(--mut)}',
-        '.sd{border:none;background:var(--a);color:var(--on);cursor:pointer;width:38px;height:38px;border-radius:13px;flex:none;',
-        'display:flex;align-items:center;justify-content:center;transition:transform .16s,opacity .16s}',
-        '.sd:hover:not(:disabled){transform:scale(1.06)}.sd:disabled{opacity:.4;cursor:default}',
+        '.bar{display:flex;align-items:center;gap:2px;padding:2px 6px 6px}',
+        '.bar .sp{flex:1}',
+        '.sd{border:none;background:var(--a);color:var(--on);cursor:pointer;width:34px;height:34px;border-radius:11px;flex:none;',
+        'display:flex;align-items:center;justify-content:center;transition:transform .15s,opacity .15s}',
+        '.sd:hover:not(:disabled){transform:scale(1.06)}.sd:disabled{opacity:.35;cursor:default}',
         '.brand{text-align:center;font-size:10.5px;color:var(--mut);padding:0 0 9px;background:var(--bg)}',
         '.guest{padding:14px;border-top:1px solid var(--bd);background:var(--bg);animation:mIn .24s both}',
         '.guest p{margin:0 0 10px;font-size:12.5px;color:var(--mut);line-height:1.45}',
@@ -189,6 +193,9 @@
         '.guest button{border:none;background:var(--a);color:var(--on);border-radius:11px;padding:9px 15px;font-size:13px;font-weight:600;cursor:pointer;flex:1}',
         '.guest .skip{background:transparent;color:var(--mut);border:1px solid var(--bd)}',
         '.note{text-align:center;font-size:11.5px;color:var(--mut);padding:6px 14px 0}',
+        '.more{align-self:center;border:1px solid var(--bd);background:var(--panel);color:var(--mut);cursor:pointer;',
+        'font:inherit;font-size:12px;padding:6px 12px;border-radius:999px;margin:0 0 6px}',
+        '.more:hover{color:var(--fg)}',
         /* formatted text inside bubbles */
         '.m p{margin:0}.m p+p{margin-top:8px}.m ul,.m ol{margin:6px 0 0;padding-left:20px}.m li{margin:2px 0}',
         '.m a{color:inherit;text-decoration:underline;text-underline-offset:2px}',
@@ -210,11 +217,11 @@
         '.pend-i b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
         '.pend-i button{border:none;background:transparent;color:var(--mut);cursor:pointer;font-size:14px;line-height:1;padding:0 2px}',
         '.pend-i.up{opacity:.6}',
-        '.ic-btn{border:none;background:transparent;color:var(--mut);cursor:pointer;width:32px;height:32px;border-radius:10px;',
+        '.ic-btn{border:none;background:transparent;color:var(--mut);cursor:pointer;width:30px;height:30px;border-radius:9px;',
         'display:flex;align-items:center;justify-content:center;flex:none;transition:background .15s,color .15s}',
         '.ic-btn:hover{background:var(--panel);color:var(--fg)}',
         /* emoji picker */
-        '.bm-emoji{position:absolute;bottom:56px;left:10px;right:10px;background:var(--bg);border:1px solid var(--bd);',
+        '.bm-emoji{position:absolute;bottom:100px;left:12px;right:12px;background:var(--bg);border:1px solid var(--bd);',
         'border-radius:14px;box-shadow:0 12px 34px rgba(0,0,0,.18);z-index:5;overflow:hidden}',
         '.bm-emoji-top{padding:8px 8px 4px}',
         '.bm-emoji-q{width:100%;border:1px solid var(--bd);background:var(--panel);color:var(--fg);border-radius:9px;',
@@ -259,12 +266,15 @@
                 '<button type="button" class="skip g-skip">Skip</button></div>' +
             '</div>' +
             '<div class="pend" hidden></div>' +
-            '<form class="f">' +
-            '<button type="button" class="ic-btn emo" aria-label="Emoji">' + ICON.smile + '</button>' +
-            (FILES_ON ? '<button type="button" class="ic-btn clip" aria-label="Attach a file">' + ICON.clip + '</button>' +
-                '<input type="file" class="fi" hidden>' : '') +
+            '<form class="f"><div class="box">' +
             '<textarea class="in" rows="1" placeholder="Type a message…" aria-label="Message"></textarea>' +
-            '<button type="submit" class="sd" aria-label="Send" disabled>' + ICON.send + '</button></form>' +
+            '<div class="bar">' +
+            '<button type="button" class="ic-btn emo" aria-label="Emoji" title="Emoji">' + ICON.smile + '</button>' +
+            (FILES_ON ? '<button type="button" class="ic-btn clip" aria-label="Attach a file" title="Attach a file">' + ICON.clip + '</button>' +
+                '<input type="file" class="fi" hidden>' : '') +
+            '<span class="sp"></span>' +
+            '<button type="submit" class="sd" aria-label="Send" title="Send" disabled>' + ICON.send + '</button>' +
+            '</div></div></form>' +
             (cfg.offline_note ? '<div class="note"></div>' : '') +
             '<div class="brand">Powered by Banimark</div>' +
         '</div>' +
@@ -330,7 +340,7 @@
     }
     function dropTeaser() {
         if (teaser) { teaser.remove(); teaser = null; }
-        pip.classList.remove('on');
+        clearUnread();
     }
 
     /* guest mode: ask who they are before the composer is usable */
@@ -383,14 +393,76 @@
                 b.style.animation = 'none'; // a replay should not look like new arrivals
                 lastAgentId = Math.max(lastAgentId, m.id || 0);
             });
+            oldestId = res.oldest_id || 0;
+            offerEarlier(!!res.has_more);
             bubble('sys', 'Picking up where you left off.');
             if (res.mode === 'agent') { enterAgentMode(true); }
             if (done) { done(); }
         });
     }
 
+    /* Only the last page of the thread is drawn at first. A pill at the top
+     * fetches the page before it, on click or when the visitor scrolls up to
+     * it; the scroll position is kept so the thread does not jump. */
+    var oldestId = 0, loadingEarlier = false, morePill = null;
+    function offerEarlier(hasMore) {
+        if (morePill) { morePill.remove(); morePill = null; }
+        if (!hasMore) { return; }
+        morePill = document.createElement('button');
+        morePill.type = 'button';
+        morePill.className = 'more';
+        morePill.textContent = 'Load earlier messages';
+        morePill.addEventListener('click', loadEarlier);
+        msgs.insertBefore(morePill, msgs.firstChild);
+    }
+    function loadEarlier() {
+        if (loadingEarlier || !morePill || !oldestId) { return; }
+        loadingEarlier = true;
+        morePill.textContent = 'Loading…';
+        get('/chat/history', { before: oldestId }, function (res) {
+            loadingEarlier = false;
+            if (!res || !res.ok) { if (morePill) { morePill.textContent = 'Load earlier messages'; } return; }
+            var before = msgs.scrollHeight;
+            var anchor = morePill.nextSibling;
+            (res.messages || []).forEach(function (m) {
+                var b = bubble(m.role === 'user' ? 'user' : 'bot', m.text, m.files);
+                b.style.animation = 'none';
+                msgs.insertBefore(b, anchor);
+            });
+            oldestId = res.oldest_id || oldestId;
+            offerEarlier(!!res.has_more);
+            msgs.scrollTop = msgs.scrollHeight - before; // stay on the message the visitor was reading
+        });
+    }
+    msgs.addEventListener('scroll', function () {
+        if (morePill && msgs.scrollTop < 24) { loadEarlier(); }
+    });
+
+    /* Unread staff replies: a count on the launcher, and in the tab title so a
+     * visitor who switched tabs sees "(2) Acme Help". Cleared the moment the
+     * chat is looked at. */
+    var unread = 0, baseTitle = document.title;
+    function addUnread(n) {
+        unread += n;
+        pip.textContent = unread > 9 ? '9+' : String(unread);
+        pip.classList.add('on');
+        document.title = '(' + unread + ') ' + (baseTitle || 'New message');
+    }
+    function clearUnread() {
+        unread = 0;
+        pip.classList.remove('on'); // also the greeting teaser's badge
+        if (document.title !== baseTitle) { document.title = baseTitle; }
+    }
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden && wrap.classList.contains('open')) { clearUnread(); }
+    });
+    window.addEventListener('focus', function () {
+        if (wrap.classList.contains('open')) { clearUnread(); }
+    });
+
     function openPanel() {
         wrap.classList.add('open');
+        clearUnread();
         dropTeaser();
         restore();
         if (!greeted) {
@@ -637,9 +709,22 @@
 
     /* a soft two-note chime for a human's message (synthesised, nothing to load) */
     var audio;
-    function chime() {
+    /* Browsers refuse to make a sound until the page has had a user gesture,
+     * and an AudioContext created before one stays "suspended" forever. So the
+     * context is created/resumed on the visitor's first click or keystroke in
+     * the widget, and resumed again right before each chime. */
+    function armAudio() {
         try {
             audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+            if (audio.state === 'suspended') { audio.resume(); }
+        } catch (e) {}
+    }
+    wrap.addEventListener('click', armAudio, true);
+    wrap.addEventListener('keydown', armAudio, true);
+    function chime() {
+        try {
+            armAudio();
+            if (!audio || audio.state !== 'running') { return; }
             var t = audio.currentTime;
             [[660, 0], [880, 0.11]].forEach(function (n) {
                 var o = audio.createOscillator(), g = audio.createGain();
@@ -711,9 +796,12 @@
             fresh.forEach(function (m) {
                 lastAgentId = Math.max(lastAgentId, m.id || 0);
                 bubble('bot', m.text, m.files);
-                if (!wrap.classList.contains('open')) { pip.classList.add('on'); }
             });
-            if (fresh.length) { chime(); }
+            if (fresh.length) {
+                chime();
+                // unread = the visitor cannot be looking: panel closed, or tab in the background
+                if (!wrap.classList.contains('open') || document.hidden) { addUnread(fresh.length); }
+            }
             var wasAgent = agentMode;
             agentMode = res.mode === 'agent';
             if (agentMode && !wasAgent) { enterAgentMode(true); }

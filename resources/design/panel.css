@@ -504,6 +504,42 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monosp
 .bm-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--brand); display: block; }
 @media (max-width: 640px) { .bm-thread-sub, .bm-thread-end .muted { display: none; } .bm-search { min-width: 0; flex: 1; } }
 
+/* ---- inbox: what each conversation needs, at a glance ----
+   The row's left rail and its pill carry the same colour, so the list can be
+   scanned without reading: red = someone has been waiting, amber = waiting a
+   short while, blue = a person has it, grey-blue = the AI is answering. */
+.bm-inbox-filters { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 10px 18px; border-bottom: 1px solid var(--border); }
+.bm-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; font-size: 12.5px;
+  color: var(--text-2); text-decoration: none; border: 1px solid var(--border-2); background: var(--surface); white-space: nowrap; }
+.bm-chip:hover { border-color: var(--muted); color: var(--text); }
+.bm-chip svg { opacity: .8; }
+.bm-chip span { font-variant-numeric: tabular-nums; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: var(--surface-3); }
+.bm-chip.on { background: var(--brand-soft); border-color: color-mix(in srgb, var(--brand) 35%, transparent); color: var(--brand); font-weight: 600; }
+.bm-chip.on span { background: color-mix(in srgb, var(--brand) 18%, transparent); }
+.bm-chip.urgent span { background: var(--critical-soft); color: var(--critical); }
+.bm-chip.clear { border-style: dashed; color: var(--muted); }
+
+.bm-thread { border-left: 3px solid transparent; }
+.bm-thread.t-urgent { border-left-color: var(--critical); }
+.bm-thread.t-warn   { border-left-color: var(--warn); }
+.bm-thread.t-info   { border-left-color: var(--s1); }
+.bm-thread.t-ai     { border-left-color: color-mix(in srgb, var(--s1) 35%, transparent); }
+.bm-thread.t-calm   { border-left-color: transparent; opacity: .72; }
+.bm-thread.t-urgent.unread { background: color-mix(in srgb, var(--critical) 5%, transparent); }
+
+.pill.s-urgent { background: var(--critical-soft); color: var(--critical); }
+.pill.s-warn   { background: var(--warn-soft); color: #96690a; }
+.pill.s-info   { background: var(--info-soft); color: var(--s1); }
+.pill.s-ai     { background: var(--surface-3); color: var(--text-2); }
+.pill.s-calm   { background: var(--surface-3); color: var(--muted); }
+:root[data-theme="dark"] .pill.s-warn { color: var(--warn); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pill.s-warn { color: var(--warn); } }
+
+.bm-flag { display: inline-flex; align-items: center; gap: 3px; color: var(--muted); flex: none; }
+.bm-flag i { font-style: normal; font-size: 11px; font-variant-numeric: tabular-nums; }
+.bm-flag.urgent { color: var(--critical); }
+@media (max-width: 640px) { .bm-inbox-filters { padding: 8px 12px; overflow-x: auto; flex-wrap: nowrap; } }
+
 /* formatted chat text in the staff view */
 .msg p { margin: 0; } .msg p + p { margin-top: 8px; }
 .msg ul, .msg ol { margin: 6px 0 0; padding-left: 20px; } .msg li { margin: 2px 0; }

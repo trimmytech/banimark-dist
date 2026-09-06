@@ -98,6 +98,10 @@ final class Retention
         }
         $set('retention_last_run', (string) $now);
         try {
+            // uploads chosen but never sent: gone after a day, bytes included
+            foreach ((new Attachments($pdo, $prefix))->pruneOrphans() as $orphan) {
+                try { $files?->delete((string) $orphan['path']); } catch (\Throwable $e) { /* best effort */ }
+            }
             return (new self($pdo, $files, $prefix))->prune(self::days($settings), $now);
         } catch (\Throwable $e) {
             return 0;

@@ -778,53 +778,22 @@ class Panel
 
     private function inbox(string $flash): string
     {
-        $e = fn ($v) => Html::e((string) $v);
-        $mode = in_array($_GET['mode'] ?? '', ['ai', 'agent', 'closed'], true) ? $_GET['mode'] : null;
-        $q = trim((string) ($_GET['q'] ?? ''));
+        $filters = [
+            'mode' => in_array($_GET['mode'] ?? '', ['ai', 'agent', 'closed'], true) ? $_GET['mode'] : null,
+            'q' => trim((string) ($_GET['q'] ?? '')),
+            'unread' => empty($_GET['unread']) ? 0 : 1,
+            'waiting' => empty($_GET['waiting']) ? 0 : 1,
+            'files' => empty($_GET['files']) ? 0 : 1,
+            'known' => empty($_GET['known']) ? 0 : 1,
+            'sort' => ($_GET['sort'] ?? '') === 'waiting' ? 'waiting' : '',
+        ];
         $counts = $this->store->inboxCounts();
-        $base = $this->url('/inbox');
-
-        $tabs = '';
-        foreach ([null => ['All', $counts['all']], 'agent' => ['Needs a human', $counts['agent']], 'ai' => ['AI handled', $counts['ai']], 'closed' => ['Closed', $counts['closed']]] as $k => $t) {
-            $qs = http_build_query(array_filter(['mode' => $k, 'q' => $q]));
-            $tabs .= '<a class="bm-tab'.($mode === ($k ?: null) ? ' on' : '').'" href="'.$e($base.($qs !== '' ? '?'.$qs : '')).'">'
-                .$e($t[0]).' <span>'.(int) $t[1].'</span></a>';
-        }
-
-        $threads = '';
-        foreach ($this->store->listConversations(100, $mode, $q) as $r) {
-            $unread = (int) $r['last_message_at'] > (int) ($r['staff_seen_at'] ?? 0) && $r['mode'] !== 'closed';
-            $preview = \Banimark\Files\Markers::parse((string) $r['last_message'])['text'];
-            $online = (int) ($r['last_seen_at'] ?? 0) > time() - 45;
-            $who = ($r['last_role'] ?? '') === 'agent'
-                ? '<span class="muted">'.$e(($r['last_agent'] ?? '') !== '' && $r['last_agent'] !== $this->auth->name() ? $r['last_agent'] : 'You').':</span> '
-                : (($r['last_role'] ?? '') === 'assistant' ? '<span class="muted">AI:</span> ' : '');
-            $threads .= '<a class="bm-thread'.($unread ? ' unread' : '').'" href="'.$e($this->url('/conversation/'.$r['session_id'])).'">'
-                .'<span class="bm-thread-av"><span class="avatar">'.$e(strtoupper(substr($r['visitor_label'] ?: 'A', 0, 1))).'</span>'
-                .($online ? '<i class="bm-online" title="In the chat now"></i>' : '').'</span>'
-                .'<span class="bm-thread-main"><span class="bm-thread-head"><b>'.$e($r['visitor_label'] ?: 'Anonymous visitor').'</b>'
-                .($r['mode'] === 'agent' ? '<span class="pill agent">NEEDS A HUMAN</span>' : ($r['mode'] === 'closed' ? '<span class="pill closed">CLOSED</span>' : ''))
-                .((int) $r['file_count'] > 0 ? '<span class="muted">📎 '.(int) $r['file_count'].'</span>' : '')
-                .'<span class="spacer"></span><span class="muted bm-when">'.($r['last_message_at'] ? $e(Chart::ago((int) $r['last_message_at'])) : '—').'</span></span>'
-                .'<span class="bm-thread-line">'.$who.$e(mb_strimwidth($preview !== '' ? $preview : '(a file)', 0, 110, '…')).'</span>'
-                .($r['visitor_email'] ? '<span class="bm-thread-sub muted">'.$e($r['visitor_email']).'</span>' : '')
-                .'</span><span class="bm-thread-end">'.($unread ? '<i class="bm-dot"></i>' : '').'<span class="muted">'.(int) $r['message_count'].' msg</span></span></a>';
-        }
-        if ($threads === '') {
-            $threads = '<div style="padding:8px">'.Chart::empty($q !== '' ? 'Nothing matches "'.$e($q).'"' : 'No conversations yet',
-                $q !== '' ? 'Try a different word, or clear the search.' : 'Embed the widget on your site and say hello.').'</div>';
-        }
-
-        $search = '<form method="get" action="'.$e($base).'" class="bm-search">'
-            .($mode ? '<input type="hidden" name="mode" value="'.$e($mode).'">' : '')
-            .Icons::get('inbox', 14)
-            .'<input type="text" name="q" value="'.$e($q).'" placeholder="Search people and messages…" autocomplete="off">'
-            .($q !== '' ? '<a class="btn-ghost btn-sm" href="'.$e($base.($mode ? '?mode='.$mode : '')).'">Clear</a>' : '').'</form>';
-
-        return Html::page('Inbox', $flash.'<div class="bm-card pad0"><div class="bm-inbox-top">'
-            .'<div class="row" style="gap:6px;flex-wrap:wrap">'.$tabs.'</div><div class="spacer"></div>'.$search.'</div>'
-            .'<div class="bm-threads">'.$threads.'</div></div>', $this->nav('/inbox'),
-            $counts['unread'] > 0 ? $counts['unread'].' waiting on you' : 'Everything is answered');
+        return Html::page('Inbox', $flash.\Banimark\Ui\Pages::inbox(
+            $this->store->listConversations(100, $filters['mode'], $filters['q'], $filters),
+            $counts, $filters, $this->url('/inbox'),
+            fn (string $sid) => $this->url('/conversation/'.$sid),
+            $this->auth->name(),
+        ), $this->nav('/inbox'), \Banimark\Ui\Pages::inboxSubtitle($counts));
     }
 
     private function conversation(string $sessionId, string $flash): string

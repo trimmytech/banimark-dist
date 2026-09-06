@@ -39,9 +39,17 @@ final class LocalFileStore implements FileStore
             $this->error = 'Could not create the folder '.$dir.'. Check permissions.';
             return false;
         }
-        // a stray web server should find nothing worth serving here
+        // a stray web server should find nothing worth serving here: Apache is
+        // told no, IIS is told no, and a listing is an empty page for everyone
+        // else. Files are stored as .bin regardless (UploadPolicy::key).
         if (!is_file($this->baseDir.'/.htaccess')) {
             @file_put_contents($this->baseDir.'/.htaccess', "Deny from all\nRequire all denied\n");
+        }
+        if (!is_file($this->baseDir.'/index.html')) {
+            @file_put_contents($this->baseDir.'/index.html', '');
+        }
+        if (!is_file($this->baseDir.'/web.config')) {
+            @file_put_contents($this->baseDir.'/web.config', "<?xml version=\"1.0\"?><configuration><system.webServer><security><authorization><remove users=\"*\" roles=\"\" verbs=\"\" /><add accessType=\"Deny\" users=\"*\" /></authorization></security></system.webServer></configuration>");
         }
         if (@file_put_contents($path, $bytes) === false) {
             $this->error = 'Could not write to '.$dir.'. Check permissions.';

@@ -19,7 +19,8 @@ class HistoryEndpoint
     public function __construct(
         private PdoStore $store,
         private string $identitySecret = '',
-        private int $limit = 50,
+        /** messages per page - the widget asks for the page before its oldest one on demand */
+        private int $limit = 15,
         private ?\Banimark\Storage\Attachments $attachments = null,
     ) {
     }
@@ -50,8 +51,12 @@ class HistoryEndpoint
         // returning to the chat counts as being present
         $this->store->touch($sessionId, $now);
 
+        $before = max(0, (int) ($input['before'] ?? 0));
+        $limit = (int) ($input['limit'] ?? 0);
+        $limit = $limit <= 0 ? $this->limit : max(5, min(50, $limit)); // absent or 0 = the default page
+        $page = $this->store->visitorPage($sessionId, $limit, $before);
         $messages = [];
-        foreach ($this->store->visitorTranscript($sessionId, $this->limit) as $r) {
+        foreach ($page['rows'] as $r) {
             $parsed = \Banimark\Files\Markers::parse((string) $r['content']);
             $messages[] = [
                 'id' => (int) $r['id'],
@@ -60,7 +65,11 @@ class HistoryEndpoint
                 'files' => $this->files($parsed['tokens']),
             ];
         }
-        return ['ok' => true, 'session_id' => $sessionId, 'mode' => $this->store->mode($sessionId), 'messages' => $messages];
+        return [
+            'ok' => true, 'session_id' => $sessionId, 'mode' => $this->store->mode($sessionId), 'messages' => $messages,
+            'has_more' => $page['has_more'],
+            'oldest_id' => $messages === [] ? 0 : $messages[0]['id'],
+        ];
     }
 
     /** @param string[] $tokens @return array<int, array> what the widget needs to draw a file */

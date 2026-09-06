@@ -662,15 +662,34 @@ class PanelController
     public function inbox(Request $request, PdoStore $store, AgentAuth $auth)
     {
         if ($r = $this->gate($auth)) { return $r; }
-        $mode = in_array($request->query('mode'), ['ai', 'agent', 'closed'], true) ? $request->query('mode') : null;
-        $q = trim((string) $request->query('q', ''));
+        $filters = self::inboxFilters($request->all());
+        $counts = $store->inboxCounts();
         return view('banimark::admin.inbox', [
-            'rows' => $store->listConversations(100, $mode, $q),
-            'me' => $auth->name(),
-            'mode' => $mode,
-            'q' => $q,
-            'counts' => $store->inboxCounts(),
+            'counts' => $counts,
+            'subtitle' => \Banimark\Ui\Pages::inboxSubtitle($counts),
+            'body' => \Banimark\Ui\Pages::inbox(
+                $store->listConversations(100, $filters['mode'], $filters['q'], $filters),
+                $counts,
+                $filters,
+                route('banimark.admin.inbox'),
+                fn (string $sid) => route('banimark.admin.conversation', $sid),
+                $auth->name(),
+            ),
         ]);
+    }
+
+    /** The inbox filters, from the query string, sanitised. */
+    private static function inboxFilters(array $input): array
+    {
+        return [
+            'mode' => in_array($input['mode'] ?? '', ['ai', 'agent', 'closed'], true) ? $input['mode'] : null,
+            'q' => trim((string) ($input['q'] ?? '')),
+            'unread' => empty($input['unread']) ? 0 : 1,
+            'waiting' => empty($input['waiting']) ? 0 : 1,
+            'files' => empty($input['files']) ? 0 : 1,
+            'known' => empty($input['known']) ? 0 : 1,
+            'sort' => ($input['sort'] ?? '') === 'waiting' ? 'waiting' : '',
+        ];
     }
 
     public function conversation(string $sessionId, PdoStore $store, AgentAuth $auth, \Banimark\Storage\Attachments $attachments)

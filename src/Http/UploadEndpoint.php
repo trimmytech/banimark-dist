@@ -29,6 +29,9 @@ final class UploadEndpoint
      * @param array $input ['session_id', 'token', 'filename', 'bytes', 'size']
      * @return array{ok: bool, error?: string, attachment?: array}
      */
+    /** Uploads chosen but not yet sent, per conversation - a bot cannot fill the disk between messages. */
+    public const MAX_UNSENT = 10;
+
     public function handle(array $input): array
     {
         if (!$this->enabled) {
@@ -51,7 +54,11 @@ final class UploadEndpoint
         }
 
         $bytes = (string) ($input['bytes'] ?? '');
-        $check = $this->policy->check((string) ($input['filename'] ?? ''), (int) ($input['size'] ?? strlen($bytes)), $bytes);
+        // the size we check is the size we hold, never the number the client sent
+        $check = $this->policy->check((string) ($input['filename'] ?? ''), strlen($bytes), $bytes);
+        if ($check['ok'] && $this->attachments->countUnsent($sessionId) >= self::MAX_UNSENT) {
+            return ['ok' => false, 'error' => 'Send the files you have attached before adding more.'];
+        }
         if (!$check['ok']) {
             return ['ok' => false, 'error' => $check['error']];
         }

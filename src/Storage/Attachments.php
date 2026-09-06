@@ -112,6 +112,13 @@ final class Attachments
         return $rows;
     }
 
+    public function countUnsent(string $sessionId): int
+    {
+        $st = $this->pdo->prepare("SELECT COUNT(*) FROM {$this->prefix}attachments WHERE conversation_id = ? AND sent = 0");
+        $st->execute([$this->conversationId($sessionId)]);
+        return (int) $st->fetchColumn();
+    }
+
     public function countForConversation(string $sessionId): int
     {
         $st = $this->pdo->prepare("SELECT COUNT(*) FROM {$this->prefix}attachments WHERE conversation_id = ?");

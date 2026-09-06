@@ -35,13 +35,16 @@ final class FileEndpoint
         if ($bytes === null) {
             return ['ok' => false, 'error' => 'That file is no longer available.'];
         }
+        $mime = UploadPolicy::servedMime((string) $row['mime']);
+        // images render inline; everything else downloads, so nothing runs in the browser
+        $download = $download || !UploadPolicy::isImage($mime);
         return [
             'ok' => true,
             'bytes' => $bytes,
-            'mime' => (string) $row['mime'],
+            'mime' => $mime,
             'name' => (string) $row['name'],
-            // images render inline; everything else downloads, so nothing runs in the browser
-            'download' => $download || !UploadPolicy::isImage((string) $row['mime']),
+            'download' => $download,
+            'disposition' => UploadPolicy::disposition((string) $row['name'], $download),
         ];
     }
 }

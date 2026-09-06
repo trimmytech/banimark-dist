@@ -74,6 +74,125 @@ final class Pages
         $set('ai_daily_cap', (string) max(0, min(1000000, (int) ($p['ai_daily_cap'] ?? 0))));
     }
 
+    /* ---------------------------------------------------------------- inbox */
+
+    /**
+     * The whole inbox body: state tabs, toggle filters, and a row per
+     * conversation whose colour, pill and flags say what it needs. ONE
+     * implementation for both runtimes - the Blade view and the standalone
+     * panel are thin wrappers around this.
+     *
+     * @param array    $rows     PdoStore::listConversations()
+     * @param array    $counts   PdoStore::inboxCounts()
+     * @param array    $f        the filters in force: mode,q,unread,waiting,files,known,sort
+     * @param string   $self     this page's URL
+     * @param callable $convUrl  session id -> conversation URL
+     * @param string   $me       the signed-in staff member's name ("You" in previews)
+     */
+    public static function inbox(array $rows, array $counts, array $f, string $self, callable $convUrl, string $me, ?int $now = null): string
+    {
+        $now = $now ?? time();
+        $e = [self::class, 'e'];
+        $link = function (array $changes) use ($self, $f) {
+            $q = array_filter(array_merge($f, $changes), fn ($v) => $v !== null && $v !== '' && $v !== 0 && $v !== false && $v !== '0');
+            return $self.($q === [] ? '' : '?'.http_build_query($q));
+        };
+
+        // state tabs: what kind of conversation
+        $tabs = '';
+        foreach ([null => ['All', $counts['all']], 'agent' => ['Needs a person', $counts['agent']], 'ai' => ['AI handled', $counts['ai']], 'closed' => ['Closed', $counts['closed']]] as $k => $t) {
+            $on = ($f['mode'] ?? null) === ($k ?: null);
+            $tabs .= '<a class="bm-tab'.($on ? ' on' : '').'" href="'.$e($link(['mode' => $k])).'">'.$e($t[0]).' <span>'.(int) $t[1].'</span></a>';
+        }
+
+        // toggle filters: what needs doing. Each one flips on its own and keeps the rest.
+        $toggles = [
+            ['key' => 'waiting', 'label' => 'Waiting for a reply', 'count' => (int) ($counts['waiting'] ?? 0), 'tone' => 'urgent', 'title' => 'Nobody has answered the visitor\'s last message.'],
+            ['key' => 'unread', 'label' => 'New to you', 'count' => (int) ($counts['unread'] ?? 0), 'tone' => '', 'title' => 'Something was said since you last opened it.'],
+            ['key' => 'files', 'label' => 'Has files', 'count' => null, 'tone' => '', 'title' => 'A file was shared in the chat.'],
+            ['key' => 'known', 'label' => 'Signed in', 'count' => null, 'tone' => '', 'title' => 'The visitor is signed in to your app, so lookups can be scoped to their account.'],
+        ];
+        $chips = '';
+        foreach ($toggles as $t) {
+            $on = !empty($f[$t['key']]);
+            $chips .= '<a class="bm-chip'.($on ? ' on' : '').($t['tone'] !== '' && $t['count'] ? ' '.$t['tone'] : '').'" title="'.$e($t['title']).'"'
+                .' href="'.$e($link([$t['key'] => $on ? 0 : 1])).'">'.$e($t['label'])
+                .($t['count'] !== null ? '<span>'.$t['count'].'</span>' : '').'</a>';
+        }
+        $sorted = ($f['sort'] ?? '') === 'waiting';
+        $chips .= '<span class="spacer"></span><a class="bm-chip'.($sorted ? ' on' : '').'" href="'.$e($link(['sort' => $sorted ? '' : 'waiting'])).'"'
+            .' title="Put the person who has waited longest at the top.">'.Icons::get('clock', 13).' Longest waiting</a>';
+
+        $anyFilter = !empty($f['unread']) || !empty($f['waiting']) || !empty($f['files']) || !empty($f['known']);
+        if ($anyFilter || ($f['q'] ?? '') !== '') {
+            $chips .= '<a class="bm-chip clear" href="'.$e($self.(($f['mode'] ?? null) ? '?mode='.$f['mode'] : '')).'">Clear filters</a>';
+        }
+
+        $search = '<form method="get" action="'.$e($self).'" class="bm-search">'
+            .(($f['mode'] ?? null) ? '<input type="hidden" name="mode" value="'.$e($f['mode']).'">' : '')
+            .implode('', array_map(
+                fn ($k) => !empty($f[$k]) ? '<input type="hidden" name="'.$k.'" value="1">' : '',
+                ['unread', 'waiting', 'files', 'known']
+            ))
+            .Icons::get('inbox', 14)
+            .'<input type="text" name="q" value="'.$e($f['q'] ?? '').'" placeholder="Search people and messages…" autocomplete="off">'
+            .(($f['q'] ?? '') !== '' ? '<a class="btn-ghost btn-sm" href="'.$e($link(['q' => ''])).'">Clear</a>' : '').'</form>';
+
+        $threads = '';
+        foreach ($rows as $r) {
+            $state = Triage::state($r, $now);
+            $unread = Triage::isUnread($r);
+            $preview = \Banimark\Files\Markers::parse((string) ($r['last_message'] ?? ''))['text'];
+            $who = ($r['last_role'] ?? '') === 'agent'
+                ? '<span class="muted">'.$e(($r['last_agent'] ?? '') !== '' && $r['last_agent'] !== $me ? $r['last_agent'] : 'You').':</span> '
+                : (($r['last_role'] ?? '') === 'assistant' ? '<span class="muted">AI:</span> ' : '');
+            $flags = '';
+            foreach (Triage::flags($r, $now) as $flag) {
+                $flags .= '<span class="bm-flag'.(($flag['tone'] ?? '') !== '' ? ' '.$flag['tone'] : '').'" title="'.$e($flag['title']).'">'
+                    .Icons::get($flag['icon'], 12).($flag['label'] !== '' ? '<i>'.$e($flag['label']).'</i>' : '').'</span>';
+            }
+            $threads .= '<a class="bm-thread t-'.$e($state['tone']).($unread ? ' unread' : '').'" href="'.$e($convUrl((string) $r['session_id'])).'">'
+                .'<span class="bm-thread-av"><span class="avatar">'.$e(strtoupper(substr((string) ($r['visitor_label'] ?: 'A'), 0, 1))).'</span>'
+                .(Triage::isOnline($r, $now) ? '<i class="bm-online" title="In the chat right now"></i>' : '').'</span>'
+                .'<span class="bm-thread-main">'
+                .'<span class="bm-thread-head"><b>'.$e($r['visitor_label'] ?: 'Anonymous visitor').'</b>'
+                .'<span class="pill s-'.$e($state['tone']).'" title="'.$e($state['title']).'">'.$e($state['label']).'</span>'
+                .$flags
+                // while someone is waiting, the pill already carries that number -
+                // repeating it as "last message" just says the same thing twice
+                .'<span class="spacer"></span>'
+                .($state['waiting'] > 0 ? '' : '<span class="muted bm-when" title="Last message">'.($r['last_message_at'] ? $e(Chart::ago((int) $r['last_message_at'], $now)) : '—').'</span>')
+                .'</span>'
+                .'<span class="bm-thread-line">'.$who.$e(mb_strimwidth($preview !== '' ? $preview : '(a file)', 0, 110, '…')).'</span>'
+                .($r['visitor_email'] ? '<span class="bm-thread-sub muted">'.$e($r['visitor_email']).'</span>' : '')
+                .'</span>'
+                .'<span class="bm-thread-end">'.($unread ? '<i class="bm-dot" title="New since you last looked"></i>' : '')
+                .'<span class="muted">'.(int) ($r['message_count'] ?? 0).' msg</span></span></a>';
+        }
+        if ($threads === '') {
+            $threads = '<div style="padding:8px">'.Chart::empty(
+                ($f['q'] ?? '') !== '' ? 'Nothing matches “'.$e($f['q']).'”' : ($anyFilter ? 'Nothing needs that right now' : 'No conversations yet'),
+                ($f['q'] ?? '') !== '' ? 'Try a different word, or clear the search.' : ($anyFilter ? 'Clear the filters to see everything.' : 'Embed the widget on your site and say hello.')
+            ).'</div>';
+        }
+
+        return '<div class="bm-card pad0">'
+            .'<div class="bm-inbox-top"><div class="row" style="gap:6px;flex-wrap:wrap">'.$tabs.'</div><div class="spacer"></div>'.$search.'</div>'
+            .'<div class="bm-inbox-filters">'.$chips.'</div>'
+            .'<div class="bm-threads">'.$threads.'</div></div>';
+    }
+
+    /** The one-line summary under the page title. */
+    public static function inboxSubtitle(array $counts): string
+    {
+        $waiting = (int) ($counts['waiting'] ?? 0);
+        if ($waiting > 0) {
+            return $waiting === 1 ? '1 person is waiting for a reply' : $waiting.' people are waiting for a reply';
+        }
+        $unread = (int) ($counts['unread'] ?? 0);
+        return $unread > 0 ? $unread.' new since you last looked' : 'Nobody is waiting - everything is answered';
+    }
+
     /* ---------------------------------------------------- data & protection */
 
     /**
