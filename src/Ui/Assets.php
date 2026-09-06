@@ -20,6 +20,8 @@ final class Assets
         'theme.js' => 'application/javascript; charset=utf-8',
         'panel.js' => 'application/javascript; charset=utf-8',
         'toolbuilder.js' => 'application/javascript; charset=utf-8',
+        'emoji.js' => 'application/javascript; charset=utf-8',
+        'markdown.js' => 'application/javascript; charset=utf-8',
         'chat.js' => 'application/javascript; charset=utf-8',
     ];
 

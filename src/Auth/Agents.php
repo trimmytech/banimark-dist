@@ -89,6 +89,15 @@ class Agents
     }
 
     /** @param string[] $permissions */
+    public function touch(int $id, ?int $now = null): void
+    {
+        try {
+            $this->pdo->prepare("UPDATE {$this->prefix}agents SET last_active_at = ? WHERE id = ?")->execute([$now ?? time(), $id]);
+        } catch (\Throwable $e) {
+            // presence is decoration - never let it break a request
+        }
+    }
+
     public function setPermissions(int $id, array $permissions): void
     {
         $this->pdo->prepare("UPDATE {$this->prefix}agents SET permissions = ? WHERE id = ? AND role <> 'owner'")

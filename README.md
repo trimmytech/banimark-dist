@@ -171,6 +171,35 @@ BanimarkChat(config: BanimarkConfig.laravel('https://yourapp.com', token: userTo
 
 Ask support for the package; its README covers theming and the signed visitor token.
 
+## AI settings, data & protection, team
+
+- **AI settings** - the assistant's name, tone and language; how much of the
+  conversation it remembers; the longest reply; a daily limit on AI answers
+  (past it, visitors go to your team and the thread says why).
+- **Data & protection** - keep chats for N days then delete them (files too);
+  delete everything with one confirmed button; flood limits per visitor and per
+  connection so a script cannot fill the inbox or spend your AI budget.
+  `php artisan banimark:prune` runs the retention policy from a scheduler.
+- **Team** - who is online, chats handled per person, how long visitors waited,
+  how fast handovers were picked up. Replies show who sent them.
+
+Messages may carry light formatting (bold, italics, lists, links, code); it is
+rendered the same in the widget, the chat link, the Flutter app and the panel,
+and nothing else is interpreted.
+
+## Files in a chat
+
+Visitors and staff can attach files. Choose where they are stored on the
+**Files** page — this server, or S3-compatible storage (AWS S3, Cloudflare R2,
+DigitalOcean Spaces, Backblaze B2, MinIO) — set the size limit and the accepted
+types, then press **Send a test file** to confirm it works.
+
+Files are never written to a public folder: each one is reachable only through
+its own unguessable link, images render inline and everything else downloads.
+Scripts and programs are refused whatever the settings say. Storage adapters
+live in `src/Files/` and ship readable, so you can point them at your own
+storage or add an adapter.
+
 ## Content-Security-Policy
 
 The panel needs only `script-src 'self'` (its scripts are served from your own

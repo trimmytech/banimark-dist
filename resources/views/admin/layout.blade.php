@@ -29,6 +29,18 @@ Layout::configure(['events' => $bmAuth->can('inbox.view') ? route('banimark.admi
             @if($bmAuth->can('widget.manage'))
             {!! Layout::navLink(['href' => route('banimark.admin.widget'), 'icon' => 'widget', 'label' => 'Widget', 'on' => request()->routeIs('banimark.admin.widget')]) !!}
             @endif
+            @if($bmAuth->can('files.manage'))
+            {!! Layout::navLink(['href' => route('banimark.admin.files'), 'icon' => 'files', 'label' => 'Files', 'on' => request()->routeIs('banimark.admin.files')]) !!}
+            @endif
+            @if($bmAuth->can('ai.manage'))
+            {!! Layout::navLink(['href' => route('banimark.admin.ai'), 'icon' => 'providers', 'label' => 'AI settings', 'on' => request()->routeIs('banimark.admin.ai')]) !!}
+            @endif
+            @if($bmAuth->can('team.view'))
+            {!! Layout::navLink(['href' => route('banimark.admin.team'), 'icon' => 'staff', 'label' => 'Team', 'on' => request()->routeIs('banimark.admin.team')]) !!}
+            @endif
+            @if($bmAuth->can('data.manage'))
+            {!! Layout::navLink(['href' => route('banimark.admin.data'), 'icon' => 'shield', 'label' => 'Data & protection', 'on' => request()->routeIs('banimark.admin.data')]) !!}
+            @endif
             <span class="lbl">Account</span>
             @if($bmAuth->can('notifications.manage'))
             {!! Layout::navLink(['href' => route('banimark.admin.escalation'), 'icon' => 'escalation', 'label' => 'Notifications', 'on' => request()->routeIs('banimark.admin.escalation')]) !!}

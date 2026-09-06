@@ -57,10 +57,11 @@ class EngineBuilder
         // folder by folder, in the owner's order - see Storage\Rules
         $system = (new \Banimark\Storage\Rules($pdo, $prefix))->systemInstruction($base);
 
+        $settings = (new Settings($pdo))->all();
         return new Engine($manager->driver(), $registry, [
-            'system' => $system,
+            'system' => $system."\n".\Banimark\Ai\Behaviour::systemLines($settings),
             'temperature' => (float) $provider['temperature'],
-            'max_tokens' => 2048,
+            'max_tokens' => \Banimark\Ai\Behaviour::maxTokens($settings),
             'max_iterations' => 4,
         ]);
     }

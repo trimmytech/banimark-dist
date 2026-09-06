@@ -191,6 +191,26 @@ class Chart
         return $out.'</div>';
     }
 
+    /** "just now", "12m", "3h", "Tue", "4 Sep" - inbox timestamps people can scan. */
+    public static function ago(int $timestamp, ?int $now = null): string
+    {
+        $now = $now ?? time();
+        $diff = max(0, $now - $timestamp);
+        if ($diff < 60) {
+            return 'just now';
+        }
+        if ($diff < 3600) {
+            return floor($diff / 60).'m';
+        }
+        if ($diff < 86400) {
+            return floor($diff / 3600).'h';
+        }
+        if ($diff < 7 * 86400) {
+            return date('D', $timestamp);
+        }
+        return date('j M', $timestamp);
+    }
+
     public static function empty(string $text, string $sub = ''): string
     {
         return '<div class="empty"><div class="ico">'

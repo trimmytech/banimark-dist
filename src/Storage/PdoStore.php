@@ -127,15 +127,15 @@ class PdoStore implements StateStore
     }
 
     /** A human agent's reply from the panel. */
-    public function appendAgentMessage(string $sessionId, string $text): void
+    public function appendAgentMessage(string $sessionId, string $text, int $agentId = 0): void
     {
         $conv = $this->conversation($sessionId);
         if (!$conv) {
             return;
         }
         $this->exec(
-            "INSERT INTO {$this->prefix}messages (conversation_id, role, content, payload, created_at) VALUES (?, 'agent', ?, NULL, ?)",
-            [$conv['id'], $text, time()],
+            "INSERT INTO {$this->prefix}messages (conversation_id, role, content, payload, agent_id, created_at) VALUES (?, 'agent', ?, NULL, ?, ?)",
+            [$conv['id'], $text, $agentId, time()],
         );
         $this->exec("UPDATE {$this->prefix}conversations SET mode = 'agent', last_message_at = ? WHERE id = ?", [time(), $conv['id']]);
     }
@@ -184,6 +184,19 @@ class PdoStore implements StateStore
         );
     }
 
+    /** The identity hash a thread belongs to ('anon' for anonymous visitors). */
+    public function identityOf(string $sessionId): string
+    {
+        $conv = $this->conversation($sessionId);
+        return $conv ? (string) ($conv['identity_hash'] ?? 'anon') : '';
+    }
+
+    /** A staff member opened this conversation - clears its unread mark in the inbox. */
+    public function markStaffSeen(string $sessionId, ?int $now = null): void
+    {
+        $this->exec("UPDATE {$this->prefix}conversations SET staff_seen_at = ? WHERE session_id = ?", [$now ?? time(), $sessionId]);
+    }
+
     /** Typing indicators: a fresh timestamp means "typing right now" for a few seconds. */
     public const TYPING_WINDOW = 6;
 
@@ -201,7 +214,7 @@ class PdoStore implements StateStore
             return [];
         }
         return $this->query(
-            "SELECT id, role, content, payload, created_at FROM {$this->prefix}messages WHERE conversation_id = ? AND id > ? ORDER BY id",
+            "SELECT m.id, m.role, m.content, m.payload, m.created_at, m.agent_id, (SELECT name FROM {$this->prefix}agents a WHERE a.id = m.agent_id) AS agent_name FROM {$this->prefix}messages m WHERE m.conversation_id = ? AND m.id > ? ORDER BY m.id",
             [$conv['id'], $afterId],
         );
     }
@@ -317,19 +330,50 @@ class PdoStore implements StateStore
         return array_reverse($rows);
     }
 
-    /** Inbox listing, newest activity first. */
-    public function listConversations(int $limit = 50, ?string $mode = null): array
+    /** Inbox listing, newest activity first. $search matches the visitor or the words said. */
+    public function listConversations(int $limit = 50, ?string $mode = null, string $search = ''): array
     {
         $sql = "SELECT c.*, (SELECT COUNT(*) FROM {$this->prefix}messages m WHERE m.conversation_id = c.id) AS message_count,
-                (SELECT content FROM {$this->prefix}messages m2 WHERE m2.conversation_id = c.id ORDER BY m2.id DESC LIMIT 1) AS last_message
+                (SELECT content FROM {$this->prefix}messages m2 WHERE m2.conversation_id = c.id AND m2.role <> 'system' AND m2.content <> '' ORDER BY m2.id DESC LIMIT 1) AS last_message,
+                (SELECT role FROM {$this->prefix}messages m3 WHERE m3.conversation_id = c.id AND m3.role <> 'system' AND m3.content <> '' ORDER BY m3.id DESC LIMIT 1) AS last_role,
+                (SELECT a.name FROM {$this->prefix}messages m4 LEFT JOIN {$this->prefix}agents a ON a.id = m4.agent_id WHERE m4.conversation_id = c.id AND m4.role = 'agent' ORDER BY m4.id DESC LIMIT 1) AS last_agent,
+                (SELECT COUNT(*) FROM {$this->prefix}attachments a WHERE a.conversation_id = c.id AND a.sent = 1) AS file_count
                 FROM {$this->prefix}conversations c";
+        $where = [];
         $args = [];
         if ($mode !== null) {
-            $sql .= ' WHERE c.mode = ?';
+            $where[] = 'c.mode = ?';
             $args[] = $mode;
+        }
+        $search = trim($search);
+        if ($search !== '') {
+            $where[] = "(c.visitor_label LIKE ? OR c.visitor_email LIKE ? OR EXISTS (SELECT 1 FROM {$this->prefix}messages ms WHERE ms.conversation_id = c.id AND ms.content LIKE ?))";
+            $like = '%'.$search.'%';
+            array_push($args, $like, $like, $like);
+        }
+        if ($where !== []) {
+            $sql .= ' WHERE '.implode(' AND ', $where);
         }
         $sql .= ' ORDER BY c.last_message_at DESC LIMIT '.max(1, $limit);
         return $this->query($sql, $args);
+    }
+
+    /**
+     * The numbers on the inbox tabs. "Unread" = a visitor said something after
+     * the last time a staff member opened the conversation.
+     *
+     * @return array{all:int, agent:int, ai:int, closed:int, unread:int}
+     */
+    public function inboxCounts(): array
+    {
+        $rows = $this->query("SELECT mode, COUNT(*) AS n FROM {$this->prefix}conversations GROUP BY mode", []);
+        $out = ['all' => 0, 'agent' => 0, 'ai' => 0, 'closed' => 0, 'unread' => 0];
+        foreach ($rows as $r) {
+            $out[(string) $r['mode']] = (int) $r['n'];
+            $out['all'] += (int) $r['n'];
+        }
+        $out['unread'] = (int) ($this->query("SELECT COUNT(*) AS n FROM {$this->prefix}conversations WHERE last_message_at > staff_seen_at AND mode <> 'closed'", [])[0]['n'] ?? 0);
+        return $out;
     }
 
     /** Full transcript for the panel (agent rows included, tool payloads too). */
@@ -340,7 +384,7 @@ class PdoStore implements StateStore
             return [];
         }
         return $this->query(
-            "SELECT id, role, content, payload, created_at FROM {$this->prefix}messages WHERE conversation_id = ? ORDER BY id",
+            "SELECT m.id, m.role, m.content, m.payload, m.created_at, m.agent_id, (SELECT name FROM {$this->prefix}agents a WHERE a.id = m.agent_id) AS agent_name FROM {$this->prefix}messages m WHERE m.conversation_id = ? ORDER BY m.id",
             [$conv['id']],
         );
     }

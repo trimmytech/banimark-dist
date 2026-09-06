@@ -19,6 +19,7 @@ class PollEndpoint
     public function __construct(
         private PdoStore $store,
         private string $identitySecret = '',
+        private ?\Banimark\Storage\Attachments $attachments = null,
     ) {
     }
 
@@ -51,7 +52,17 @@ class PollEndpoint
             'ok' => true,
             'mode' => $this->store->mode($sessionId),
             'agent_typing' => !empty($presence['agent_typing']),
-            'messages' => array_map(fn ($r) => ['id' => (int) $r['id'], 'text' => (string) $r['content']], $rows),
+            'messages' => array_map(function ($r) {
+                $parsed = \Banimark\Files\Markers::parse((string) $r['content']);
+                $files = [];
+                if ($parsed['tokens'] !== [] && $this->attachments !== null) {
+                    $files = array_map(fn ($a) => [
+                        'token' => (string) $a['token'], 'name' => (string) $a['name'], 'mime' => (string) $a['mime'],
+                        'size' => (int) $a['size'], 'is_image' => \Banimark\Files\UploadPolicy::isImage((string) $a['mime']),
+                    ], $this->attachments->byTokens($parsed['tokens']));
+                }
+                return ['id' => (int) $r['id'], 'text' => $parsed['text'], 'files' => $files];
+            }, $rows),
         ];
     }
 }

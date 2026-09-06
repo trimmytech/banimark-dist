@@ -9,8 +9,8 @@ namespace Banimark\Storage;
  */
 final class TranscriptView
 {
-    /** @return array{id:int, role:string, text:string, at:int} */
-    public static function row(array $m): array
+    /** @return array{id:int, role:string, text:string, at:int, files:array} */
+    public static function row(array $m, ?Attachments $attachments = null): array
     {
         $payload = !empty($m['payload']) ? (json_decode((string) $m['payload'], true) ?: []) : [];
         $role = (string) $m['role'];
@@ -24,12 +24,25 @@ final class TranscriptView
             $role = 'tool';
             $text = 'AI called: '.implode(', ', array_column($payload['tool_calls'], 'name'));
         }
-        return ['id' => (int) $m['id'], 'role' => $role, 'text' => $text, 'at' => (int) ($m['created_at'] ?? 0)];
+        // files travel as markers in the text (ids churn on every turn) - show them as files
+        $parsed = \Banimark\Files\Markers::parse($text);
+        $files = [];
+        if ($parsed['tokens'] !== [] && $attachments !== null) {
+            $files = array_map(fn ($a) => [
+                'token' => (string) $a['token'], 'name' => (string) $a['name'], 'mime' => (string) $a['mime'],
+                'size' => (int) $a['size'], 'is_image' => \Banimark\Files\UploadPolicy::isImage((string) $a['mime']),
+            ], $attachments->byTokens($parsed['tokens']));
+        }
+        return ['id' => (int) $m['id'], 'role' => $role, 'text' => $parsed['text'], 'at' => (int) ($m['created_at'] ?? 0), 'files' => $files,
+            // who replied, for agent rows (team page + "Ada · 14:02" on the bubble)
+            'by' => $role === 'agent' ? (string) ($m['agent_name'] ?? '') : ''];
     }
 
-    /** @return array<int, array{id:int, role:string, text:string, at:int}> */
-    public static function rows(array $rows): array
+    /** @return array<int, array{id:int, role:string, text:string, at:int, files:array}> */
+    public static function rows(array $rows, ?Attachments $attachments = null): array
     {
-        return array_values(array_filter(array_map([self::class, 'row'], $rows), fn ($r) => $r['text'] !== ''));
+        $out = array_map(fn ($r) => self::row($r, $attachments), $rows);
+        // a message that is only a file has no text, but must still be shown
+        return array_values(array_filter($out, fn ($r) => $r['text'] !== '' || $r['files'] !== []));
     }
 }

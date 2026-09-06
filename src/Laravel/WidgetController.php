@@ -14,13 +14,23 @@ use Illuminate\Http\Request;
 class WidgetController
 {
     /** POST /banimark/chat */
-    public function chat(Request $request, ChatEndpoint $endpoint)
+    public function chat(Request $request, ChatEndpoint $endpoint, \Banimark\Http\RateLimiter $limiter)
     {
+        // flood rules first: a script hammering this route costs no storage and no model call
+        $settings = \Banimark\Laravel\BanimarkServiceProvider::settings();
+        $sid = (string) $request->input('session_id', '');
+        $blocked = \Banimark\Http\Flood::check($limiter, $settings, (string) $request->ip(), $sid, 'chat')
+            ?? ($sid === '' ? \Banimark\Http\Flood::check($limiter, $settings, (string) $request->ip(), '', 'session') : null);
+        if ($blocked !== null) {
+            return response()->json(['ok' => false, 'error' => $blocked['error'], 'session_id' => $sid, 'reply' => ''], 429)
+                ->header('Retry-After', (string) $blocked['retry_after']);
+        }
         $out = $endpoint->handle([
             'message' => (string) $request->input('message', ''),
             'session_id' => (string) $request->input('session_id', ''),
             'token' => (string) $request->input('token', ''),
             'visitor' => (array) $request->input('visitor', []),
+            'attachments' => (array) $request->input('attachments', []),
         ]);
 
         return response()->json($out, $out['ok'] ? 200 : 422);
@@ -44,6 +54,52 @@ class WidgetController
             'session_id' => (string) $request->query('session_id', ''),
             'token' => (string) $request->query('token', ''),
         ]));
+    }
+
+    /** POST /banimark/upload - a visitor sends a file */
+    public function upload(Request $request, \Banimark\Http\UploadEndpoint $endpoint, \Banimark\Http\RateLimiter $limiter)
+    {
+        $blocked = \Banimark\Http\Flood::check($limiter, \Banimark\Laravel\BanimarkServiceProvider::settings(), (string) $request->ip(), (string) $request->input('session_id', ''), 'upload');
+        if ($blocked !== null) {
+            return response()->json(['ok' => false, 'error' => $blocked['error']], 429)->header('Retry-After', (string) $blocked['retry_after']);
+        }
+        $file = $request->file('file');
+        if (!$file || !$file->isValid()) {
+            return response()->json(['ok' => false, 'error' => 'That upload did not arrive in one piece.'], 422);
+        }
+        $out = $endpoint->handle([
+            'session_id' => (string) $request->input('session_id', ''),
+            'token' => (string) $request->input('token', ''),
+            'filename' => (string) $file->getClientOriginalName(),
+            'bytes' => (string) @file_get_contents($file->getRealPath()),
+            'size' => (int) $file->getSize(),
+        ]);
+        if (!empty($out['detail'])) {
+            // the visitor gets a plain apology; the owner needs the real reason
+            \Illuminate\Support\Facades\Log::warning('Banimark upload failed: '.$out['detail']);
+            unset($out['detail']);
+        }
+        return response()->json($out, $out['ok'] ? 200 : 422);
+    }
+
+    /** GET /banimark/file/{token} - stream a shared file (or bounce to object storage) */
+    public function file(string $token, Request $request, \Banimark\Http\FileEndpoint $endpoint)
+    {
+        $out = $endpoint->handle($token, $request->boolean('download'));
+        if (!$out['ok']) {
+            abort(404);
+        }
+        if (isset($out['redirect'])) {
+            return redirect()->away($out['redirect']);
+        }
+        return response($out['bytes'], 200, [
+            'Content-Type' => $out['mime'] ?: 'application/octet-stream',
+            // never let a shared file execute in the browser
+            'Content-Disposition' => ($out['download'] ? 'attachment' : 'inline').'; filename="'.addslashes($out['name']).'"',
+            'X-Content-Type-Options' => 'nosniff',
+            'Content-Security-Policy' => "default-src 'none'; img-src 'self'; sandbox",
+            'Cache-Control' => 'private, max-age=600',
+        ]);
     }
 
     /**
@@ -96,6 +152,10 @@ class WidgetController
         // allow-list: this script is public, and the settings table holds secrets
         $cfg = WidgetConfig::build($settings, url('/banimark/chat'));
         $js = 'window.__BANIMARK_CFG = '.json_encode($cfg, JSON_UNESCAPED_SLASHES).";\n"
+            // the emoji picker is shared with the panel; the widget captures it
+            // and removes the global, so the host page is left exactly as it was
+            .file_get_contents(__DIR__.'/../../resources/design/emoji.js')."\n"
+            .file_get_contents(__DIR__.'/../../resources/design/markdown.js')."\n"
             .file_get_contents(__DIR__.'/../../resources/widget/banimark-widget.js');
 
         return response($js, 200, [

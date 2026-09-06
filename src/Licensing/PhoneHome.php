@@ -33,7 +33,9 @@ final class PhoneHome
         if ($key === '') {
             return null;
         }
-        if (!$force && !Master::due((string) ($settings['license_last_ping'] ?? ''), $now)) {
+        // the rhythm HQ signed into THIS install's licence (daily until one says otherwise)
+        $interval = Master::intervalFor($key, (string) ($settings['license_token'] ?? ''));
+        if (!$force && !Master::due((string) ($settings['license_last_ping'] ?? ''), $now, $interval)) {
             return null;
         }
         // stamped BEFORE the request: an unreachable HQ must not slow every page for a day
@@ -67,6 +69,10 @@ final class PhoneHome
     public static function apply(array $result, callable $set, callable $forget, ?int $now = null): void
     {
         $set('license_status', (string) ($result['license'] ?? 'unknown'));
+        // remembered so the licence page can show the owner the rhythm they are on
+        if ((int) ($result['check_interval'] ?? 0) > 0) {
+            $set('license_check_interval', (string) (int) $result['check_interval']);
+        }
         if (($result['token'] ?? '') !== '') {
             $set('license_token', (string) $result['token']);
         }

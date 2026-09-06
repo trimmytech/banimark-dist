@@ -1,4 +1,4 @@
-@php use Banimark\Ui\Chart; use Banimark\Ui\Icons; @endphp
+@php use Banimark\Ui\Chart; use Banimark\Ui\Icons; use Banimark\Ui\Layout; @endphp
 @extends('banimark::admin.layout')
 @section('title', 'AI providers')
 @section('sub', 'Bring your own key — it never leaves your server')
@@ -46,20 +46,22 @@
             </div>
             @if($e)<a class="btn-ghost btn-sm" href="{{ route('banimark.admin.providers') }}">Cancel — add a new one instead</a>@endif
         </div>
-        <form method="post" action="{{ route('banimark.admin.providers.save') }}">
+        <form method="post" action="{{ route('banimark.admin.providers.save') }}" data-provider-form>
             @csrf
             <div class="grid2">
                 <div><label>Slug <span class="muted">(its name in this list)</span></label><input type="text" name="slug" required placeholder="gemini" value="{{ $e['slug'] ?? '' }}" @readonly($e)></div>
                 <div><label>Driver</label>
                     <select name="driver">
-                        <option value="gemini" @selected(($e['driver'] ?? 'gemini') === 'gemini')>gemini</option>
-                        <option value="openai-compat" @selected(($e['driver'] ?? '') === 'openai-compat')>openai-compat (OpenAI / DeepSeek / SiliconFlow / local)</option>
-                        <option value="anthropic" @selected(($e['driver'] ?? '') === 'anthropic')>anthropic</option>
+                        <option value="gemini" @selected(($e['driver'] ?? 'gemini') === 'gemini')>Google Gemini</option>
+                        <option value="anthropic" @selected(($e['driver'] ?? '') === 'anthropic')>Anthropic Claude</option>
+                        <option value="openai-compat" @selected(($e['driver'] ?? '') === 'openai-compat')>OpenAI, DeepSeek, Groq, Mistral, OpenRouter, local… (OpenAI-compatible)</option>
                     </select>
                 </div>
+                {!! Layout::providerServiceBlock($e['driver'] ?? 'gemini', $e['base_url'] ?? '', $e['model'] ?? '') !!}
                 <div><label>Model</label><input type="text" name="model" required placeholder="gemini-2.5-flash" value="{{ $e['model'] ?? '' }}"></div>
-                <div><label>Base URL (openai-compat only)</label><input type="text" name="base_url" placeholder="https://api.deepseek.com" value="{{ $e['base_url'] ?? '' }}"></div>
-                <div><label>API key {!! $e ? '<span class="muted">('.($e['has_key'] ? 'a key is stored — blank keeps it' : 'none stored yet').')</span>' : '' !!}</label><input type="password" name="api_key" autocomplete="new-password" placeholder="{{ $e && $e['has_key'] ? '•••••••• (unchanged)' : 'paste your API key' }}"></div>
+                <div><label>API key {!! $e ? '<span class="muted">('.($e['has_key'] ? 'a key is stored — blank keeps it' : 'none stored yet').')</span>' : '' !!}
+                        <a class="muted" data-key-link href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" style="text-decoration:underline;margin-left:6px">Where do I get one?</a></label>
+                    <input type="password" name="api_key" autocomplete="new-password" placeholder="{{ $e && $e['has_key'] ? '•••••••• (unchanged)' : 'paste your API key' }}"></div>
                 <div><label>Temperature</label><input type="number" name="temperature" step="0.05" value="{{ $e['temperature'] ?? 0.4 }}"></div>
             </div>
             <div class="row" style="margin-top:14px;gap:20px">

@@ -230,3 +230,51 @@
     }
   });
 })();
+
+/* ---- AI provider form: plain-language service picker ----
+ * Gemini/Claude need no address, so the field is hidden for them. For the
+ * OpenAI-compatible driver the owner picks the service they have a key for and
+ * the address (and a first model) are filled in; the key link follows suit. */
+(function () {
+  'use strict';
+  var form = document.querySelector('[data-provider-form]');
+  if (!form) return;
+  var cfgEl = form.querySelector('[data-provider-presets]');
+  var cfg = { presets: {}, driverKeys: {} };
+  try { cfg = JSON.parse(cfgEl ? cfgEl.textContent : '{}') || cfg; } catch (e) {}
+  var driver = form.querySelector('[name=driver]'), service = form.querySelector('[data-service]');
+  var urlWrap = form.querySelector('[data-provider-url]'), svcWrap = form.querySelector('[data-provider-service]');
+  var url = form.querySelector('[name=base_url]'), model = form.querySelector('[name=model]');
+  var note = form.querySelector('[data-service-note]'), keyLink = form.querySelector('[data-key-link]');
+  var modelHints = { gemini: 'gemini-2.5-flash', anthropic: 'claude-3-5-haiku-latest' };
+
+  function applyDriver() {
+    var compat = driver.value === 'openai-compat';
+    if (urlWrap) urlWrap.hidden = !compat;
+    if (svcWrap) svcWrap.hidden = !compat;
+    if (!compat) {
+      if (keyLink && cfg.driverKeys[driver.value]) keyLink.href = cfg.driverKeys[driver.value];
+      if (model && !model.value) model.placeholder = modelHints[driver.value] || '';
+    } else {
+      applyService();
+    }
+  }
+  function applyService() {
+    if (!service) return;
+    var p = cfg.presets[service.value];
+    if (!p) { if (note) note.textContent = 'Pick one and the address below is filled in for you.'; return; }
+    if (url && p.base_url) url.value = p.base_url;
+    if (model) { model.placeholder = p.model || ''; if (!model.value && p.model) model.value = p.model; }
+    if (keyLink && p.keys) keyLink.href = p.keys;
+    if (note) note.textContent = p.note || ('Address filled in. Get your key at ' + p.keys.replace(/^https?:\/\//, '').split('/')[0] + ', paste it below, and you are done.');
+  }
+  driver.addEventListener('change', applyDriver);
+  if (service) service.addEventListener('change', applyService);
+  applyDriver();
+  // the key link matches whatever is selected when the page opens, without clobbering saved values
+  if (driver.value === 'openai-compat' && service && cfg.presets[service.value]) {
+    var p = cfg.presets[service.value];
+    if (keyLink && p.keys) keyLink.href = p.keys;
+    if (note) note.textContent = p.note || 'Address filled in from the service you chose.';
+  }
+})();

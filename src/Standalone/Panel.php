@@ -127,6 +127,7 @@ class Panel
         // where a package update reaches the database: once per version, on a
         // staff visit. The widget/chat path never pays for it.
         \Banimark\Storage\Schema::ensureCurrent($this->pdo, Master::PACKAGE_VERSION);
+        $this->auth->touchActivity(); // "last seen" for the team page; throttled inside
 
         // CSRF on every mutation
         if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && !$this->auth->csrfOk($_POST['_csrf'] ?? null)) {
@@ -171,6 +172,9 @@ class Panel
                 return; // redirected
             }
         }
+        if (isset($_GET['bm_ok']) && trim((string) $_GET['bm_ok']) !== '') {
+            $flash .= '<div class="flash-ok">'.Html::e(mb_substr((string) $_GET['bm_ok'], 0, 200)).'</div>';
+        }
         $flash = \Banimark\Licensing\HqNotice::html($this->settings->all(), (string) ($_SERVER['HTTP_HOST'] ?? '')).$flash;
 
         if ($route === '/events') {
@@ -183,10 +187,11 @@ class Panel
             if (!empty($_GET['typing'])) {
                 $this->store->markTyping($m[1], 'agent'); // the visitor's widget shows the dots
             }
+            $this->store->markStaffSeen($m[1]);
             echo json_encode([
                 'ok' => true,
                 'mode' => $this->store->mode($m[1]),
-                'messages' => TranscriptView::rows($this->store->messagesSince($m[1], (int) ($_GET['after'] ?? 0))),
+                'messages' => TranscriptView::rows($this->store->messagesSince($m[1], (int) ($_GET['after'] ?? 0)), $this->attachments()),
                 'presence' => $this->store->presence($m[1]),
             ]);
             return;
@@ -207,6 +212,10 @@ class Panel
             $route === '/inbox' => $this->inbox($flash),
             str_starts_with($route, '/conversation/') => $this->conversation(substr($route, 14), $flash),
             $route === '/tools' => $this->tools($flash),
+            str_starts_with($route, '/files') => $this->filesPage($flash),
+            $route === '/ai' => Html::page('AI settings', $flash.\Banimark\Ui\Pages::aiSettings($this->settings->all(), $this->url('/ai'), $this->csrfField()), $this->nav('/ai'), 'How the assistant behaves, how much it remembers, what it may cost'),
+            str_starts_with($route, '/data') => $this->dataPage($flash),
+            $route === '/team' => $this->teamPage($flash),
             // POST handlers that answer with a flash (a validation problem) re-render their page
             str_starts_with($route, '/rules') => $this->rules($flash),
             str_starts_with($route, '/security') => $this->securityPage($flash),
@@ -225,18 +234,55 @@ class Panel
     private function handlePost(string $route): ?string
     {
         $p = $_POST;
+        if (preg_match('#^/conversation/([a-f0-9]{32})/upload$#', $route, $m)) {
+            header('Content-Type: application/json');
+            $settings = $this->settings->all();
+            $up = $_FILES['file'] ?? null;
+            if (!$this->auth->can('inbox.reply')) {
+                http_response_code(403); echo json_encode(['ok' => false, 'error' => 'You do not have permission to reply here.']); return null;
+            }
+            if (!\Banimark\Files\FileStoreFactory::enabled($settings)) {
+                http_response_code(422); echo json_encode(['ok' => false, 'error' => 'File sharing is switched off on the Files page.']); return null;
+            }
+            if (!$up || ($up['error'] ?? 1) !== UPLOAD_ERR_OK || !is_uploaded_file($up['tmp_name'])) {
+                http_response_code(422); echo json_encode(['ok' => false, 'error' => 'That upload did not arrive in one piece.']); return null;
+            }
+            $bytes = (string) @file_get_contents($up['tmp_name']);
+            $check = \Banimark\Files\UploadPolicy::fromSettings($settings)->check((string) $up['name'], (int) $up['size'], $bytes);
+            if (!$check['ok']) {
+                http_response_code(422); echo json_encode(['ok' => false, 'error' => $check['error']]); return null;
+            }
+            $files = \Banimark\Files\FileStoreFactory::make($settings, dirname($_SERVER['SCRIPT_FILENAME'] ?? __FILE__).'/banimark-files');
+            $key = \Banimark\Files\UploadPolicy::key($check['ext']);
+            if (!$files->put($key, $bytes, $check['mime'])) {
+                http_response_code(422); echo json_encode(['ok' => false, 'error' => 'Could not store the file: '.$files->lastError()]); return null;
+            }
+            $row = $this->attachments()->create($m[1], $files->name(), $key, $check['name'], $check['mime'], strlen($bytes), 'agent');
+            echo json_encode(['ok' => true, 'attachment' => [
+                'id' => (int) $row['id'], 'token' => (string) $row['token'], 'name' => (string) $row['name'],
+                'mime' => (string) $row['mime'], 'size' => (int) $row['size'],
+                'is_image' => \Banimark\Files\UploadPolicy::isImage((string) $row['mime']),
+            ]]);
+            return null;
+        }
         if (preg_match('#^/conversation/([a-f0-9]{32})/reply$#', $route, $m)) {
             $text = trim((string) ($p['message'] ?? ''));
+            $files = $this->attachments()->pending((array) ($p['attachments'] ?? []), $m[1]);
+            if ($files !== []) {
+                // files ride in the text as markers - the same shape the visitor's do
+                $text = \Banimark\Files\Markers::append($text, $files);
+                $this->attachments()->markSent(array_column($files, 'token'), $m[1]);
+            }
             $emailed = false;
             $row = null;
             if ($text !== '') {
-                $this->store->appendAgentMessage($m[1], $text);
+                $this->store->appendAgentMessage($m[1], $text, (int) $this->auth->id());
                 $all = $this->store->transcript($m[1]);
-                $row = $all === [] ? null : TranscriptView::row(end($all));
+                $row = $all === [] ? null : TranscriptView::row(end($all), $this->attachments());
                 // the visitor may have closed the tab - post the reply on to them
                 try {
                     $emailed = (new FollowUp($this->store, MailerFactory::make($this->settings->all()), $this->settings->all()))
-                        ->afterAgentReply($m[1], $text);
+                        ->afterAgentReply($m[1], \Banimark\Files\Markers::parse($text)['text'] ?: 'Please see the attached file.');
                 } catch (\Throwable $e) { /* a mail problem must never lose the reply */ }
             }
             if (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest') {
@@ -246,6 +292,63 @@ class Panel
             }
             header('Location: '.$this->url('/conversation/'.$m[1]));
             return null;
+        }
+        if ($route === '/ai') {
+            \Banimark\Ui\Pages::saveAiSettings($p, fn (string $k, string $v) => $this->settings->set($k, $v));
+            return '<div class="flash-ok">AI settings saved. They apply from the next message.</div>';
+        }
+        if ($route === '/data') {
+            \Banimark\Ui\Pages::saveDataSettings($p, fn (string $k, string $v) => $this->settings->set($k, $v));
+            return '<div class="flash-ok">Saved.</div>';
+        }
+        if ($route === '/data/delete-all') {
+            if (trim((string) ($p['confirm'] ?? '')) !== 'DELETE') {
+                return '<div class="flash-err">Type DELETE in the box to confirm.</div>';
+            }
+            $n = $this->retention()->deleteAll();
+            return '<div class="flash-ok">Deleted '.$n.' conversation(s) and everything in them.</div>';
+        }
+        if (preg_match('#^/conversation/([a-f0-9]{32})/delete$#', $route, $m)) {
+            $this->retention()->deleteConversation($m[1]);
+            header('Location: '.$this->url('/inbox').'?bm_ok='.rawurlencode('Conversation deleted.'));
+            return null;
+        }
+        if (preg_match('#^/conversation/([a-f0-9]{32})/forget$#', $route, $m)) {
+            $identity = $this->store->identityOf($m[1]);
+            if ($identity === '' || $identity === 'anon') {
+                $this->retention()->deleteConversation($m[1]);
+                $notice = 'Conversation deleted (the visitor was anonymous, so there was nothing else of theirs to find).';
+            } else {
+                $notice = 'Deleted '.$this->retention()->deleteVisitor($identity).' conversation(s) from that visitor.';
+            }
+            header('Location: '.$this->url('/inbox').'?bm_ok='.rawurlencode($notice));
+            return null;
+        }
+        if ($route === '/files') {
+            $set = fn (string $k, string $v) => $this->settings->set($k, $v);
+            $set('files_enabled', !empty($p['files_enabled']) ? '1' : '0');
+            $set('files_max_mb', (string) max(1, min(100, (int) ($p['files_max_mb'] ?? 10))));
+            $set('files_types', trim((string) ($p['files_types'] ?? '')));
+            $set('files_driver', ($p['files_driver'] ?? '') === 's3' ? 's3' : 'local');
+            $set('files_local_path', trim((string) ($p['files_local_path'] ?? '')));
+            foreach (['files_s3_bucket', 'files_s3_region', 'files_s3_endpoint', 'files_s3_prefix', 'files_s3_key'] as $k) {
+                $set($k, trim((string) ($p[$k] ?? '')));
+            }
+            $set('files_s3_path_style', !empty($p['files_s3_path_style']) ? '1' : '0');
+            $secret = (string) ($p['files_s3_secret'] ?? ''); // blank keeps the stored one
+            if ($secret !== '') {
+                $set('files_s3_secret', $secret);
+            }
+            return '<div class="flash-ok">File settings saved.</div>';
+        }
+        if ($route === '/files/test') {
+            $settings = $this->settings->all();
+            $problem = \Banimark\Files\FileStoreFactory::misconfigured($settings);
+            if ($problem !== '') {
+                return '<div class="flash-err">'.Html::e($problem).'</div>';
+            }
+            $r = \Banimark\Files\SelfTest::run(\Banimark\Files\FileStoreFactory::make($settings, dirname($_SERVER['SCRIPT_FILENAME'] ?? __FILE__).'/banimark-files'));
+            return '<div class="'.($r['ok'] ? 'flash-ok' : 'flash-err').'">'.Html::e($r['message']).'</div>';
         }
         if ($route === '/quick-replies') {
             $this->settings->set('quick_replies', trim((string) ($p['quick_replies'] ?? '')));
@@ -272,6 +375,20 @@ class Panel
             $mode = in_array($p['mode'] ?? '', ['ai', 'agent', 'closed'], true) ? $p['mode'] : 'ai';
             $this->store->setMode($m[1], $mode);
             header('Location: '.$this->url('/conversation/'.$m[1]));
+            return null;
+        }
+        if ($route === '/tools/try') {
+            header('Content-Type: application/json');
+            $context = array_filter((array) ($p['context_values'] ?? []), fn ($v) => $v !== '' && $v !== null);
+            echo json_encode(\Banimark\Tools\ToolTester::run(self::toolDefinitionFromForm($p), (array) ($p['args'] ?? []), $context,
+                function (string $sql, array $bindings) {
+                    $st = $this->pdo->prepare($sql);
+                    foreach ($bindings as $k => $v) {
+                        $st->bindValue(':'.$k, $v);
+                    }
+                    $st->execute();
+                    return $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+                }));
             return null;
         }
         if ($route === '/tools') {
@@ -448,7 +565,8 @@ class Panel
         return '';
     }
 
-    private function saveTool(array $p): ?string
+    /** The tool definition as typed into the form - shared by save and "Try it". */
+    private static function toolDefinitionFromForm(array $p): array
     {
         // rows arrive as positional arrays; a checkbox only posts when ticked,
         // so param_required[] carries the INDEXES of the required rows
@@ -468,7 +586,7 @@ class Panel
                 'required' => in_array($i, $required, true),
             ];
         }
-        $definition = [
+        return [
             'name' => strtolower(trim((string) ($p['name'] ?? ''))),
             'description' => trim((string) ($p['description'] ?? '')),
             'parameters' => $params,
@@ -477,6 +595,11 @@ class Panel
             'context' => array_values(array_filter(array_map('trim', explode(',', (string) ($p['context'] ?? ''))))),
             'max_rows' => max(1, min(50, (int) ($p['max_rows'] ?? 10))),
         ];
+    }
+
+    private function saveTool(array $p): ?string
+    {
+        $definition = self::toolDefinitionFromForm($p);
         try {
             SqlTool::fromDefinition($definition, fn () => []);
         } catch (\Throwable $e) {
@@ -519,7 +642,7 @@ class Panel
         $this->exec('DELETE FROM banimark_providers WHERE slug = ?', [$slug]);
         $this->exec('INSERT INTO banimark_providers (slug, driver, api_key, model, base_url, temperature, enabled, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
             $slug, $driver, $key !== '' ? $key : $existing['api_key'], $model,
-            trim((string) ($p['base_url'] ?? '')) ?: null,
+            ($p['driver'] ?? '') === 'openai-compat' ? (trim((string) ($p['base_url'] ?? '')) ?: null) : null,
             max(0, min(2, (float) ($p['temperature'] ?? 0.4))),
             $enabled, $enabled,
             date('Y-m-d H:i:s'), date('Y-m-d H:i:s'),
@@ -547,6 +670,10 @@ class Panel
             ['/rules', 'rules', 'Rules', 'rules.manage'],
             ['/providers', 'providers', 'AI providers', 'providers.manage'],
             ['/widget', 'widget', 'Widget', 'widget.manage'],
+            ['/files', 'files', 'Files', 'files.manage'],
+            ['/ai', 'providers', 'AI settings', 'ai.manage'],
+            ['/team', 'staff', 'Team', 'team.view'],
+            ['/data', 'shield', 'Data & protection', 'data.manage'],
             ['/escalation', 'escalation', 'Notifications', 'notifications.manage'],
         ] as [$path, $icon, $label, $perm]) {
             if ($can($perm)) {
@@ -577,6 +704,13 @@ class Panel
         }
         return $out.'<span class="lbl">Session</span>'
             .Layout::navLink(['href' => $this->url('/logout'), 'icon' => 'logout', 'label' => 'Sign out']);
+    }
+
+    private ?\Banimark\Storage\Attachments $attachmentsRepo = null;
+
+    private function attachments(): \Banimark\Storage\Attachments
+    {
+        return $this->attachmentsRepo ??= new \Banimark\Storage\Attachments($this->pdo);
     }
 
     private function csrfField(): string
@@ -644,22 +778,53 @@ class Panel
 
     private function inbox(string $flash): string
     {
+        $e = fn ($v) => Html::e((string) $v);
         $mode = in_array($_GET['mode'] ?? '', ['ai', 'agent', 'closed'], true) ? $_GET['mode'] : null;
-        $rows = '';
-        foreach ($this->store->listConversations(100, $mode) as $r) {
-            $rows .= '<tr><td>'.Html::e($r['visitor_label'] ?: 'Anonymous').'<br><span class="muted">'.Html::e(substr($r['session_id'], 0, 8)).'…</span></td>'
-                .'<td><span class="pill '.Html::e($r['mode']).'">'.strtoupper(Html::e($r['mode'])).'</span></td>'
-                .'<td>'.(int) $r['message_count'].'</td>'
-                .'<td class="muted">'.Html::e(mb_substr((string) $r['last_message'], 0, 70)).'</td>'
-                .'<td class="muted">'.($r['last_message_at'] ? date('d M H:i', (int) $r['last_message_at']) : '-').'</td>'
-                .'<td><a class="btn btn2" href="'.Html::e($this->url('/conversation/'.$r['session_id'])).'">Open</a></td></tr>';
+        $q = trim((string) ($_GET['q'] ?? ''));
+        $counts = $this->store->inboxCounts();
+        $base = $this->url('/inbox');
+
+        $tabs = '';
+        foreach ([null => ['All', $counts['all']], 'agent' => ['Needs a human', $counts['agent']], 'ai' => ['AI handled', $counts['ai']], 'closed' => ['Closed', $counts['closed']]] as $k => $t) {
+            $qs = http_build_query(array_filter(['mode' => $k, 'q' => $q]));
+            $tabs .= '<a class="bm-tab'.($mode === ($k ?: null) ? ' on' : '').'" href="'.$e($base.($qs !== '' ? '?'.$qs : '')).'">'
+                .$e($t[0]).' <span>'.(int) $t[1].'</span></a>';
         }
-        if ($rows === '') {
-            $rows = '<tr><td colspan="6" class="muted">No conversations yet. Embed the widget and say hello.</td></tr>';
+
+        $threads = '';
+        foreach ($this->store->listConversations(100, $mode, $q) as $r) {
+            $unread = (int) $r['last_message_at'] > (int) ($r['staff_seen_at'] ?? 0) && $r['mode'] !== 'closed';
+            $preview = \Banimark\Files\Markers::parse((string) $r['last_message'])['text'];
+            $online = (int) ($r['last_seen_at'] ?? 0) > time() - 45;
+            $who = ($r['last_role'] ?? '') === 'agent'
+                ? '<span class="muted">'.$e(($r['last_agent'] ?? '') !== '' && $r['last_agent'] !== $this->auth->name() ? $r['last_agent'] : 'You').':</span> '
+                : (($r['last_role'] ?? '') === 'assistant' ? '<span class="muted">AI:</span> ' : '');
+            $threads .= '<a class="bm-thread'.($unread ? ' unread' : '').'" href="'.$e($this->url('/conversation/'.$r['session_id'])).'">'
+                .'<span class="bm-thread-av"><span class="avatar">'.$e(strtoupper(substr($r['visitor_label'] ?: 'A', 0, 1))).'</span>'
+                .($online ? '<i class="bm-online" title="In the chat now"></i>' : '').'</span>'
+                .'<span class="bm-thread-main"><span class="bm-thread-head"><b>'.$e($r['visitor_label'] ?: 'Anonymous visitor').'</b>'
+                .($r['mode'] === 'agent' ? '<span class="pill agent">NEEDS A HUMAN</span>' : ($r['mode'] === 'closed' ? '<span class="pill closed">CLOSED</span>' : ''))
+                .((int) $r['file_count'] > 0 ? '<span class="muted">📎 '.(int) $r['file_count'].'</span>' : '')
+                .'<span class="spacer"></span><span class="muted bm-when">'.($r['last_message_at'] ? $e(Chart::ago((int) $r['last_message_at'])) : '—').'</span></span>'
+                .'<span class="bm-thread-line">'.$who.$e(mb_strimwidth($preview !== '' ? $preview : '(a file)', 0, 110, '…')).'</span>'
+                .($r['visitor_email'] ? '<span class="bm-thread-sub muted">'.$e($r['visitor_email']).'</span>' : '')
+                .'</span><span class="bm-thread-end">'.($unread ? '<i class="bm-dot"></i>' : '').'<span class="muted">'.(int) $r['message_count'].' msg</span></span></a>';
         }
-        return Html::page('Inbox', $flash.'<div class="bm-card"><h2>Conversations</h2>'
-            .'<div class="muted"><a href="'.Html::e($this->url()).'">All</a> · <a href="'.Html::e($this->url().'?mode=agent').'">Needs a human</a> · <a href="'.Html::e($this->url().'?mode=ai').'">AI handled</a> · <a href="'.Html::e($this->url().'?mode=closed').'">Closed</a></div>'
-            .'<table><tr><th>Visitor</th><th>Mode</th><th>Msgs</th><th>Last message</th><th>Activity</th><th></th></tr>'.$rows.'</table></div>', $this->nav('/inbox'));
+        if ($threads === '') {
+            $threads = '<div style="padding:8px">'.Chart::empty($q !== '' ? 'Nothing matches "'.$e($q).'"' : 'No conversations yet',
+                $q !== '' ? 'Try a different word, or clear the search.' : 'Embed the widget on your site and say hello.').'</div>';
+        }
+
+        $search = '<form method="get" action="'.$e($base).'" class="bm-search">'
+            .($mode ? '<input type="hidden" name="mode" value="'.$e($mode).'">' : '')
+            .Icons::get('inbox', 14)
+            .'<input type="text" name="q" value="'.$e($q).'" placeholder="Search people and messages…" autocomplete="off">'
+            .($q !== '' ? '<a class="btn-ghost btn-sm" href="'.$e($base.($mode ? '?mode='.$mode : '')).'">Clear</a>' : '').'</form>';
+
+        return Html::page('Inbox', $flash.'<div class="bm-card pad0"><div class="bm-inbox-top">'
+            .'<div class="row" style="gap:6px;flex-wrap:wrap">'.$tabs.'</div><div class="spacer"></div>'.$search.'</div>'
+            .'<div class="bm-threads">'.$threads.'</div></div>', $this->nav('/inbox'),
+            $counts['unread'] > 0 ? $counts['unread'].' waiting on you' : 'Everything is answered');
     }
 
     private function conversation(string $sessionId, string $flash): string
@@ -669,7 +834,9 @@ class Panel
         }
         $e = fn ($v) => Html::e((string) $v);
         $mode = $this->store->mode($sessionId);
-        $rows = TranscriptView::rows($this->store->transcript($sessionId));
+        $rows = TranscriptView::rows($this->store->transcript($sessionId), $this->attachments());
+        $this->store->markStaffSeen($sessionId); // opening it clears the unread dot in the inbox
+        $filesOn = \Banimark\Files\FileStoreFactory::enabled($this->settings->all());
         $lastId = $rows === [] ? 0 : end($rows)['id'];
         $presence = $this->store->presence($sessionId) ?? [];
         $label = (string) ($presence['visitor_label'] ?? '') ?: 'Visitor';
@@ -679,8 +846,16 @@ class Panel
             if ($m['role'] === 'tool') {
                 $msgs .= '<div class="msg tool" data-id="'.$m['id'].'">'.Icons::get('bolt', 12).' '.$e($m['text']).'</div>';
             } else {
-                $msgs .= '<div class="msg '.$e($m['role']).'" data-id="'.$m['id'].'">'.$e($m['text'])
-                    .'<div class="msg-meta">'.($m['role'] === 'agent' ? 'human agent · ' : ($m['role'] === 'assistant' ? 'AI · ' : '')).($m['at'] ? date('H:i', $m['at']) : '').'</div></div>';
+                $atts = '';
+                foreach ($m['files'] ?? [] as $f) {
+                    $url = $e($this->base.'/file/'.$f['token']);
+                    $atts .= $f['is_image']
+                        ? '<a class="msg-att" href="'.$url.'" target="_blank" rel="noopener"><img src="'.$url.'" alt="'.$e($f['name']).'" loading="lazy"></a>'
+                        : '<a class="msg-att file" href="'.$url.'?download=1" target="_blank" rel="noopener">📎 <b>'.$e($f['name']).'</b> <span>'
+                            .($f['size'] > 1048576 ? round($f['size'] / 1048576, 1).' MB' : round($f['size'] / 1024).' KB').'</span></a>';
+                }
+                $msgs .= '<div class="msg '.$e($m['role']).'" data-id="'.$m['id'].'">'.\Banimark\Ui\Markdown::toHtml($m['text']).$atts
+                    .'<div class="msg-meta">'.($m['role'] === 'agent' ? $e(($m['by'] ?? '') !== '' ? $m['by'] : 'human agent').' · ' : ($m['role'] === 'assistant' ? 'AI · ' : '')).($m['at'] ? date('H:i', $m['at']) : '').'</div></div>';
             }
         }
         $quick = '';
@@ -691,11 +866,18 @@ class Panel
             .'<input type="hidden" name="mode" value="'.$to.'"><button class="'.$cls.' btn-sm"'.($confirm !== '' ? ' data-confirm="'.$e($confirm).'"' : '').'>'.$label.'</button></form>';
         $actions = '<a class="btn2 btn-sm" href="'.$e($this->url('/inbox')).'">'.Icons::get('back', 15).' Inbox</a>'
             .($mode === 'agent' ? $modeForm('ai', 'Hand back to AI', 'btn2') : $modeForm('agent', 'Take over', 'btn2'))
+            .($this->auth->can('inbox.delete')
+                ? '<form method="post" action="'.$e($this->url('/conversation/'.$sessionId.'/delete')).'" style="display:inline">'.$this->csrfField()
+                    .'<button class="btn-ghost btn-sm" data-confirm="Delete this conversation and its files? This cannot be undone.">'.Icons::get('trash', 14).' Delete</button></form>'
+                  .'<form method="post" action="'.$e($this->url('/conversation/'.$sessionId.'/forget')).'" style="display:inline">'.$this->csrfField()
+                    .'<button class="btn-ghost btn-sm" data-confirm="Delete EVERY conversation from this visitor? This cannot be undone." title="Every thread this visitor ever had">Forget this visitor</button></form>'
+                : '')
             .$modeForm('closed', 'Close', 'btn-danger', 'Close this conversation?');
 
         $body = $flash.'<div class="bm-card" data-live-chat data-session="'.$e($sessionId).'" data-mode="'.$e($mode).'" data-after="'.$lastId.'"'
             .' data-messages-url="'.$e($this->url('/conversation/'.$sessionId.'/messages')).'" data-reply-url="'.$e($this->url('/conversation/'.$sessionId.'/reply')).'"'
-            .' data-csrf-name="_csrf" data-csrf="'.$e($this->auth->csrf()).'">'
+            .' data-csrf-name="_csrf" data-csrf="'.$e($this->auth->csrf()).'"'
+            .' data-upload-url="'.$e($this->url('/conversation/'.$sessionId.'/upload')).'" data-file-url="'.$e($this->base.'/file/').'" style="position:relative">'
             .'<div class="bm-sec-h"><div class="row"><span class="avatar">'.$e(strtoupper(mb_substr($label, 0, 1))).'</span><div>'
             .'<h2 style="margin:0">'.$e($label).' <span class="pill '.$e($mode).'" data-mode-pill>'.strtoupper($e($mode)).'</span></h2>'
             .'<span class="bm-presence '.($online ? 'on' : 'off').'" data-presence>'.$e($label).($online ? ' · online now' : (!empty($presence['last_seen_at']) ? ' · left the chat' : '')).'</span>'
@@ -704,11 +886,105 @@ class Panel
             .'<div class="msgs" data-thread data-autoscroll style="max-height:56vh;overflow-y:auto;padding-right:4px">'.$msgs.'</div>'
             .'<div class="bm-typing" data-typing hidden><i></i><i></i><i></i></div><div class="flash-ok" data-flash hidden></div>'
             .'<div class="bm-quick">'.$quick.'</div>'
+            .'<div data-pending hidden style="padding:6px 0 0"></div>'
             .'<form method="post" action="'.$e($this->url('/conversation/'.$sessionId.'/reply')).'" class="bm-compose" data-reply>'.$this->csrfField()
+            .'<button type="button" class="btn-ghost btn-icon" data-emoji title="Emoji">🙂</button>'
+            .($filesOn ? '<button type="button" class="btn-ghost btn-icon" data-attach title="Attach a file">📎</button><input type="file" data-file hidden>' : '')
             .'<textarea name="message" rows="1" placeholder="Reply as a human agent… (Enter to send, Shift+Enter for a new line)" autofocus autocomplete="off"></textarea>'
             .'<button type="submit">'.Icons::get('send', 15).' Send</button></form></div>'
             .Layout::chatScript();
         return Html::page('Conversation', $body, $this->nav('/inbox'), 'Replying takes over - the AI stays silent until you hand it back', $actions);
+    }
+
+    private function filesPage(string $flash): string
+    {
+        $e = fn ($v) => Html::e((string) $v);
+        $s = $this->settings;
+        $all = $s->all();
+        $defaultDir = dirname($_SERVER['SCRIPT_FILENAME'] ?? __FILE__).'/banimark-files';
+        $problem = \Banimark\Files\FileStoreFactory::misconfigured($all);
+        $row = $this->query('SELECT COUNT(*) AS c, COALESCE(SUM(size), 0) AS s FROM banimark_attachments', [])[0] ?? ['c' => 0, 's' => 0];
+        $driver = $s->get('files_driver', 'local');
+        $hasSecret = trim((string) $s->get('files_s3_secret', '')) !== '';
+        $csrf = $this->csrfField();
+        $types = \Banimark\Files\UploadPolicy::TYPES;
+
+        return Html::page('Files', $flash
+            .($problem !== '' ? '<div class="flash-err">'.Icons::get('escalation', 16).'<span>'.$e($problem).'</span></div>' : '')
+            .'<form method="post" action="'.$e($this->url('/files')).'">'.$csrf
+            .'<div class="bm-card"><div class="bm-sec-h"><div><h2>File sharing</h2>'
+            .'<div class="muted">Visitors and staff can attach files to a message. Turn it off and the paperclip disappears everywhere.</div></div>'
+            .'<div class="spacer"></div><label style="display:flex;align-items:center;gap:10px;margin:0"><span class="switch">'
+            .'<input type="checkbox" name="files_enabled" value="1"'.($s->get('files_enabled', '1') === '1' ? ' checked' : '').'><span class="sl"></span></span> Allow files</label></div>'
+            .'<div class="grid2" style="margin-top:14px"><div><label>Largest file (MB)</label>'
+            .'<input type="number" name="files_max_mb" min="1" max="100" value="'.$e($s->get('files_max_mb', (string) \Banimark\Files\UploadPolicy::DEFAULT_MAX_MB)).'"></div>'
+            .'<div><label>Accepted types <span class="muted">(comma-separated, blank = the list below)</span></label>'
+            .'<input type="text" name="files_types" value="'.$e($s->get('files_types', '')).'" placeholder="png, jpg, pdf, docx"></div></div>'
+            .'<div class="hint">Default: '.$e(implode(', ', array_keys($types))).'. Programs and scripts are never accepted, whatever you type here.</div></div>'
+
+            .'<div class="bm-card"><h2>Where they are stored</h2><div class="row" style="gap:10px;margin:12px 0">'
+            .'<label style="display:flex;gap:9px;align-items:flex-start;padding:12px;border:1px solid var(--border-2);border-radius:var(--r);flex:1;cursor:pointer">'
+            .'<input type="radio" name="files_driver" value="local"'.($driver !== 's3' ? ' checked' : '').' style="margin-top:2px">'
+            .'<span><b>This server</b><div class="muted">Simplest. Files sit in a folder only Banimark reads - never in a public directory.</div></span></label>'
+            .'<label style="display:flex;gap:9px;align-items:flex-start;padding:12px;border:1px solid var(--border-2);border-radius:var(--r);flex:1;cursor:pointer">'
+            .'<input type="radio" name="files_driver" value="s3"'.($driver === 's3' ? ' checked' : '').' style="margin-top:2px">'
+            .'<span><b>S3-compatible storage</b><div class="muted">AWS S3, Cloudflare R2, DigitalOcean Spaces, Backblaze B2, MinIO.</div></span></label></div>'
+            .'<label>Folder on this server <span class="muted">(blank = '.$e($defaultDir).')</span></label>'
+            .'<input type="text" name="files_local_path" value="'.$e($s->get('files_local_path', '')).'" placeholder="'.$e($defaultDir).'">'
+            .'<div class="divider"></div><div class="grid2">'
+            .'<div><label>Bucket</label><input type="text" name="files_s3_bucket" value="'.$e($s->get('files_s3_bucket', '')).'" placeholder="my-support-files"></div>'
+            .'<div><label>Region</label><input type="text" name="files_s3_region" value="'.$e($s->get('files_s3_region', 'us-east-1')).'" placeholder="eu-west-1"></div>'
+            .'<div><label>Access key ID</label><input type="text" name="files_s3_key" value="'.$e($s->get('files_s3_key', '')).'" autocomplete="off"></div>'
+            .'<div><label>Secret access key '.($hasSecret ? '<span class="muted">(stored - blank keeps it)</span>' : '').'</label>'
+            .'<input type="password" name="files_s3_secret" value="" autocomplete="new-password" placeholder="'.($hasSecret ? '•••••••• (unchanged)' : '').'"></div>'
+            .'<div><label>Endpoint <span class="muted">(only for R2 / Spaces / MinIO)</span></label>'
+            .'<input type="text" name="files_s3_endpoint" value="'.$e($s->get('files_s3_endpoint', '')).'" placeholder="https://&lt;account&gt;.r2.cloudflarestorage.com"></div>'
+            .'<div><label>Key prefix <span class="muted">(optional)</span></label><input type="text" name="files_s3_prefix" value="'.$e($s->get('files_s3_prefix', '')).'" placeholder="support"></div></div>'
+            .'<label style="display:flex;align-items:center;gap:8px;margin-top:10px"><input type="checkbox" name="files_s3_path_style" value="1"'
+            .($s->get('files_s3_path_style', '0') === '1' ? ' checked' : '').'> Put the bucket in the path, not the hostname <span class="muted">(MinIO and some proxies need this)</span></label>'
+            .'<div class="hint">Your keys never leave this server; files are fetched back through short-lived signed links.</div>'
+            .'<div style="margin-top:16px"><button type="submit">'.Icons::get('check', 15).' Save</button></div></div></form>'
+
+            .'<div class="bm-card"><h2>Check it works</h2>'
+            .'<div class="muted">Writes a small test file with your saved settings, reads it back and deletes it. Nothing is added to any conversation.</div>'
+            .'<form method="post" action="'.$e($this->url('/files/test')).'" style="margin-top:12px">'.$csrf
+            .'<button type="submit" class="btn2">Send a test file</button></form></div>'
+
+            .'<div class="bm-card"><h2>What is stored now</h2><div class="row" style="gap:26px;margin-top:8px">'
+            .'<div><div class="muted">Files</div><b style="font-size:20px">'.(int) $row['c'].'</b></div>'
+            .'<div><div class="muted">Total size</div><b style="font-size:20px">'.($row['s'] > 1048576 ? round($row['s'] / 1048576, 1).' MB' : round($row['s'] / 1024).' KB').'</b></div>'
+            .'<div><div class="muted">Current store</div><b style="font-size:20px">'.($driver === 's3' ? 'S3' : 'This server').'</b></div></div>'
+            .'<div class="hint">Changing store does not move existing files: anything already uploaded is still served from where it was written.</div></div>',
+            $this->nav('/files'), 'Where files shared in a chat are kept');
+    }
+
+    private function retention(): \Banimark\Storage\Retention
+    {
+        $files = \Banimark\Files\FileStoreFactory::make($this->settings->all(), dirname($_SERVER['SCRIPT_FILENAME'] ?? __FILE__).'/banimark-files');
+        return new \Banimark\Storage\Retention($this->pdo, $files);
+    }
+
+    private function dataPage(string $flash): string
+    {
+        $one = fn (string $sql) => (int) ($this->query($sql, [])[0]['n'] ?? 0);
+        $stats = [
+            'conversations' => $one('SELECT COUNT(*) AS n FROM banimark_conversations'),
+            'messages' => $one('SELECT COUNT(*) AS n FROM banimark_messages'),
+            'files' => $one('SELECT COUNT(*) AS n FROM banimark_attachments'),
+            'oldest' => $one('SELECT COALESCE(MIN(last_message_at), 0) AS n FROM banimark_conversations WHERE last_message_at > 0'),
+        ];
+        return Html::page('Data & protection', $flash.\Banimark\Ui\Pages::dataPage($this->settings->all(), $stats,
+            ['save' => $this->url('/data'), 'delete_all' => $this->url('/data/delete-all')], $this->csrfField()),
+            $this->nav('/data'), 'Retention, deletion, and limits that keep bots out');
+    }
+
+    private function teamPage(string $flash): string
+    {
+        $days = in_array((int) ($_GET['days'] ?? 7), [7, 30, 90], true) ? (int) ($_GET['days'] ?? 7) : 7;
+        $stats = new \Banimark\Storage\TeamStats($this->pdo);
+        $since = time() - $days * 86400;
+        return Html::page('Team', $flash.\Banimark\Ui\Pages::team($stats->summary($since), $stats->recent(25), $stats->overview($since), $days,
+            $this->url('/team'), fn (string $sid) => $this->url('/conversation/'.$sid)), $this->nav('/team'), 'Who is answering, and how fast');
     }
 
     private function quickRepliesCard(): string
@@ -809,7 +1085,8 @@ class Panel
         foreach ($this->query('SELECT * FROM banimark_tools ORDER BY id', []) as $r) {
             $rows .= '<tr'.($r['enabled'] ? '' : ' style="opacity:.55"').'><td><div class="row">'.Icons::get('tools', 15).'<b class="mono" style="background:none;padding:0">'.$e($r['name']).'</b></div></td>'
                 .'<td class="muted">'.$e(mb_substr($r['description'], 0, 110)).'</td>'
-                .'<td class="muted">'.($e(implode(', ', array_keys(json_decode($r['parameters'], true) ?: []))) ?: '&mdash;').'</td>'
+                .'<td class="muted">'.($e(implode(', ', array_keys(json_decode($r['parameters'], true) ?: []))) ?: '&mdash;')
+                    .(($needs = \Banimark\Tools\ToolTester::identityKeys((string) $r['sql'])) !== [] ? '<div class="hint" style="margin:3px 0 0" title="The widget must be embedded with a signed token carrying these values">Needs a signed-in visitor: '.$e(implode(', ', $needs)).'</div>' : '').'</td>'
                 .'<td style="font-variant-numeric:tabular-nums">'.(int) $r['max_rows'].'</td>'
                 .'<td><span class="pill '.($r['enabled'] ? 'good' : 'closed').'">'.($r['enabled'] ? 'ON' : 'OFF').'</span></td>'
                 .'<td class="row" style="gap:4px"><a class="btn-ghost btn-sm" href="'.$e($this->url('/tools').'?edit='.rawurlencode($r['name'])).'#build">Edit</a>'
@@ -848,6 +1125,7 @@ class Panel
             .'<div class="muted" style="margin:10px 0 4px">Tip: add a condition on the customer\'s own id using the <i>identity</i> option so every customer only ever sees their own rows.</div>'
             .'<pre class="mono" data-preview style="white-space:pre-wrap;padding:10px 12px;border-radius:8px;margin:8px 0">-- pick a table and at least one column</pre>'
             .'<button type="button" class="btn2 btn-sm" data-apply disabled>'.Icons::get('check', 14).' Use this query</button></div>'
+            .Layout::tryItCard($this->url('/tools/try'))
             .'<details style="margin-top:14px"'.($ed ? ' open' : '').'><summary class="muted" style="cursor:pointer">Advanced: the query the AI will run (editable)</summary>'
             .'<label>SQL - SELECT only. <code>:param</code> for values the AI asks for, <code>:_key</code> for identity values</label>'
             .'<textarea name="sql" required placeholder="SELECT reference, status, total FROM orders WHERE reference = :reference AND user_id = :_user_id">'.$e($ed['sql'] ?? '').'</textarea>'
@@ -1004,12 +1282,13 @@ class Panel
             .'<div class="bm-card" id="edit"><div class="bm-sec-h"><div><h2>'.($editing ? 'Edit provider: '.$e($editing['slug']) : 'Add a provider').'</h2>'
             .'<div class="muted">Keys are stored server-side and never shown again. '.($editing ? 'Leave the key blank to keep the stored one.' : 'Only one provider answers the chat at a time - turning this one on turns the others off.').'</div></div>'
             .($editing ? '<a class="btn-ghost btn-sm" href="'.$e($this->url('/providers')).'">Cancel - add a new one instead</a>' : '').'</div>'
-            .'<form method="post" action="'.$e($this->url('/providers')).'">'.$this->csrfField()
+            .'<form method="post" action="'.$e($this->url('/providers')).'" data-provider-form>'.$this->csrfField()
             .'<div class="grid2"><div><label>Slug <span class="muted">(its name in this list)</span></label><input type="text" name="slug" required placeholder="gemini" value="'.$e($editing['slug'] ?? '').'"'.($editing ? ' readonly' : '').'></div>'
-            .'<div><label>Driver</label><select name="driver"><option value="gemini"'.$sel('gemini').'>gemini</option><option value="openai-compat"'.$sel('openai-compat').'>openai-compat (OpenAI / DeepSeek / SiliconFlow / local)</option><option value="anthropic"'.$sel('anthropic').'>anthropic</option></select></div>'
+            .'<div><label>Driver</label><select name="driver"><option value="gemini"'.$sel('gemini').'>Google Gemini</option><option value="anthropic"'.$sel('anthropic').'>Anthropic Claude</option><option value="openai-compat"'.$sel('openai-compat').'>OpenAI, DeepSeek, Groq, Mistral, OpenRouter, local… (OpenAI-compatible)</option></select></div>'
             .'<div><label>Model</label><input type="text" name="model" required placeholder="gemini-2.5-flash" value="'.$e($editing['model'] ?? '').'"></div>'
-            .'<div><label>Base URL (openai-compat only)</label><input type="text" name="base_url" placeholder="https://api.deepseek.com" value="'.$e($editing['base_url'] ?? '').'"></div>'
-            .'<div><label>API key'.($editing ? ' <span class="muted">('.($editing['has_key'] ? 'a key is stored - blank keeps it' : 'none stored yet').')</span>' : '').'</label><input type="password" name="api_key" autocomplete="new-password" placeholder="'.($editing && $editing['has_key'] ? '•••••••• (unchanged)' : 'paste your API key').'"></div>'
+            .Layout::providerServiceBlock((string) ($editing['driver'] ?? 'gemini'), $editing['base_url'] ?? '', $editing['model'] ?? '')
+            .'<div><label>API key'.($editing ? ' <span class="muted">('.($editing['has_key'] ? 'a key is stored - blank keeps it' : 'none stored yet').')</span>' : '')
+                .' <a class="muted" data-key-link href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" style="text-decoration:underline;margin-left:6px">Where do I get one?</a></label><input type="password" name="api_key" autocomplete="new-password" placeholder="'.($editing && $editing['has_key'] ? '•••••••• (unchanged)' : 'paste your API key').'"></div>'
             .'<div><label>Temperature</label><input type="number" name="temperature" step="0.05" value="'.$e($editing['temperature'] ?? '0.4').'"></div></div>'
             .'<div class="row" style="margin-top:14px;gap:20px"><label style="display:flex;align-items:center;gap:8px;margin:0"><input type="checkbox" name="enabled" value="1"'.(($editing ? !empty($editing['enabled']) : true) ? ' checked' : '').'> This provider answers the chat <span class="muted">(switches the others off)</span></label></div>'
             .'<div style="margin-top:16px"><button type="submit">'.($editing ? 'Save changes' : 'Save provider').'</button></div></form></div>', $this->nav('/providers'), 'Bring your own key - it never leaves your server');
@@ -1307,6 +1586,7 @@ class Panel
         $daysLeft = $expiresAt !== '' ? (int) ceil((strtotime($expiresAt.' 23:59:59') - time()) / 86400) : null;
         $modules = $verdict['modules'] ?: ($details['modules'] ?? []);
         $masked = $key !== '' ? preg_replace('/^(BM-[A-Z0-9]{4})-[A-Z0-9-]+-([A-Z0-9]{4})$/', '$1-••••-••••-$2', $key) : '';
+        $checkInterval = Master::intervalFor($key, (string) $this->settings->get('license_token', ''));
         $csrf = $this->csrfField();
         $banner = $lock !== null ? '<div class="flash-err">'.Icons::get('shield', 16).'<span><b>Admin locked.</b> '.$e($lock['message'])
             .($supportUrl !== '' ? ' <a href="'.$e($supportUrl).'" target="_blank" rel="noopener">Buy or renew a licence</a>.' : '')
@@ -1334,7 +1614,9 @@ class Panel
                 .'<dt>Modules</dt><dd>'.$pills.'</dd>'
                 .'<dt>Issued</dt><dd>'.(!empty($details['issued_at']) ? date('j M Y', strtotime($details['issued_at'])) : '—').'</dd>'
                 .'<dt>Expires</dt><dd>'.($expiresAt !== '' ? date('j M Y', strtotime($expiresAt)).($daysLeft !== null ? ' · '.max(0, $daysLeft).' days' : '') : 'Never - renewals keep updates flowing').'</dd>'
-                .'<dt>Last verified</dt><dd>'.($last > 0 ? date('j M Y, H:i', $last) : '—').' <span class="muted">· checked daily</span></dd>'
+                .'<dt>Last verified</dt><dd>'.($last > 0 ? date('j M Y, H:i', $last) : '—').' <span class="muted">· re-checked '
+                    .($checkInterval >= 86400 ? 'every '.round($checkInterval / 86400).' day'.($checkInterval >= 172800 ? 's' : '')
+                        : ($checkInterval >= 3600 ? 'every '.round($checkInterval / 3600).' hour'.($checkInterval >= 7200 ? 's' : '') : 'every '.round($checkInterval / 60).' minutes')).'</span></dd>'
                 .($support !== '' ? '<dt>Support</dt><dd><a href="mailto:'.$e($support).'">'.$e($support).'</a></dd>' : '').'</dl>'
                 .'<form method="post" action="'.$e($this->url('/license/recheck')).'" style="margin-top:12px">'.$csrf.'<button type="submit" class="btn2 btn-sm">Re-check with HQ now</button></form></div>';
             $right = '<div class="bm-card">'.($isTrial

@@ -19,17 +19,38 @@
   var presence = root.querySelector('[data-presence]');
   var typing = root.querySelector('[data-typing]');
   var flash = root.querySelector('[data-flash]');
+  var emoBtn = root.querySelector('[data-emoji]');
+  var clipBtn = root.querySelector('[data-attach]');
+  var fileInput = root.querySelector('[data-file]');
+  var pendBox = root.querySelector('[data-pending]');
+  var uploadUrl = root.getAttribute('data-upload-url');
+  var fileUrl = root.getAttribute('data-file-url');
 
   function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
   function fmtTime(ts) { if (!ts) return ''; var d = new Date(ts * 1000); return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0'); }
 
+  function fileSize(n) {
+    if (!n) { return ''; }
+    return n < 1024 ? n + ' B' : (n < 1048576 ? Math.round(n / 1024) + ' KB' : (n / 1048576).toFixed(1) + ' MB');
+  }
+  function filesHtml(files) {
+    return (files || []).map(function (f) {
+      var url = fileUrl + f.token;
+      if (f.is_image) {
+        return '<a class="msg-att" href="' + esc(url) + '" target="_blank" rel="noopener"><img src="' + esc(url) + '" alt="' + esc(f.name) + '" loading="lazy"></a>';
+      }
+      return '<a class="msg-att file" href="' + esc(url) + '?download=1" target="_blank" rel="noopener">📎 <b>' + esc(f.name) + '</b> <span>' + fileSize(f.size) + '</span></a>';
+    }).join('');
+  }
   function bubble(m) {
     var el = document.createElement('div');
     el.className = 'msg ' + m.role + ' in';
     el.setAttribute('data-id', m.id);
     if (m.role === 'tool') { el.innerHTML = '⚡ ' + esc(m.text); return el; }
     if (m.role === 'system') { el.textContent = m.text; return el; }
-    el.innerHTML = esc(m.text) + '<div class="msg-meta">' + (m.role === 'agent' ? 'human agent · ' : m.role === 'assistant' ? 'AI · ' : '') + fmtTime(m.at) + '</div>';
+    var body = m.text ? (window.BanimarkMarkdown ? window.BanimarkMarkdown.render(m.text) : esc(m.text)) : '';
+    var who = m.role === 'agent' ? esc(m.by || 'human agent') + ' · ' : m.role === 'assistant' ? 'AI · ' : '';
+    el.innerHTML = body + filesHtml(m.files) + '<div class="msg-meta">' + who + fmtTime(m.at) + '</div>';
     return el;
   }
   function append(list) {
@@ -75,12 +96,71 @@
     xhr.send();
   }
 
+  /* ---- emoji + attachments ---- */
+  var picker = window.BanimarkEmoji ? window.BanimarkEmoji.create(root, function (e) {
+    window.BanimarkEmoji.insertAt(box, e);
+    picker.toggle(false);
+  }) : null;
+  if (emoBtn) {
+    emoBtn.addEventListener('click', function (ev) { ev.stopPropagation(); if (picker) picker.toggle(); });
+    document.addEventListener('click', function (ev) {
+      if (picker && picker.isOpen() && !ev.target.closest('.bm-emoji') && !ev.target.closest('[data-emoji]')) picker.toggle(false);
+    });
+  }
+  var pending = [];
+  function drawPending() {
+    if (!pendBox) return;
+    pendBox.hidden = pending.length === 0;
+    pendBox.innerHTML = pending.map(function (p, i) {
+      return '<span class="bm-pend' + (p.id ? '' : ' up') + '"><b>' + esc(p.name) + '</b><span>' + (p.id ? fileSize(p.size) : 'sending…') +
+        '</span><button type="button" data-drop="' + i + '" aria-label="Remove">&times;</button></span>';
+    }).join('');
+  }
+  if (pendBox) {
+    pendBox.addEventListener('click', function (ev) {
+      var b = ev.target.closest('[data-drop]');
+      if (b) { pending.splice(parseInt(b.getAttribute('data-drop'), 10), 1); drawPending(); }
+    });
+  }
+  if (clipBtn && fileInput) {
+    clipBtn.addEventListener('click', function () { fileInput.click(); });
+    fileInput.addEventListener('change', function () {
+      var f = fileInput.files && fileInput.files[0];
+      fileInput.value = '';
+      if (!f) return;
+      var item = { name: f.name, size: f.size, id: 0 };
+      pending.push(item); drawPending();
+      var fd = new FormData();
+      fd.append('file', f);
+      if (csrfName) fd.append(csrfName, csrf);
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', uploadUrl, true);
+      xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+      xhr.setRequestHeader('Accept', 'application/json');
+      xhr.onreadystatechange = function () {
+        if (xhr.readyState !== 4) return;
+        var d = null; try { d = JSON.parse(xhr.responseText); } catch (e) {}
+        if (d && d.ok && d.attachment) {
+          item.id = d.attachment.id; item.token = d.attachment.token; item.size = d.attachment.size; item.is_image = d.attachment.is_image;
+        } else {
+          var at = pending.indexOf(item); if (at > -1) pending.splice(at, 1);
+          if (flash) { flash.hidden = false; flash.textContent = (d && d.error) || 'That file could not be sent.'; }
+        }
+        drawPending();
+      };
+      xhr.send(fd);
+    });
+  }
+
   form.addEventListener('submit', function (ev) {
     ev.preventDefault();
     var text = box.value.trim();
-    if (!text) return;
+    var ready = pending.filter(function (p) { return p.id; });
+    if (!text && !ready.length) return;
     send.disabled = true;
     var fd = new FormData(); fd.append('message', text); if (csrfName) fd.append(csrfName, csrf);
+    ready.forEach(function (p) { fd.append('attachments[]', p.id); });
+    pending = []; drawPending();
     var xhr = new XMLHttpRequest();
     xhr.open('POST', replyUrl, true);
     xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');

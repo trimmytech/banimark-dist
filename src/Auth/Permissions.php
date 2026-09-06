@@ -15,10 +15,15 @@ final class Permissions
         'inbox.view' => 'Open the inbox and read conversations',
         'inbox.reply' => 'Reply to visitors, take over and hand back to the AI',
         'inbox.close' => 'Close conversations',
+        'inbox.delete' => 'Delete conversations and a visitor\'s history',
         'tools.manage' => 'Create, edit and delete tools',
         'rules.manage' => 'Edit rules and folders',
         'providers.manage' => 'Manage AI providers and API keys',
         'widget.manage' => 'Change the widget\'s look and embed settings',
+        'files.manage' => 'Change where shared files are stored',
+        'ai.manage' => 'Tune how the AI behaves (memory, reply length, tone)',
+        'data.manage' => 'Retention, deleting all history, flood protection',
+        'team.view' => 'See staff activity and response times',
         'notifications.manage' => 'Escalation, email settings and quick replies',
     ];
 
@@ -75,6 +80,7 @@ final class Permissions
         foreach ([
             '#^(login|logout|activate|security|asset)#' => null,
             '#^dashboard$#' => 'dashboard.view',
+            '#^conversation\.(delete|forget)$#' => 'inbox.delete',
             '#^conversation\.reply$#' => 'inbox.reply',
             '#^conversation\.mode$#' => 'inbox.reply',
             '#^(inbox|conversation|events)#' => 'inbox.view',
@@ -82,6 +88,10 @@ final class Permissions
             '#^rules#' => 'rules.manage',
             '#^providers#' => 'providers.manage',
             '#^widget#' => 'widget.manage',
+            '#^files#' => 'files.manage',
+            '#^ai#' => 'ai.manage',
+            '#^data#' => 'data.manage',
+            '#^team#' => 'team.view',
             '#^(escalation|quick)#' => 'notifications.manage',
             '#^(agents|license|changelog)#' => 'owner',
         ] as $pattern => $req) {
@@ -98,12 +108,17 @@ final class Permissions
         foreach ([
             '#^/(login|logout|activate|security|assets)#' => null,
             '#^/?$#' => 'dashboard.view',
+            '#^/conversation/[a-f0-9]+/(delete|forget)$#' => 'inbox.delete',
             '#^/conversation/[a-f0-9]+/(reply|mode)$#' => 'inbox.reply',
             '#^/(inbox|conversation|events)#' => 'inbox.view',
             '#^/tools#' => 'tools.manage',
             '#^/rules#' => 'rules.manage',
             '#^/providers#' => 'providers.manage',
             '#^/widget#' => 'widget.manage',
+            '#^/files#' => 'files.manage',
+            '#^/ai#' => 'ai.manage',
+            '#^/data#' => 'data.manage',
+            '#^/team#' => 'team.view',
             '#^/(escalation|quick-replies)#' => 'notifications.manage',
             '#^/(agents|license|changelog)#' => 'owner',
         ] as $pattern => $req) {

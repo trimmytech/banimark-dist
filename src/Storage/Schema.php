@@ -28,6 +28,7 @@ class Schema
             escalated_at INTEGER NOT NULL DEFAULT 0,
             visitor_typing_at INTEGER NOT NULL DEFAULT 0,
             agent_typing_at INTEGER NOT NULL DEFAULT 0,
+            staff_seen_at INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL DEFAULT 0
         )");
         self::index($pdo, "{$prefix}conv_session", "{$prefix}conversations", 'session_id', true);
@@ -38,8 +39,18 @@ class Schema
             role VARCHAR(12) NOT NULL,
             content TEXT NOT NULL,
             payload TEXT NULL,
+            agent_id INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL DEFAULT 0
         )");
+
+        // fixed-window counters for flood protection and the daily AI cap
+        $pdo->exec("CREATE TABLE IF NOT EXISTS {$prefix}throttle (
+            k VARCHAR(120) NOT NULL,
+            bucket INTEGER NOT NULL,
+            hits INTEGER NOT NULL DEFAULT 0,
+            expires_at INTEGER NOT NULL DEFAULT 0
+        )");
+        self::index($pdo, "{$prefix}throttle_kb", "{$prefix}throttle", 'k, bucket', true);
         self::index($pdo, "{$prefix}msg_conv", "{$prefix}messages", 'conversation_id, id', false);
 
         $pdo->exec("CREATE TABLE IF NOT EXISTS {$prefix}providers (
@@ -110,9 +121,30 @@ class Schema
             invited_at VARCHAR(32) NULL,
             activated_at VARCHAR(32) NULL,
             permissions TEXT NULL,
+            last_active_at INTEGER NOT NULL DEFAULT 0,
             created_at VARCHAR(32) NULL
         )");
         self::index($pdo, "{$prefix}agent_email", "{$prefix}agents", 'email', true);
+
+        // files shared in a chat, by a visitor or by staff. The BYTES live on the
+        // configured disk (local or S3) - this table is only the record of them.
+        // `token` is an unguessable capability: the URL carries it, so an <img>
+        // works without a session while nobody can enumerate other people's files.
+        $pdo->exec("CREATE TABLE IF NOT EXISTS {$prefix}attachments (
+            id {$pk},
+            conversation_id INTEGER NOT NULL DEFAULT 0,
+            sent INTEGER NOT NULL DEFAULT 0,
+            token VARCHAR(64) NOT NULL,
+            disk VARCHAR(20) NOT NULL DEFAULT 'local',
+            path VARCHAR(255) NOT NULL,
+            name VARCHAR(190) NOT NULL,
+            mime VARCHAR(120) NOT NULL DEFAULT '',
+            size INTEGER NOT NULL DEFAULT 0,
+            source VARCHAR(10) NOT NULL DEFAULT 'visitor',
+            created_at INTEGER NOT NULL DEFAULT 0
+        )");
+        self::index($pdo, "{$prefix}attach_token", "{$prefix}attachments", 'token', true);
+        self::index($pdo, "{$prefix}attach_conv", "{$prefix}attachments", 'conversation_id', false);
 
         $pdo->exec("CREATE TABLE IF NOT EXISTS {$prefix}settings (
             `key` VARCHAR(80) NOT NULL,
@@ -170,6 +202,8 @@ class Schema
         // live typing indicators, both directions (a timestamp; "typing" = within the last few seconds)
         self::addColumn($pdo, "{$prefix}conversations", 'visitor_typing_at', 'INTEGER NOT NULL DEFAULT 0');
         self::addColumn($pdo, "{$prefix}conversations", 'agent_typing_at', 'INTEGER NOT NULL DEFAULT 0');
+        // when a staff member last opened this conversation - drives "unread" in the inbox
+        self::addColumn($pdo, "{$prefix}conversations", 'staff_seen_at', 'INTEGER NOT NULL DEFAULT 0');
         self::addColumn($pdo, "{$prefix}rules", 'folder_id', 'INTEGER NOT NULL DEFAULT 0');
         // staff 2FA (TOTP): secret + whether it is switched on for this account
         self::addColumn($pdo, "{$prefix}agents", 'totp_secret', "VARCHAR(64) NOT NULL DEFAULT ''");
@@ -182,6 +216,9 @@ class Schema
         self::addColumn($pdo, "{$prefix}agents", 'activated_at', 'VARCHAR(32) NULL');
         // per-staff permissions (JSON list); NULL = legacy account, treated as full editor
         self::addColumn($pdo, "{$prefix}agents", 'permissions', 'TEXT NULL');
+        // 0.16: who sent an agent reply (team page), when staff were last in the panel
+        self::addColumn($pdo, "{$prefix}messages", 'agent_id', 'INTEGER NOT NULL DEFAULT 0');
+        self::addColumn($pdo, "{$prefix}agents", 'last_active_at', 'INTEGER NOT NULL DEFAULT 0');
     }
 
     /** ALTER ... ADD COLUMN works on MySQL and SQLite alike; a duplicate is fine. */

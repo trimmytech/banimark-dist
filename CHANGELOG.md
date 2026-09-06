@@ -3,6 +3,73 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.16.0
+- **The AI can explain itself when a lookup will not run.** A tool that needs a
+  signed-in visitor now tells the assistant so (it can ask the visitor to sign
+  in), and puts the real reason in the thread where only your team sees it -
+  "the visitor was anonymous", or the database's own complaint - instead of a
+  blank "not available right now".
+- **Try it, in the Tool Builder.** Run a tool with sample values before saving:
+  see the rows the AI would read, or exactly why it refuses.
+- **Adding an AI provider no longer needs a URL you have to google.** Pick the
+  service you have a key for (OpenAI, DeepSeek, Groq, Mistral, OpenRouter,
+  Together, xAI, SiliconFlow, or a local Ollama / LM Studio) and the address is
+  filled in, with a link to where the key comes from. Gemini and Claude need no
+  address, so the field is gone for them.
+- **Formatting in messages** - bold, italics, lists, links and code - rendered
+  the same in the widget, the chat link, the Flutter app and the staff view.
+  Nothing else is interpreted, so pasted HTML stays harmless text.
+- **New page: AI settings.** Its name, tone and language; how much of the
+  conversation it remembers; the longest reply; and a daily limit on AI
+  answers as a safety net against a runaway bill (past it, visitors go to your
+  team for the day and the thread says why).
+- **New page: Data & protection.** Keep chats for N days then delete them
+  automatically (files included); delete everything with one confirmed button;
+  and flood limits so a script cannot fill your inbox or spend your AI budget.
+  Any conversation can be deleted from its page, along with everything else
+  from that visitor.
+- **New page: Team.** Who is online, how many chats each person handled, how
+  long visitors waited for them (median and average), and how fast handovers
+  were picked up. Replies now show who sent them.
+- **The typing indicator behaves like a person.** A short pause before the
+  dots, and they stay up a moment even when the answer is instant - no more
+  robotic instant dots. Widget, chat link and Flutter.
+- Laravel: `php artisan banimark:prune` runs the retention policy on demand.
+
+*Upgrade note:* `php artisan migrate` (Laravel) or open the panel once
+(standalone). Existing staff replies show as "human agent" until new ones are
+sent (the sender was not recorded before). Flutter apps: `flutter pub get`.
+
+## 0.15.1
+- **Your vendor now sets how often your licence is re-checked** (it used to be
+  fixed at once a day). The Licence page tells you the rhythm you are on. This
+  is also how quickly a change made by your vendor — a renewal, or a licence
+  being withdrawn — reaches your panel. Your chat widget is never affected.
+- Fixed: after the first daily re-check, the Licence page lost the plan, customer
+  and dates it had shown since activation.
+
+## 0.15.0
+- **Emoji**, in the widget and in your replies. A built-in picker with search —
+  nothing extra to load, and the same set on both sides of the conversation.
+  The Flutter SDK has it too.
+- **Send and receive files.** Visitors can attach a file to a message; you can
+  attach one to a reply. Images preview inline, everything else arrives as a
+  download. Works in the web widget, the shareable chat link and the Flutter app.
+- **You choose where files live** (new *Files* page): this server, or any
+  S3-compatible storage — AWS S3, Cloudflare R2, DigitalOcean Spaces,
+  Backblaze B2, MinIO. Set the size limit and which types you accept.
+  **Send a test file** proves the settings work before a customer ever tries.
+  Scripts and programs are refused no matter what you allow, files are never
+  written to a public folder, and each one is reachable only by its own
+  unguessable link.
+- **A redesigned inbox.** A list of conversations instead of a spreadsheet:
+  who, what was last said and by whom, how long ago, whether they are in the
+  chat right now, and a dot for anything new since you last looked. Filter tabs
+  carry counts, and you can search people and messages.
+
+*Upgrade note:* run `php artisan migrate` (Laravel) or open the admin panel once
+(standalone). File sharing is on by default and stores on your server.
+
 ## 0.14.1
 - **The widget now behaves like a live chat.** The conversation survives page
   reloads and, for signed-in users, even a cleared browser or a new device — the

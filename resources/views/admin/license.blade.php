@@ -34,7 +34,8 @@
                     <dt>Modules</dt><dd>@foreach($modules as $m)<span class="pill active">{{ strtoupper(str_replace('-', ' ', $m)) }}</span> @endforeach</dd>
                     <dt>Issued</dt><dd>{{ !empty($details['issued_at']) ? date('j M Y', strtotime($details['issued_at'])) : '—' }}</dd>
                     <dt>Expires</dt><dd>{{ $expiresAt !== '' ? date('j M Y', strtotime($expiresAt)).($daysLeft !== null ? ' · '.max(0, $daysLeft).' days' : '') : 'Never — renewals keep updates flowing' }}</dd>
-                    <dt>Last verified</dt><dd>{{ $lastPing > 0 ? date('j M Y, H:i', $lastPing) : '—' }} <span class="muted">· checked daily</span></dd>
+                    <dt>Last verified</dt><dd>{{ $lastPing > 0 ? date('j M Y, H:i', $lastPing) : '—' }}
+                        <span class="muted">· re-checked {{ $checkInterval >= 86400 ? 'every '.round($checkInterval / 86400).' day'.($checkInterval >= 172800 ? 's' : '') : ($checkInterval >= 3600 ? 'every '.round($checkInterval / 3600).' hour'.($checkInterval >= 7200 ? 's' : '') : 'every '.round($checkInterval / 60).' minutes') }}</span></dd>
                     @if($supportEmail !== '')<dt>Support</dt><dd><a href="mailto:{{ $supportEmail }}">{{ $supportEmail }}</a></dd>@endif
                 </dl>
                 <form method="post" action="{{ route('banimark.admin.license.recheck') }}" style="margin-top:12px">@csrf

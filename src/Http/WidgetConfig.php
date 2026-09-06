@@ -27,6 +27,9 @@ class WidgetConfig
         'theme',
     ];
 
+    /** Not a setting the owner types - derived, so the widget can hide the clip. */
+    public const DERIVED = ['files'];
+
     public const DEFAULTS = [
         'color' => '#6F04D9',
         'position' => 'right',
@@ -59,6 +62,8 @@ class WidgetConfig
             $cfg['color'] = self::DEFAULTS['color'];
         }
         $cfg['endpoint'] = $endpoint;
+        // uploads on? (the clip button is hidden entirely when they are not)
+        $cfg['files'] = ($settings['files_enabled'] ?? '1') === '1';
         return $cfg;
     }
 }

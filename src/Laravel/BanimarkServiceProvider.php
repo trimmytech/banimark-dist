@@ -52,6 +52,35 @@ class BanimarkServiceProvider extends ServiceProvider
             return new \Banimark\Http\HistoryEndpoint(
                 $app->make(\Banimark\Storage\PdoStore::class),
                 (string) config('banimark.identity_secret', ''),
+                50,
+                $app->make(\Banimark\Storage\Attachments::class),
+            );
+        });
+
+        /* ---------------- files shared in a chat ---------------- */
+        $this->app->singleton(\Banimark\Storage\Attachments::class, function () {
+            return new \Banimark\Storage\Attachments(\Illuminate\Support\Facades\DB::connection()->getPdo());
+        });
+        // the store is READABLE in the shipped build on purpose: a customer can
+        // point it at their own storage without waiting for a release
+        $this->app->bind(\Banimark\Files\FileStore::class, function () {
+            return \Banimark\Files\FileStoreFactory::make(self::settings(), storage_path('app/banimark-files'));
+        });
+        $this->app->bind(\Banimark\Http\UploadEndpoint::class, function ($app) {
+            $settings = self::settings();
+            return new \Banimark\Http\UploadEndpoint(
+                $app->make(\Banimark\Storage\PdoStore::class),
+                $app->make(\Banimark\Storage\Attachments::class),
+                $app->make(\Banimark\Files\FileStore::class),
+                \Banimark\Files\UploadPolicy::fromSettings($settings),
+                (string) config('banimark.identity_secret', ''),
+                \Banimark\Files\FileStoreFactory::enabled($settings),
+            );
+        });
+        $this->app->bind(\Banimark\Http\FileEndpoint::class, function ($app) {
+            return new \Banimark\Http\FileEndpoint(
+                $app->make(\Banimark\Storage\Attachments::class),
+                $app->make(\Banimark\Files\FileStore::class),
             );
         });
         // the mailer follows the panel's SMTP settings, falling back to mail()
@@ -64,7 +93,8 @@ class BanimarkServiceProvider extends ServiceProvider
                 \Banimark\Laravel\EngineFactory::make(),
                 $app->make(\Banimark\Storage\PdoStore::class),
                 (string) config('banimark.identity_secret', ''),
-                2000, 40,
+                2000, \Banimark\Ai\Behaviour::historyWindow(self::settings()),
+                // (the notifier follows; attachments are appended after it)
                 // escalation alert: Banimark's OWN mailer (panel SMTP settings),
                 // so the host app's mail config is neither required nor touched
                 new \Banimark\Notify\CallbackNotifier(function ($sessionId, $label, $reason) use ($app) {
@@ -81,12 +111,19 @@ class BanimarkServiceProvider extends ServiceProvider
                         );
                     } catch (\Throwable $e) { /* mail must never break the reply */ }
                 }),
+                $app->make(\Banimark\Storage\Attachments::class),
+                \Banimark\Ai\Behaviour::dailyCap(self::settings()),
+                $app->make(\Banimark\Http\RateLimiter::class),
             );
+        });
+        $this->app->singleton(\Banimark\Http\RateLimiter::class, function () {
+            return new \Banimark\Http\RateLimiter(\Illuminate\Support\Facades\DB::connection()->getPdo());
         });
         $this->app->bind(\Banimark\Http\PollEndpoint::class, function ($app) {
             return new \Banimark\Http\PollEndpoint(
                 $app->make(\Banimark\Storage\PdoStore::class),
                 (string) config('banimark.identity_secret', ''),
+                $app->make(\Banimark\Storage\Attachments::class),
             );
         });
     }
@@ -161,6 +198,7 @@ class BanimarkServiceProvider extends ServiceProvider
                 \Banimark\Laravel\Console\InstallCommand::class,
                 \Banimark\Laravel\Console\DoctorCommand::class,
                 \Banimark\Laravel\Console\AgentCommand::class,
+                \Banimark\Laravel\Console\PruneCommand::class,
             ]);
             $this->publishes([
                 __DIR__.'/../../config/banimark.php' => $this->app->configPath('banimark.php'),

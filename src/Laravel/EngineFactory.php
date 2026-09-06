@@ -39,10 +39,11 @@ class EngineFactory
             }
         }
 
+        $settings = \Banimark\Laravel\BanimarkServiceProvider::settings();
         return new Engine($manager->driver(), $registry, [
-            'system' => self::systemInstruction(),
+            'system' => self::systemInstruction()."\n".\Banimark\Ai\Behaviour::systemLines($settings),
             'temperature' => $temperature,
-            'max_tokens' => (int) config('banimark.generation.max_tokens', 2048),
+            'max_tokens' => \Banimark\Ai\Behaviour::maxTokens($settings),
             'max_iterations' => 4,
         ]);
     }

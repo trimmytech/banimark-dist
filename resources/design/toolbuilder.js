@@ -177,3 +177,69 @@
   }
   init();
 })();
+
+/* ---- "Try it": run the definition in the form with sample values ----
+ * The one place an owner learns, before a visitor does, that a tool needs a
+ * signed-in visitor or has a typo in a column. Same validator, same binding,
+ * same refusal as the live engine - we just show BOTH audiences' messages. */
+(function () {
+  'use strict';
+  var box = document.querySelector('[data-tryit]');
+  var form = document.querySelector('form[action$="/tools"], form[action*="/tools?"]') || (box && box.closest('form'));
+  if (!box || !form) return;
+  var argsWrap = box.querySelector('[data-try-args]'), ctxWrap = box.querySelector('[data-try-ctx]');
+  var runBtn = box.querySelector('[data-try-run]'), status = box.querySelector('[data-try-status]'), out = box.querySelector('[data-try-out]');
+  var sqlBox = form.querySelector('[name=sql]');
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
+  function paramNames() {
+    return Array.prototype.map.call(form.querySelectorAll('[name="param_name[]"]'), function (i) { return i.value.trim(); }).filter(Boolean);
+  }
+  function identityKeys() {
+    var m = (sqlBox.value || '').match(/:_([a-zA-Z_][a-zA-Z0-9_]*)/g) || [];
+    var seen = {}; return m.map(function (x) { return x.slice(2); }).filter(function (k) { if (seen[k]) return false; seen[k] = true; return true; });
+  }
+  function keep(wrap, sel) { var v = {}; Array.prototype.forEach.call(wrap.querySelectorAll(sel), function (i) { v[i.getAttribute('data-k')] = i.value; }); return v; }
+  function refresh() {
+    var oldA = keep(argsWrap, 'input'), oldC = keep(ctxWrap, 'input');
+    var ps = paramNames(), ks = identityKeys();
+    argsWrap.innerHTML = ps.length ? ps.map(function (p) {
+      return '<div class="row" style="gap:8px;margin:4px 0"><code style="min-width:120px">' + esc(p) + '</code><input type="text" data-k="' + esc(p) + '" value="' + esc(oldA[p] || '') + '" placeholder="a sample value" style="margin:0"></div>';
+    }).join('') : '<span class="muted">No parameters yet.</span>';
+    ctxWrap.innerHTML = ks.length ? ks.map(function (k) {
+      return '<div class="row" style="gap:8px;margin:4px 0"><code style="min-width:120px">' + esc(k) + '</code><input type="text" data-k="' + esc(k) + '" value="' + esc(oldC[k] || '') + '" placeholder="e.g. 1" style="margin:0"></div>';
+    }).join('') + '<div class="hint">Leave a box empty to see what happens for a visitor who is NOT signed in.</div>'
+      : '<span class="muted">This query needs no identity values - it works for anonymous visitors too.</span>';
+  }
+  form.addEventListener('input', refresh);
+  form.addEventListener('change', refresh);
+  refresh();
+
+  runBtn.addEventListener('click', function () {
+    var fd = new FormData(form);
+    Array.prototype.forEach.call(argsWrap.querySelectorAll('input'), function (i) { fd.append('args[' + i.getAttribute('data-k') + ']', i.value); });
+    Array.prototype.forEach.call(ctxWrap.querySelectorAll('input'), function (i) { fd.append('context_values[' + i.getAttribute('data-k') + ']', i.value); });
+    status.textContent = 'Running…'; runBtn.disabled = true; out.hidden = true;
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', box.getAttribute('data-try-url'), true);
+    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+    xhr.setRequestHeader('Accept', 'application/json');
+    xhr.onreadystatechange = function () {
+      if (xhr.readyState !== 4) return;
+      runBtn.disabled = false; status.textContent = '';
+      var d = null; try { d = JSON.parse(xhr.responseText); } catch (e) {}
+      out.hidden = false;
+      if (!d) { out.innerHTML = '<div class="flash-err">Could not run it (HTTP ' + xhr.status + ').</div>'; return; }
+      if (!d.ok) {
+        out.innerHTML = '<div class="flash-err" style="display:block"><b>The AI would be told:</b> ' + esc(d.error) +
+          (d.diagnostic ? '<div style="margin-top:6px"><b>What staff would see in the thread:</b> ' + esc(d.diagnostic) + '</div>' : '') + '</div>';
+        return;
+      }
+      if (!d.rows.length) { out.innerHTML = '<div class="flash-ok" style="display:block">It ran, and found nothing for those values (0 rows). The AI would tell the visitor there is no match.</div>'; return; }
+      var cols = Object.keys(d.rows[0]);
+      out.innerHTML = '<div class="flash-ok" style="display:block">It works - ' + d.count + ' row' + (d.count === 1 ? '' : 's') + '. This is what the AI would read:</div>' +
+        '<div class="t-wrap" style="margin-top:8px"><table><tr>' + cols.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + '</tr>' +
+        d.rows.map(function (r) { return '<tr>' + cols.map(function (c) { return '<td>' + esc(r[c] === null ? '—' : r[c]) + '</td>'; }).join('') + '</tr>'; }).join('') + '</table></div>';
+    };
+    xhr.send(fd);
+  });
+})();

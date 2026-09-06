@@ -20,6 +20,7 @@ class HistoryEndpoint
         private PdoStore $store,
         private string $identitySecret = '',
         private int $limit = 50,
+        private ?\Banimark\Storage\Attachments $attachments = null,
     ) {
     }
 
@@ -51,12 +52,29 @@ class HistoryEndpoint
 
         $messages = [];
         foreach ($this->store->visitorTranscript($sessionId, $this->limit) as $r) {
+            $parsed = \Banimark\Files\Markers::parse((string) $r['content']);
             $messages[] = [
                 'id' => (int) $r['id'],
                 'role' => $r['role'] === 'user' ? 'user' : 'bot',
-                'text' => (string) $r['content'],
+                'text' => $parsed['text'],
+                'files' => $this->files($parsed['tokens']),
             ];
         }
         return ['ok' => true, 'session_id' => $sessionId, 'mode' => $this->store->mode($sessionId), 'messages' => $messages];
+    }
+
+    /** @param string[] $tokens @return array<int, array> what the widget needs to draw a file */
+    private function files(array $tokens): array
+    {
+        if ($tokens === [] || $this->attachments === null) {
+            return [];
+        }
+        return array_map(fn ($a) => [
+            'token' => (string) $a['token'],
+            'name' => (string) $a['name'],
+            'mime' => (string) $a['mime'],
+            'size' => (int) $a['size'],
+            'is_image' => \Banimark\Files\UploadPolicy::isImage((string) $a['mime']),
+        ], $this->attachments->byTokens($tokens));
     }
 }

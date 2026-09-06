@@ -16,7 +16,10 @@
                     <tr style="{{ $r->enabled ? '' : 'opacity:.55' }}">
                         <td><div class="row">{!! Icons::get('tools', 15) !!}<b class="mono" style="background:none;padding:0">{{ $r->name }}</b></div></td>
                         <td class="muted">{{ \Illuminate\Support\Str::limit($r->description, 110) }}</td>
-                        <td class="muted">{{ implode(', ', array_keys(json_decode($r->parameters, true) ?: [])) ?: '—' }}</td>
+                        <td class="muted">{{ implode(', ', array_keys(json_decode($r->parameters, true) ?: [])) ?: '—' }}
+                            @php $needs = \Banimark\Tools\ToolTester::identityKeys((string) $r->sql); @endphp
+                            @if($needs !== [])<div class="hint" style="margin:3px 0 0" title="The widget must be embedded with a signed token carrying these values">Needs a signed-in visitor: {{ implode(', ', $needs) }}</div>@endif
+                        </td>
                         <td style="font-variant-numeric:tabular-nums">{{ $r->max_rows }}</td>
                         <td><span class="pill {{ $r->enabled ? 'good' : 'closed' }}">{{ $r->enabled ? 'ON' : 'OFF' }}</span></td>
                         <td class="row" style="gap:4px">
@@ -77,6 +80,7 @@
                 <div class="muted" style="margin:10px 0 4px">Tip: add a condition on the customer's own id using the <i>identity</i> option so every customer only ever sees their own rows.</div>
                 <pre class="mono" data-preview style="white-space:pre-wrap;padding:10px 12px;border-radius:8px;margin:8px 0">-- pick a table and at least one column</pre>
                 <button type="button" class="btn2 btn-sm" data-apply disabled>{!! Icons::get('check', 14) !!} Use this query</button>
+                {!! Layout::tryItCard(route('banimark.admin.tools.try')) !!}
             </div>
 
             <details style="margin-top:14px" @if($e) open @endif>

@@ -72,10 +72,45 @@ class Layout
         return $config.'<script>'.self::js().'</script>';
     }
 
-    /** Live staff conversation view, on that page only. */
+    /** The "Try it" panel of the Tool Builder (same markup in the Blade view). */
+    public static function tryItCard(string $tryUrl): string
+    {
+        return '<div data-tryit data-try-url="'.htmlspecialchars($tryUrl, ENT_QUOTES).'" style="margin-top:14px;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:14px 16px">'
+            .'<div class="row" style="gap:10px;align-items:baseline"><b>Try it</b><span class="muted">Run this tool now, exactly as the AI would, with values you choose. Read-only.</span></div>'
+            .'<div class="grid2" style="margin-top:10px"><div><label>What the AI would send <span class="muted">(one box per parameter)</span></label><div data-try-args><span class="muted">No parameters yet.</span></div></div>'
+            .'<div><label>Who the visitor is <span class="muted">(identity values your query needs)</span></label><div data-try-ctx><span class="muted">This query needs no identity values.</span></div></div></div>'
+            .'<div class="row" style="gap:10px;margin-top:10px"><button type="button" class="btn2 btn-sm" data-try-run>'.Icons::get('play', 14).' Run it</button><span class="muted" data-try-status></span></div>'
+            .'<div data-try-out hidden style="margin-top:10px"></div></div>';
+    }
+
+    /**
+     * The provider form's "which service" block: a plain-language picker that
+     * fills in the address for OpenAI-compatible services, hides the address
+     * entirely for Gemini/Anthropic (they have none), and links to where the
+     * key comes from. Behaviour lives in panel.js (data-provider-form); the
+     * presets travel in a JSON block, never inline script (host CSPs).
+     */
+    public static function providerServiceBlock(string $driver, ?string $baseUrl, ?string $model): string
+    {
+        $e = fn ($v) => htmlspecialchars((string) $v, ENT_QUOTES);
+        $presets = \Banimark\Ai\ProviderPresets::all();
+        $current = \Banimark\Ai\ProviderPresets::match($baseUrl);
+        $opts = '<option value="">Choose the service you have a key for…</option>';
+        foreach ($presets as $slug => $p) {
+            $opts .= '<option value="'.$e($slug).'"'.($current === $slug ? ' selected' : '').'>'.$e($p['label']).'</option>';
+        }
+        return '<div data-provider-service'.(($driver ?: 'gemini') === 'openai-compat' ? '' : ' hidden').'>'
+            .'<label>Which service?</label><select data-service>'.$opts.'</select>'
+            .'<div class="hint" data-service-note>Pick one and the address below is filled in for you.</div></div>'
+            .'<div data-provider-url'.(($driver ?: 'gemini') === 'openai-compat' ? '' : ' hidden').'><label>Address <span class="muted">(filled in from the list above; only change it if the service told you to)</span></label>'
+            .'<input type="text" name="base_url" placeholder="https://api.example.com/v1" value="'.$e($baseUrl).'"></div>'
+            .'<script type="application/json" data-provider-presets>'.json_encode(['presets' => $presets, 'driverKeys' => \Banimark\Ai\ProviderPresets::DRIVER_KEYS], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG).'</script>';
+    }
+
+    /** Live staff conversation view, on that page only (with the emoji picker). */
     public static function chatScript(): string
     {
-        return self::script('chat.js');
+        return self::script('emoji.js').self::script('markdown.js').self::script('chat.js');
     }
 
     private static function script(string $name): string

@@ -6,6 +6,7 @@ use Banimark\Ai\Message;
 use Banimark\Contracts\StateStore;
 use Banimark\Desk\EscalateTool;
 use Banimark\Engine\ConversationState;
+use Banimark\Engine\EngineResult;
 use Banimark\Engine\Engine;
 use Banimark\Identity\VisitorToken;
 use Banimark\Notify\EscalationNotifier;
@@ -35,6 +36,11 @@ class ChatEndpoint
         private int $maxMessageChars = 2000,
         private int $historyWindow = 40,
         private ?EscalationNotifier $notifier = null,
+        /** files shared in the chat; null = the host wired no file storage */
+        private ?\Banimark\Storage\Attachments $attachments = null,
+        /** the owner's daily AI cap (0 = none) and the counter it is kept in */
+        private int $aiDailyCap = 0,
+        private ?RateLimiter $limiter = null,
     ) {
     }
 
@@ -46,6 +52,28 @@ class ChatEndpoint
      * conversation and address a follow-up email - they never scope a tool
      * query. A signed identity token wins wherever both exist.
      */
+    /**
+     * A tool that refused or failed says why in its trace `diagnostic`. That
+     * reason is for STAFF: it lands in the thread as a system note (never shown
+     * to the visitor, never sent to the model) so an owner reading the inbox
+     * sees "the visitor was anonymous" instead of a mystery.
+     */
+    private function noteToolProblems(string $sessionId, EngineResult $result): void
+    {
+        if (!$this->store instanceof PdoStore) {
+            return;
+        }
+        $seen = [];
+        foreach ($result->toolTrace as $t) {
+            $why = trim((string) ($t['diagnostic'] ?? ''));
+            if ($why === '' || isset($seen[$t['tool'].$why])) {
+                continue;
+            }
+            $seen[$t['tool'].$why] = true;
+            $this->store->appendSystemNote($sessionId, 'Tool "'.$t['tool'].'" could not answer. '.$why);
+        }
+    }
+
     private function recordVisitor(string $sessionId, array $claims, array $visitor): void
     {
         if (!$this->store instanceof PdoStore) {
@@ -73,7 +101,8 @@ class ChatEndpoint
     public function handle(array $input): array
     {
         $message = trim((string) ($input['message'] ?? ''));
-        if ($message === '') {
+        $attachmentIds = array_values(array_filter(array_map('intval', (array) ($input['attachments'] ?? []))));
+        if ($message === '' && $attachmentIds === []) {
             return ['ok' => false, 'error' => 'Say something first.', 'session_id' => '', 'reply' => ''];
         }
         if (mb_strlen($message) > $this->maxMessageChars) {
@@ -115,6 +144,13 @@ class ChatEndpoint
         // silent - the visitor's message goes straight to the inbox and the
         // widget switches to polling for the agent's replies.
         if ($this->store instanceof PdoStore && $this->store->mode($sessionId) === 'agent') {
+            if ($attachmentIds !== [] && $this->attachments !== null) {
+                $files = $this->attachments->pending($attachmentIds, $sessionId);
+                if ($files !== []) {
+                    $message = \Banimark\Files\Markers::append($message, $files);
+                    $this->attachments->markSent(array_column($files, 'token'), $sessionId);
+                }
+            }
             $this->store->appendVisitorMessage($sessionId, $message, $identityHash);
             $this->recordVisitor($sessionId, $claims, (array) ($input['visitor'] ?? []));
             return [
@@ -126,10 +162,29 @@ class ChatEndpoint
             ];
         }
 
+        // files the visitor just uploaded travel INSIDE the message text as
+        // markers, so they survive the engine's replace-all state write and the
+        // model reads a line naming what was attached
+        if ($attachmentIds !== [] && $this->attachments !== null) {
+            $files = $this->attachments->pending($attachmentIds, $sessionId);
+            if ($files !== []) {
+                $message = \Banimark\Files\Markers::append($message, $files);
+                $this->attachments->markSent(array_column($files, 'token'), $sessionId);
+            }
+        }
+
         $state->push(Message::user($message));
         $state->truncateTo($this->historyWindow);
 
-        $result = $this->engine->reply($state, $claims);
+        // the owner's daily budget: past it, the visitor goes to a human instead
+        // of the model, and the thread says why (staff only). Counted BEFORE the
+        // call so a burst cannot overshoot by a whole queue of requests.
+        if ($this->aiDailyCap > 0 && $this->limiter !== null
+            && $this->limiter->hit('ai:day', 86400) > $this->aiDailyCap) {
+            $result = new EngineResult(false, '', 'Daily AI limit reached ('.$this->aiDailyCap.' answers per day, set on the AI settings page). No provider was called.', 0);
+        } else {
+            $result = $this->engine->reply($state, $claims);
+        }
         if (!$result->ok) {
             // The assistant failed (bad key, provider down, quota...). The visitor
             // must not be left with an apology: hand them to a human right away,
@@ -155,6 +210,7 @@ class ChatEndpoint
 
         $this->store->save($sessionId, $state, $identityHash);
         $this->recordVisitor($sessionId, $claims, (array) ($input['visitor'] ?? []));
+        $this->noteToolProblems($sessionId, $result);
 
         // the model called escalate_to_human -> flip to agent mode + notify
         $mode = 'ai';

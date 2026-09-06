@@ -57,6 +57,14 @@
     };
     var POLL_MS = Math.max(3, Math.min(600, parseInt(cfg.poll_seconds, 10) || 10)) * 1000;
     var GUEST = ['off', 'optional', 'required'].indexOf(cfg.guest_mode) >= 0 ? cfg.guest_mode : 'off';
+    // the emoji picker is served just above this file; take it and tidy up after
+    var EMOJI = window.BanimarkEmoji;
+    try { delete window.BanimarkEmoji; } catch (e) { window.BanimarkEmoji = undefined; }
+    var MD = window.BanimarkMarkdown;
+    try { delete window.BanimarkMarkdown; } catch (e) { window.BanimarkMarkdown = undefined; }
+    var UPLOAD_URL = cfg.endpoint.replace(/\/chat$/, '/upload');
+    var FILE_URL = cfg.endpoint.replace(/\/chat$/, '/file/');
+    var FILES_ON = cfg.files !== false;
     // theme is set in the admin panel (auto follows the visitor's OS); page mode
     // turns the widget into a full-page chat, for links in emails and elsewhere
     var THEME = ['auto', 'light', 'dark'].indexOf(cfg.theme) >= 0 ? cfg.theme : 'auto';
@@ -173,6 +181,43 @@
         '.guest button{border:none;background:var(--a);color:var(--on);border-radius:11px;padding:9px 15px;font-size:13px;font-weight:600;cursor:pointer;flex:1}',
         '.guest .skip{background:transparent;color:var(--mut);border:1px solid var(--bd)}',
         '.note{text-align:center;font-size:11.5px;color:var(--mut);padding:6px 14px 0}',
+        /* formatted text inside bubbles */
+        '.m p{margin:0}.m p+p{margin-top:8px}.m ul,.m ol{margin:6px 0 0;padding-left:20px}.m li{margin:2px 0}',
+        '.m a{color:inherit;text-decoration:underline;text-underline-offset:2px}',
+        '.m code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:rgba(0,0,0,.08);padding:1px 5px;border-radius:5px}',
+        '.m.user code{background:rgba(255,255,255,.2)}',
+        '.m pre{margin:6px 0 0;padding:8px 10px;border-radius:9px;background:rgba(0,0,0,.08);overflow-x:auto;font-size:12px;line-height:1.45}',
+        '.m pre code{background:none;padding:0}',
+        /* attachments */
+        '.m .att{display:block;margin-top:6px}',
+        '.m .att img{max-width:210px;max-height:210px;border-radius:12px;display:block;cursor:zoom-in}',
+        '.att-f{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:11px;background:var(--panel);',
+        'border:1px solid var(--bd);color:var(--fg);text-decoration:none;max-width:230px}',
+        '.m.user .att-f{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.25);color:var(--on)}',
+        '.att-f b{font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}',
+        '.att-f span{font-size:11px;opacity:.7}',
+        '.pend{display:flex;flex-wrap:wrap;gap:6px;padding:8px 12px 0;background:var(--bg)}',
+        '.pend-i{display:flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--bd);border-radius:10px;',
+        'padding:5px 7px;font-size:11.5px;color:var(--fg);max-width:190px}',
+        '.pend-i b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+        '.pend-i button{border:none;background:transparent;color:var(--mut);cursor:pointer;font-size:14px;line-height:1;padding:0 2px}',
+        '.pend-i.up{opacity:.6}',
+        '.ic-btn{border:none;background:transparent;color:var(--mut);cursor:pointer;width:32px;height:32px;border-radius:10px;',
+        'display:flex;align-items:center;justify-content:center;flex:none;transition:background .15s,color .15s}',
+        '.ic-btn:hover{background:var(--panel);color:var(--fg)}',
+        /* emoji picker */
+        '.bm-emoji{position:absolute;bottom:56px;left:10px;right:10px;background:var(--bg);border:1px solid var(--bd);',
+        'border-radius:14px;box-shadow:0 12px 34px rgba(0,0,0,.18);z-index:5;overflow:hidden}',
+        '.bm-emoji-top{padding:8px 8px 4px}',
+        '.bm-emoji-q{width:100%;border:1px solid var(--bd);background:var(--panel);color:var(--fg);border-radius:9px;',
+        'padding:6px 9px;font-size:12.5px;outline:none}',
+        '.bm-emoji-tabs{display:flex;gap:2px;padding:2px 8px;border-bottom:1px solid var(--bd)}',
+        '.bm-emoji-tab{border:none;background:transparent;cursor:pointer;font-size:15px;padding:4px 6px;border-radius:8px;opacity:.55}',
+        '.bm-emoji-tab.on{opacity:1;background:var(--panel)}',
+        '.bm-emoji-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:1px;padding:7px;max-height:172px;overflow-y:auto}',
+        '.bm-emoji-b{border:none;background:transparent;cursor:pointer;font-size:19px;line-height:1;padding:5px;border-radius:8px}',
+        '.bm-emoji-b:hover{background:var(--panel)}',
+        '.bm-emoji-none{grid-column:1/-1;color:var(--mut);font-size:12px;padding:10px;text-align:center}',
         '@media (prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;transition-duration:.001ms!important}}'
     ].join('');
     root.appendChild(style);
@@ -182,7 +227,10 @@
         x: '<svg class="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
         close: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
         send: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/></svg>',
-        bot: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V4M9 14h.01M15 14h.01"/></svg>'
+        bot: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V4M9 14h.01M15 14h.01"/></svg>',
+        smile: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0M9 9.5h.01M15 9.5h.01"/></svg>',
+        clip: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.05 12.25 20.2a5.5 5.5 0 1 1-7.78-7.78l9.2-9.2a3.67 3.67 0 1 1 5.18 5.19l-9.2 9.19a1.83 1.83 0 1 1-2.6-2.59l8.5-8.49"/></svg>',
+        doc: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>'
     };
 
     var wrap = document.createElement('div');
@@ -202,7 +250,12 @@
                 '<div class="row2"><button type="button" class="g-go">Start chat</button>' +
                 '<button type="button" class="skip g-skip">Skip</button></div>' +
             '</div>' +
-            '<form class="f"><textarea class="in" rows="1" placeholder="Type a message…" aria-label="Message"></textarea>' +
+            '<div class="pend" hidden></div>' +
+            '<form class="f">' +
+            '<button type="button" class="ic-btn emo" aria-label="Emoji">' + ICON.smile + '</button>' +
+            (FILES_ON ? '<button type="button" class="ic-btn clip" aria-label="Attach a file">' + ICON.clip + '</button>' +
+                '<input type="file" class="fi" hidden>' : '') +
+            '<textarea class="in" rows="1" placeholder="Type a message…" aria-label="Message"></textarea>' +
             '<button type="submit" class="sd" aria-label="Send" disabled>' + ICON.send + '</button></form>' +
             (cfg.offline_note ? '<div class="note"></div>' : '') +
             '<div class="brand">Powered by Banimark</div>' +
@@ -213,14 +266,42 @@
     var panel = wrap.querySelector('.p'), btn = wrap.querySelector('.btn'), pip = wrap.querySelector('.pip');
     var msgs = wrap.querySelector('.ms'), form = wrap.querySelector('.f');
     var input = wrap.querySelector('.in'), send = wrap.querySelector('.sd');
+    var emoBtn = wrap.querySelector('.emo'), clipBtn = wrap.querySelector('.clip');
+    var fileInput = wrap.querySelector('.fi'), pendBox = wrap.querySelector('.pend');
     var guestBox = wrap.querySelector('.guest');
     wrap.querySelector('.ttl').textContent = cfg.title;
     if (cfg.offline_note) { wrap.querySelector('.note').textContent = cfg.offline_note; }
 
-    function bubble(cls, text) {
+    function fileSize(n) {
+        if (!n) { return ''; }
+        return n < 1024 ? n + ' B' : (n < 1048576 ? Math.round(n / 1024) + ' KB' : (n / 1048576).toFixed(1) + ' MB');
+    }
+    function bubble(cls, text, files) {
         var b = document.createElement('div');
         b.className = 'm ' + cls;
-        b.textContent = text;
+        // messages carry light formatting (bold, lists, links...); the renderer
+        // escapes first, so nothing a model or a visitor types becomes markup
+        if (text) { if (MD) { b.innerHTML = MD.render(text); } else { b.textContent = text; } }
+        (files || []).forEach(function (f) {
+            var url = FILE_URL + f.token;
+            var wrapEl = document.createElement('span');
+            wrapEl.className = 'att';
+            if (f.is_image) {
+                var a = document.createElement('a');
+                a.href = url; a.target = '_blank'; a.rel = 'noopener';
+                var img = document.createElement('img');
+                img.src = url; img.alt = f.name; img.loading = 'lazy';
+                a.appendChild(img); wrapEl.appendChild(a);
+            } else {
+                var link = document.createElement('a');
+                link.className = 'att-f'; link.href = url + '?download=1'; link.target = '_blank'; link.rel = 'noopener';
+                link.innerHTML = ICON.doc + '<span style="min-width:0"><b></b><span></span></span>';
+                link.querySelector('b').textContent = f.name;
+                link.querySelector('span span').textContent = fileSize(f.size);
+                wrapEl.appendChild(link);
+            }
+            b.appendChild(wrapEl);
+        });
         msgs.appendChild(b);
         msgs.scrollTop = msgs.scrollHeight;
         return b;
@@ -290,7 +371,7 @@
             msgs.innerHTML = '';
             greeted = true;
             res.messages.forEach(function (m) {
-                var b = bubble(m.role === 'user' ? 'user' : 'bot', m.text);
+                var b = bubble(m.role === 'user' ? 'user' : 'bot', m.text, m.files);
                 b.style.animation = 'none'; // a replay should not look like new arrivals
                 lastAgentId = Math.max(lastAgentId, m.id || 0);
             });
@@ -333,8 +414,11 @@
     }
     input.addEventListener('input', function () {
         resize();
-        send.disabled = busy || input.value.trim() === '';
+        refreshSend();
     });
+    function refreshSend() {
+        send.disabled = busy || (input.value.trim() === '' && !pending.some(function (p) { return p.id; }));
+    }
     input.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -345,18 +429,43 @@
     form.addEventListener('submit', function (e) {
         e.preventDefault();
         var text = input.value.trim();
-        if (!text || busy) { return; }
+        var ready = pending.filter(function (p) { return p.id; });
+        if ((!text && !ready.length) || busy) { return; }
         busy = true;
         send.disabled = true;
         input.value = '';
         resize();
-        bubble('user', text);
+        bubble('user', text, ready);
+        var sendingIds = ready.map(function (p) { return p.id; });
+        pending = [];
+        drawPending();
 
+        /* The dots appear after a short, slightly random pause - as if the
+         * message was read first - and stay up for a moment even when the
+         * answer is instant. Instant dots and a reply that snaps in read as a
+         * machine; this reads as someone typing. While a human owns the chat
+         * the AI dots never show: the real agent's typing comes over the poll. */
         var typing = document.createElement('div');
         typing.className = 'typ';
         typing.innerHTML = '<i></i><i></i><i></i>';
-        msgs.appendChild(typing);
-        msgs.scrollTop = msgs.scrollHeight;
+        var dotsAt = 0, dotsTimer = null, waiting = null;
+        if (!agentMode) {
+            dotsTimer = setTimeout(function () {
+                dotsTimer = null;
+                dotsAt = Date.now();
+                msgs.appendChild(typing);
+                msgs.scrollTop = msgs.scrollHeight;
+                if (waiting) { finish(waiting); } // the answer beat the dots: still show them
+            }, 600 + Math.random() * 700);
+        }
+        function finish(fn) {
+            var hold = dotsAt ? Math.max(0, 900 - (Date.now() - dotsAt)) : 0;
+            setTimeout(function () { typing.remove(); fn(); }, hold);
+        }
+        function settle(fn) {
+            if (dotsTimer) { waiting = fn; return; }
+            finish(fn);
+        }
 
         var xhr = new XMLHttpRequest();
         xhr.open('POST', cfg.endpoint, true);
@@ -364,9 +473,11 @@
         xhr.timeout = 60000;
         xhr.onreadystatechange = function () {
             if (xhr.readyState !== 4) { return; }
+            settle(function () { onAnswer(); });
+        };
+        function onAnswer() {
             busy = false;
-            send.disabled = input.value.trim() === '';
-            typing.remove();
+            refreshSend();
             var res = null;
             try { res = JSON.parse(xhr.responseText); } catch (err) {}
             // the thread id is kept even when the answer failed: the conversation
@@ -381,14 +492,89 @@
                 bubble('err', (res && res.error) || 'Could not send — please try again.');
             }
             input.focus();
-        };
+        }
         xhr.send(JSON.stringify({
             message: text,
             session_id: session,
             token: cfg.token,
-            visitor: { name: visitor.name, email: visitor.email }
+            visitor: { name: visitor.name, email: visitor.email },
+            attachments: sendingIds
         }));
     });
+
+    /* ---- emoji ---- */
+    var picker = EMOJI ? EMOJI.create(panel, function (e) {
+        EMOJI.insertAt(input, e);
+        picker.toggle(false);
+    }) : null;
+    if (emoBtn) {
+        emoBtn.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            if (picker) { picker.toggle(); }
+        });
+    }
+    wrap.addEventListener('click', function (ev) {
+        if (picker && picker.isOpen() && !ev.target.closest('.bm-emoji') && !ev.target.closest('.emo')) { picker.toggle(false); }
+    });
+
+    /* ---- attachments ----
+     * Files upload the moment they are chosen, so the visitor sees progress and
+     * the send button only ever sends ids the server has already accepted. */
+    var pending = [];
+    function drawPending() {
+        if (!pendBox) { return; }
+        pendBox.hidden = pending.length === 0;
+        pendBox.innerHTML = '';
+        pending.forEach(function (p, i) {
+            var el = document.createElement('span');
+            el.className = 'pend-i' + (p.id ? '' : ' up');
+            el.innerHTML = '<b></b><span></span><button type="button" aria-label="Remove">&times;</button>';
+            el.querySelector('b').textContent = p.name;
+            el.querySelector('span').textContent = p.id ? fileSize(p.size) : 'sending…';
+            el.querySelector('button').addEventListener('click', function () {
+                pending.splice(i, 1);
+                drawPending();
+                refreshSend();
+            });
+            pendBox.appendChild(el);
+        });
+    }
+    if (clipBtn && fileInput) {
+        clipBtn.addEventListener('click', function () { fileInput.click(); });
+        fileInput.addEventListener('change', function () {
+            var f = fileInput.files && fileInput.files[0];
+            fileInput.value = '';
+            if (!f) { return; }
+            if (!session) { bubble('sys', 'Say hello first, then you can send a file.'); return; }
+            var item = { name: f.name, size: f.size, id: 0 };
+            pending.push(item);
+            drawPending();
+            var fd = new FormData();
+            fd.append('file', f);
+            fd.append('session_id', session);
+            fd.append('token', cfg.token || '');
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', UPLOAD_URL, true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState !== 4) { return; }
+                var res = null;
+                try { res = JSON.parse(xhr.responseText); } catch (err) {}
+                if (res && res.ok && res.attachment) {
+                    item.id = res.attachment.id;
+                    item.token = res.attachment.token;
+                    item.is_image = res.attachment.is_image;
+                    item.size = res.attachment.size;
+                } else {
+                    var at = pending.indexOf(item);
+                    if (at > -1) { pending.splice(at, 1); }
+                    bubble('err', (res && res.error) || 'That file could not be sent.');
+                }
+                drawPending();
+                refreshSend();
+            };
+            xhr.send(fd);
+        });
+    }
 
     /* ---- polling: agent replies AND the presence heartbeat ----
      * It runs whenever the panel is open, not only in agent mode, because the
@@ -481,7 +667,7 @@
             if (fresh.length) { showAgentTyping(false); }
             fresh.forEach(function (m) {
                 lastAgentId = Math.max(lastAgentId, m.id || 0);
-                bubble('bot', m.text);
+                bubble('bot', m.text, m.files);
                 if (!wrap.classList.contains('open')) { pip.classList.add('on'); }
             });
             if (fresh.length) { chime(); }

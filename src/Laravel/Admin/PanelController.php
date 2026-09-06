@@ -265,6 +265,143 @@ class PanelController
         return back()->with('bm_ok', 'Staff removed.');
     }
 
+    /* ---------------- AI settings / data & protection / team ---------------- */
+
+    private static function setSetting(string $k, string $v): void
+    {
+        DB::table('banimark_settings')->updateOrInsert(['key' => $k], ['value' => $v]);
+    }
+
+    public function aiSettings(AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        return view('banimark::admin.ai', ['body' => \Banimark\Ui\Pages::aiSettings(
+            \Banimark\Laravel\BanimarkServiceProvider::settings(), route('banimark.admin.ai.save'), csrf_field())]);
+    }
+
+    public function saveAiSettings(Request $request, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        \Banimark\Ui\Pages::saveAiSettings($request->all(), fn (string $k, string $v) => self::setSetting($k, $v));
+        return back()->with('bm_ok', 'AI settings saved. They apply from the next message.');
+    }
+
+    public function dataPage(AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        $stats = [
+            'conversations' => (int) DB::table('banimark_conversations')->count(),
+            'messages' => (int) DB::table('banimark_messages')->count(),
+            'files' => (int) DB::table('banimark_attachments')->count(),
+            'oldest' => (int) DB::table('banimark_conversations')->where('last_message_at', '>', 0)->min('last_message_at'),
+        ];
+        return view('banimark::admin.data', ['body' => \Banimark\Ui\Pages::dataPage(
+            \Banimark\Laravel\BanimarkServiceProvider::settings(), $stats,
+            ['save' => route('banimark.admin.data.save'), 'delete_all' => route('banimark.admin.data.delete_all')], csrf_field())]);
+    }
+
+    public function saveDataSettings(Request $request, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        \Banimark\Ui\Pages::saveDataSettings($request->all(), fn (string $k, string $v) => self::setSetting($k, $v));
+        return back()->with('bm_ok', 'Saved.');
+    }
+
+    private function retention(): \Banimark\Storage\Retention
+    {
+        return new \Banimark\Storage\Retention(DB::connection()->getPdo(), app(\Banimark\Files\FileStore::class));
+    }
+
+    public function deleteAllHistory(Request $request, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        if (trim((string) $request->input('confirm')) !== 'DELETE') {
+            return back()->with('bm_error', 'Type DELETE in the box to confirm.');
+        }
+        $n = $this->retention()->deleteAll();
+        return back()->with('bm_ok', "Deleted {$n} conversation(s) and everything in them.");
+    }
+
+    public function deleteConversation(string $sessionId, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        $this->retention()->deleteConversation($sessionId);
+        return redirect()->route('banimark.admin.inbox')->with('bm_ok', 'Conversation deleted.');
+    }
+
+    public function forgetVisitor(string $sessionId, PdoStore $store, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        $identity = $store->identityOf($sessionId);
+        if ($identity === '' || $identity === 'anon') {
+            // an anonymous thread has no identity to follow - delete just this one
+            $this->retention()->deleteConversation($sessionId);
+            return redirect()->route('banimark.admin.inbox')->with('bm_ok', 'Conversation deleted (the visitor was anonymous, so there was nothing else of theirs to find).');
+        }
+        $n = $this->retention()->deleteVisitor($identity);
+        return redirect()->route('banimark.admin.inbox')->with('bm_ok', "Deleted {$n} conversation(s) from that visitor.");
+    }
+
+    public function team(Request $request, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        $days = in_array((int) $request->query('days', 7), [7, 30, 90], true) ? (int) $request->query('days', 7) : 7;
+        $stats = new \Banimark\Storage\TeamStats(DB::connection()->getPdo());
+        $since = time() - $days * 86400;
+        return view('banimark::admin.team', ['body' => \Banimark\Ui\Pages::team(
+            $stats->summary($since), $stats->recent(25), $stats->overview($since), $days,
+            route('banimark.admin.team'), fn (string $sid) => route('banimark.admin.conversation', $sid))]);
+    }
+
+    /* ---------------- files ---------------- */
+
+    public function files(AgentAuth $auth, \Banimark\Storage\Attachments $attachments)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        $s = \Banimark\Laravel\BanimarkServiceProvider::settings();
+        $row = DB::table('banimark_attachments')->selectRaw('COUNT(*) AS c, COALESCE(SUM(size), 0) AS s')->first();
+        return view('banimark::admin.files', [
+            's' => $s,
+            'problem' => \Banimark\Files\FileStoreFactory::misconfigured($s),
+            'defaultDir' => storage_path('app/banimark-files'),
+            'stats' => ['count' => (int) ($row->c ?? 0), 'size' => (int) ($row->s ?? 0)],
+        ]);
+    }
+
+    public function saveFiles(Request $request, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        $set = fn (string $k, string $v) => DB::table('banimark_settings')->updateOrInsert(['key' => $k], ['value' => $v]);
+        $set('files_enabled', $request->boolean('files_enabled') ? '1' : '0');
+        $set('files_max_mb', (string) max(1, min(100, (int) $request->input('files_max_mb', 10))));
+        $set('files_types', trim((string) $request->input('files_types')));
+        $set('files_driver', $request->input('files_driver') === 's3' ? 's3' : 'local');
+        $set('files_local_path', trim((string) $request->input('files_local_path')));
+        foreach (['files_s3_bucket', 'files_s3_region', 'files_s3_endpoint', 'files_s3_prefix'] as $k) {
+            $set($k, trim((string) $request->input($k)));
+        }
+        $set('files_s3_key', trim((string) $request->input('files_s3_key')));
+        $set('files_s3_path_style', $request->boolean('files_s3_path_style') ? '1' : '0');
+        // blank keeps the stored secret, like every other key in this panel
+        $secret = (string) $request->input('files_s3_secret', '');
+        if ($secret !== '') {
+            $set('files_s3_secret', $secret);
+        }
+        return back()->with('bm_ok', 'File settings saved.');
+    }
+
+    public function testFiles(AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        $s = \Banimark\Laravel\BanimarkServiceProvider::settings();
+        $problem = \Banimark\Files\FileStoreFactory::misconfigured($s);
+        if ($problem !== '') {
+            return back()->with('bm_files_test', $problem)->with('bm_files_ok', false);
+        }
+        $result = \Banimark\Files\SelfTest::run(\Banimark\Files\FileStoreFactory::make($s, storage_path('app/banimark-files')));
+        return back()->with('bm_files_test', $result['message'])->with('bm_files_ok', $result['ok']);
+    }
+
     /* ---------------- licensing ---------------- */
 
 
@@ -272,7 +409,7 @@ class PanelController
     private function licenseSettings(): array
     {
         return DB::table('banimark_settings')
-            ->whereIn('key', ['license_key', 'license_status', 'license_last_ping', 'license_token', 'license_unreachable_since', 'license_details', 'hq_url', 'updates_cache', 'updates_checked_at', 'support_email', 'support_url'])
+            ->whereIn('key', ['license_key', 'license_status', 'license_last_ping', 'license_token', 'license_unreachable_since', 'license_details', 'license_check_interval', 'hq_url', 'updates_cache', 'updates_checked_at', 'support_email', 'support_url'])
             ->pluck('value', 'key')->all();
     }
 
@@ -322,6 +459,7 @@ class PanelController
             'hqUrl' => (string) ($s['hq_url'] ?? ''),
             'status' => $status,
             'lastPing' => (int) ($s['license_last_ping'] ?? 0),
+            'checkInterval' => Master::intervalFor($key, (string) ($s['license_token'] ?? '')),
             'canTrial' => $key === '',
         ]);
     }
@@ -525,16 +663,21 @@ class PanelController
     {
         if ($r = $this->gate($auth)) { return $r; }
         $mode = in_array($request->query('mode'), ['ai', 'agent', 'closed'], true) ? $request->query('mode') : null;
+        $q = trim((string) $request->query('q', ''));
         return view('banimark::admin.inbox', [
-            'rows' => $store->listConversations(100, $mode),
+            'rows' => $store->listConversations(100, $mode, $q),
+            'me' => $auth->name(),
             'mode' => $mode,
+            'q' => $q,
+            'counts' => $store->inboxCounts(),
         ]);
     }
 
-    public function conversation(string $sessionId, PdoStore $store, AgentAuth $auth)
+    public function conversation(string $sessionId, PdoStore $store, AgentAuth $auth, \Banimark\Storage\Attachments $attachments)
     {
         if ($r = $this->gate($auth)) { return $r; }
-        $rows = TranscriptView::rows($store->transcript($sessionId));
+        $rows = TranscriptView::rows($store->transcript($sessionId), $attachments);
+        $store->markStaffSeen($sessionId); // opening it clears the unread dot in the inbox
         return view('banimark::admin.conversation', [
             'sessionId' => $sessionId,
             'mode' => $store->mode($sessionId),
@@ -542,20 +685,55 @@ class PanelController
             'lastId' => $rows === [] ? 0 : end($rows)['id'],
             'presence' => $store->presence($sessionId),
             'quick' => QuickReplies::fromSettings(\Banimark\Laravel\BanimarkServiceProvider::settings()),
+            'filesOn' => \Banimark\Files\FileStoreFactory::enabled(\Banimark\Laravel\BanimarkServiceProvider::settings()),
+            'canDelete' => $auth->can('inbox.delete'),
         ]);
     }
 
+    /** Staff attach a file to their reply (same store and rules as the visitor's). */
+    public function uploadReply(Request $request, string $sessionId, AgentAuth $auth, \Banimark\Storage\Attachments $attachments, \Banimark\Files\FileStore $files)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        if (!$auth->can('inbox.reply')) {
+            return response()->json(['ok' => false, 'error' => 'You do not have permission to reply here.'], 403);
+        }
+        $settings = \Banimark\Laravel\BanimarkServiceProvider::settings();
+        if (!\Banimark\Files\FileStoreFactory::enabled($settings)) {
+            return response()->json(['ok' => false, 'error' => 'File sharing is switched off on the Files page.'], 422);
+        }
+        $file = $request->file('file');
+        if (!$file || !$file->isValid()) {
+            return response()->json(['ok' => false, 'error' => 'That upload did not arrive in one piece.'], 422);
+        }
+        $bytes = (string) @file_get_contents($file->getRealPath());
+        $check = \Banimark\Files\UploadPolicy::fromSettings($settings)->check((string) $file->getClientOriginalName(), (int) $file->getSize(), $bytes);
+        if (!$check['ok']) {
+            return response()->json(['ok' => false, 'error' => $check['error']], 422);
+        }
+        $key = \Banimark\Files\UploadPolicy::key($check['ext']);
+        if (!$files->put($key, $bytes, $check['mime'])) {
+            return response()->json(['ok' => false, 'error' => 'Could not store the file: '.$files->lastError()], 422);
+        }
+        $row = $attachments->create($sessionId, $files->name(), $key, $check['name'], $check['mime'], strlen($bytes), 'agent');
+        return response()->json(['ok' => true, 'attachment' => [
+            'id' => (int) $row['id'], 'token' => (string) $row['token'], 'name' => (string) $row['name'],
+            'mime' => (string) $row['mime'], 'size' => (int) $row['size'],
+            'is_image' => \Banimark\Files\UploadPolicy::isImage((string) $row['mime']),
+        ]]);
+    }
+
     /** Live view: rows after a cursor + presence, polled by chat.js. */
-    public function messages(Request $request, string $sessionId, PdoStore $store, AgentAuth $auth)
+    public function messages(Request $request, string $sessionId, PdoStore $store, AgentAuth $auth, \Banimark\Storage\Attachments $attachments)
     {
         if ($r = $this->gate($auth)) { return $r; }
         if ($request->boolean('typing')) {
             $store->markTyping($sessionId, 'agent'); // the visitor's widget shows the dots
         }
+        $store->markStaffSeen($sessionId);
         return response()->json([
             'ok' => true,
             'mode' => $store->mode($sessionId),
-            'messages' => TranscriptView::rows($store->messagesSince($sessionId, (int) $request->query('after', 0))),
+            'messages' => TranscriptView::rows($store->messagesSince($sessionId, (int) $request->query('after', 0)), $attachments),
             'presence' => $store->presence($sessionId),
         ]);
     }
@@ -575,21 +753,27 @@ class PanelController
     }
 
     /** Agent reply = takeover: the AI goes silent until handed back. */
-    public function reply(Request $request, string $sessionId, PdoStore $store, AgentAuth $auth)
+    public function reply(Request $request, string $sessionId, PdoStore $store, AgentAuth $auth, \Banimark\Storage\Attachments $attachments)
     {
         if ($r = $this->gate($auth)) { return $r; }
         $text = trim((string) $request->input('message', ''));
+        $files = $attachments->pending((array) $request->input('attachments', []), $sessionId);
+        if ($files !== []) {
+            // files ride in the text as markers - the same shape the visitor's do
+            $text = \Banimark\Files\Markers::append($text, $files);
+            $attachments->markSent(array_column($files, 'token'), $sessionId);
+        }
         $emailed = false;
         $row = null;
         if ($text !== '') {
-            $store->appendAgentMessage($sessionId, $text);
+            $store->appendAgentMessage($sessionId, $text, (int) $auth->id());
             $all = $store->transcript($sessionId);
-            $row = $all === [] ? null : TranscriptView::row(end($all));
+            $row = $all === [] ? null : TranscriptView::row(end($all), $attachments);
             // the visitor may have closed the tab - post the reply on to them
             try {
                 $settings = \Banimark\Laravel\BanimarkServiceProvider::settings();
                 $emailed = (new \Banimark\Notify\FollowUp($store, app(\Banimark\Notify\Mailer::class), $settings))
-                    ->afterAgentReply($sessionId, $text);
+                    ->afterAgentReply($sessionId, \Banimark\Files\Markers::parse($text)['text'] ?: 'Please see the attached file.');
             } catch (\Throwable $e) { /* a mail problem must never lose the reply */ }
         }
         if ($request->ajax() || $request->expectsJson()) {
@@ -647,7 +831,8 @@ class PanelController
             'slug' => strtolower(trim((string) $request->input('slug'))),
             'driver' => in_array($request->input('driver'), ['gemini', 'openai-compat', 'anthropic'], true) ? $request->input('driver') : 'openai-compat',
             'model' => trim((string) $request->input('model')),
-            'base_url' => trim((string) $request->input('base_url')) ?: null,
+            // an address only means something to the OpenAI-compatible driver
+            'base_url' => $request->input('driver') === 'openai-compat' ? (trim((string) $request->input('base_url')) ?: null) : null,
             'temperature' => max(0, min(2, (float) $request->input('temperature', 0.4))),
             'enabled' => (bool) $request->input('enabled'),
             'updated_at' => now(),
@@ -777,6 +962,22 @@ class PanelController
         ]);
     }
 
+    /**
+     * "Try it" - run the definition in the form with sample values, the way the
+     * engine would. Read-only by construction (the validator only passes SELECT).
+     */
+    public function tryTool(Request $request, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        $definition = self::toolDefinitionFromRequest($request);
+        $args = (array) $request->input('args', []);
+        $context = array_filter((array) $request->input('context_values', []), fn ($v) => $v !== '' && $v !== null);
+        $out = \Banimark\Tools\ToolTester::run($definition, $args, $context, function (string $sql, array $bindings) {
+            return array_map(fn ($r) => (array) $r, DB::select($sql, $bindings));
+        });
+        return response()->json($out);
+    }
+
     /** Tables + columns for the visual builder. Owner-gated like every admin route. */
     public function toolSchema(AgentAuth $auth)
     {
@@ -789,7 +990,8 @@ class PanelController
         return response()->json(['tables' => $tables]);
     }
 
-    public function saveTool(Request $request)
+    /** The tool definition as typed into the form - shared by save and "Try it". */
+    private static function toolDefinitionFromRequest(Request $request): array
     {
         // rows arrive as positional arrays; a checkbox only posts when ticked,
         // so param_required[] carries the INDEXES of the required rows
@@ -809,7 +1011,7 @@ class PanelController
                 'required' => in_array($i, $required, true),
             ];
         }
-        $definition = [
+        return [
             'name' => strtolower(trim((string) $request->input('name'))),
             'description' => trim((string) $request->input('description')),
             'parameters' => $params,
@@ -818,6 +1020,11 @@ class PanelController
             'context' => array_values(array_filter(array_map('trim', explode(',', (string) $request->input('context'))))),
             'max_rows' => max(1, min(50, (int) $request->input('max_rows', 10))),
         ];
+    }
+
+    public function saveTool(Request $request)
+    {
+        $definition = self::toolDefinitionFromRequest($request);
 
         // the same compile-time gate the runtime uses - bad SQL dies HERE
         try {
