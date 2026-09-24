@@ -19,6 +19,27 @@ final class Retention
     ) {
     }
 
+    /** How long a conversation the VISITOR deleted waits before it is erased for good. */
+    public const VISITOR_DELETE_DEFAULT = 30;
+
+    public static function visitorDeleteDays(array $settings): int
+    {
+        $v = $settings['visitor_delete_days'] ?? '';
+        return $v === '' || $v === null ? self::VISITOR_DELETE_DEFAULT : max(1, min(3650, (int) $v));
+    }
+
+    /**
+     * Erase conversations the visitor deleted more than $days ago - rows AND
+     * files - except the ones staff chose to keep.
+     */
+    public function pruneVisitorDeleted(int $days, ?int $now = null): int
+    {
+        $cutoff = ($now ?? time()) - max(1, $days) * 86400;
+        $st = $this->pdo->prepare("SELECT id FROM {$this->prefix}conversations WHERE visitor_deleted_at > 0 AND visitor_deleted_at < ? AND kept = 0");
+        $st->execute([$cutoff]);
+        return $this->deleteIds(array_map('intval', $st->fetchAll(\PDO::FETCH_COLUMN)));
+    }
+
     /** 0 = keep forever. */
     public static function days(array $settings): int
     {
@@ -102,7 +123,12 @@ final class Retention
             foreach ((new Attachments($pdo, $prefix))->pruneOrphans() as $orphan) {
                 try { $files?->delete((string) $orphan['path']); } catch (\Throwable $e) { /* best effort */ }
             }
-            return (new self($pdo, $files, $prefix))->prune(self::days($settings), $now);
+            $r = new self($pdo, $files, $prefix);
+            $n = 0;
+            try {
+                $n += $r->pruneVisitorDeleted(self::visitorDeleteDays($settings), $now);
+            } catch (\Throwable $e) { /* a schema that has not caught up yet: the age rule still runs */ }
+            return $n + $r->prune(self::days($settings), $now);
         } catch (\Throwable $e) {
             return 0;
         }

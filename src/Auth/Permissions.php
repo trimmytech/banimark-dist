@@ -80,7 +80,7 @@ final class Permissions
         foreach ([
             '#^(login|logout|activate|security|asset)#' => null,
             '#^dashboard$#' => 'dashboard.view',
-            '#^conversation\.(delete|forget)$#' => 'inbox.delete',
+            '#^conversation\.(delete|forget|keep)$#' => 'inbox.delete',
             '#^conversation\.reply$#' => 'inbox.reply',
             '#^conversation\.mode$#' => 'inbox.reply',
             '#^(inbox|conversation|events)#' => 'inbox.view',
@@ -108,7 +108,7 @@ final class Permissions
         foreach ([
             '#^/(login|logout|activate|security|assets)#' => null,
             '#^/?$#' => 'dashboard.view',
-            '#^/conversation/[a-f0-9]+/(delete|forget)$#' => 'inbox.delete',
+            '#^/conversation/[a-f0-9]+/(delete|forget|keep)$#' => 'inbox.delete',
             '#^/conversation/[a-f0-9]+/(reply|mode)$#' => 'inbox.reply',
             '#^/(inbox|conversation|events)#' => 'inbox.view',
             '#^/tools#' => 'tools.manage',

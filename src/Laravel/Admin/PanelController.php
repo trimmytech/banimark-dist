@@ -377,6 +377,17 @@ class PanelController
         return redirect()->route('banimark.admin.inbox')->with('bm_ok', 'Conversation deleted.');
     }
 
+    /** A conversation the visitor deleted: keep it (never erased automatically) or let it go again. */
+    public function keepConversation(Request $request, string $sessionId, PdoStore $store, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        $keep = $request->input('keep', '1') === '1';
+        $store->setKept($sessionId, $keep);
+        return back()->with('bm_ok', $keep
+            ? 'Kept - this conversation will not be erased automatically.'
+            : 'It will be erased automatically when its time comes.');
+    }
+
     public function forgetVisitor(string $sessionId, PdoStore $store, AgentAuth $auth)
     {
         if ($r = $this->gate($auth)) { return $r; }
@@ -1041,6 +1052,7 @@ class PanelController
                 'quick' => QuickReplies::fromSettings($settings),
                 'files_on' => \Banimark\Files\FileStoreFactory::enabled($settings),
                 'can_delete' => $auth->can('inbox.delete'),
+                'visitor_delete_days' => \Banimark\Storage\Retention::visitorDeleteDays($settings),
                 'csrf_field' => csrf_field()->toHtml(),
                 'csrf_name' => '_token',
                 'csrf_value' => csrf_token(),
@@ -1049,6 +1061,7 @@ class PanelController
                     'mode' => route('banimark.admin.conversation.mode', $sessionId),
                     'delete' => route('banimark.admin.conversation.delete', $sessionId),
                     'forget' => route('banimark.admin.conversation.forget', $sessionId),
+                    'keep' => route('banimark.admin.conversation.keep', $sessionId),
                     'messages' => route('banimark.admin.conversation.messages', $sessionId),
                     'reply' => route('banimark.admin.conversation.reply', $sessionId),
                     'upload' => route('banimark.admin.conversation.upload', $sessionId),
@@ -1656,6 +1669,8 @@ class PanelController
             // clamped here AND in WidgetConfig - a silly value would become a
             // request storm against the host's own server
             'poll_seconds' => fn ($v) => (string) max(3, min(600, (int) $v ?: 10)),
+            'poll_idle_seconds' => fn ($v) => (string) max(10, min(600, (int) $v ?: 30)),
+            'launcher_reappear_minutes' => fn ($v) => (string) max(0, min(1440, $v === '' ? 10 : (int) $v)),
             'guest_mode' => fn ($v) => in_array($v, ['off', 'optional', 'required'], true) ? $v : 'off',
             'offline_note' => fn ($v) => mb_substr(trim($v), 0, 200),
             // auto follows the visitor's OS; light/dark force it (Flutter reads the same value)

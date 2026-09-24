@@ -76,6 +76,17 @@ class WidgetController
         ]));
     }
 
+    /** POST /banimark/chat/delete - the visitor deletes their own conversation (soft) */
+    public function deleteChat(Request $request)
+    {
+        $endpoint = new \Banimark\Http\DeleteEndpoint(app(\Banimark\Storage\PdoStore::class), (string) config('banimark.identity_secret', ''));
+        $out = $endpoint->handle([
+            'session_id' => (string) $request->input('session_id', ''),
+            'token' => (string) $request->input('token', ''),
+        ]);
+        return response()->json($out, $out['ok'] ? 200 : 422);
+    }
+
     /** POST /banimark/upload - a visitor sends a file */
     public function upload(Request $request, \Banimark\Http\UploadEndpoint $endpoint, \Banimark\Http\RateLimiter $limiter)
     {

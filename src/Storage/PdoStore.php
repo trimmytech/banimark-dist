@@ -36,7 +36,10 @@ class PdoStore implements StateStore
     public function load(string $sessionId): ?array
     {
         $conv = $this->conversation($sessionId);
-        if (!$conv) {
+        // a conversation the visitor deleted is gone for EVERY visitor path
+        // (chat, poll, history, upload all go through here): a stale device
+        // that still holds the id starts a new thread instead of reopening it
+        if (!$conv || (int) ($conv['visitor_deleted_at'] ?? 0) > 0) {
             return null;
         }
         // what the conversation has actually said, INCLUDING a human's replies -
@@ -188,11 +191,36 @@ class PdoStore implements StateStore
         if ($identityHash === '' || $identityHash === 'anon') {
             return null;
         }
+        // SELECT * and filter here, not in SQL: this is the visitor path, and it
+        // must not break on an install whose schema has not caught up yet
         $rows = $this->query(
-            "SELECT session_id FROM {$this->prefix}conversations WHERE identity_hash = ? AND mode <> 'closed' ORDER BY last_message_at DESC, id DESC LIMIT 1",
+            "SELECT * FROM {$this->prefix}conversations WHERE identity_hash = ? AND mode <> 'closed' ORDER BY last_message_at DESC, id DESC LIMIT 10",
             [$identityHash],
         );
-        return $rows[0]['session_id'] ?? null;
+        foreach ($rows as $r) {
+            if ((int) ($r['visitor_deleted_at'] ?? 0) === 0) {
+                return (string) $r['session_id'];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The visitor deleted this conversation from the widget or the app. Soft:
+     * they never see it again, staff still can, and Retention erases it for
+     * good after visitor_delete_days - unless staff chose to keep it.
+     */
+    public function visitorDelete(string $sessionId, ?int $now = null): bool
+    {
+        $st = $this->pdo->prepare("UPDATE {$this->prefix}conversations SET visitor_deleted_at = ?, visitor_typing_at = 0 WHERE session_id = ? AND visitor_deleted_at = 0");
+        $st->execute([$now ?? time(), $sessionId]);
+        return $st->rowCount() > 0;
+    }
+
+    /** Staff keep a visitor-deleted conversation (it is then never erased automatically), or let it go again. */
+    public function setKept(string $sessionId, bool $kept): void
+    {
+        $this->pdo->prepare("UPDATE {$this->prefix}conversations SET kept = ? WHERE session_id = ?")->execute([$kept ? 1 : 0, $sessionId]);
     }
 
     /** A staff-only note in the thread (e.g. the real provider error behind an escalation). */
@@ -331,6 +359,8 @@ class PdoStore implements StateStore
             'last_message_at' => (int) ($conv['last_message_at'] ?? 0),
             'visitor_typing' => (int) ($conv['visitor_typing_at'] ?? 0) > time() - self::TYPING_WINDOW,
             'agent_typing' => (int) ($conv['agent_typing_at'] ?? 0) > time() - self::TYPING_WINDOW,
+            'visitor_deleted_at' => (int) ($conv['visitor_deleted_at'] ?? 0),
+            'kept' => (int) ($conv['kept'] ?? 0) === 1,
         ];
     }
 

@@ -9,6 +9,9 @@
  *   title     - header title
  *   greeting  - first bubble shown before any message
  *   poll_seconds - how often to check for replies while open (owner-set)
+ *   poll_idle_seconds - how often to look while CLOSED, for the unread count
+ *   launcher_reappear_minutes - a launcher the visitor put away comes back
+ *                after this long (0 = not until their next visit)
  *   guest_mode   - 'off' | 'optional' | 'required': ask a guest who they are
  *   user      - {name, email} known to the page; skips the guest form
  *   status_line, logo_url, launcher_icon, launcher_label, corner, density,
@@ -53,6 +56,8 @@
         sound: true,
         auto_open: 'teaser',
         auto_open_after: 0,
+        poll_idle_seconds: 30,
+        launcher_reappear_minutes: 10,
         auto_open_pages: [],
         show_on: [],
         hide_on: []
@@ -173,6 +178,16 @@
         '.pip{position:absolute;top:-3px;' + side + ':-3px;min-width:18px;height:18px;border-radius:9px;background:#e5484d;color:#fff;',
         'font-size:11px;font-weight:700;display:none;align-items:center;justify-content:center;padding:0 5px;border:2px solid var(--bg);animation:pop .3s cubic-bezier(.22,.61,.36,1)}',
         '.pip.on{display:flex}',
+        /* the launcher can be put away (a small x on hover; always on touch) and dragged anywhere */
+        '.hide{position:absolute;top:-7px;' + (side === 'right' ? 'left' : 'right') + ':-7px;width:22px;height:22px;border-radius:50%;border:1px solid var(--bd);background:var(--bg);color:var(--mut);',
+        'font:600 15px/1 inherit;cursor:pointer;display:none;align-items:center;justify-content:center;z-index:2;padding:0}',
+        '.hide:hover{color:var(--fg)}',
+        '.w:hover .hide{display:flex}@media (hover:none){.hide{display:flex}}',
+        '.w.open .hide,.w.page .hide,.w.away .hide,.w.away .btn,.w.away .teaser{display:none!important}',
+        '.btn.dragging{cursor:grabbing;transform:scale(1.04)}',
+        /* dragged into the top half / the far side: the panel and the teaser open where there is room */
+        '.w.flip-y .p{bottom:auto;top:72px;transform-origin:top}.w.flip-y .teaser{bottom:auto;top:70px}',
+        '.w.flip-x .p,.w.flip-x .teaser{' + side + ':auto;' + (side === 'right' ? 'left' : 'right') + ':0}',
         '@keyframes pop{from{transform:scale(0)}to{transform:none}}',
 
         /* teaser bubble before first open */
@@ -201,6 +216,19 @@
         '.x{background:rgba(255,255,255,.15);border:none;color:var(--on);cursor:pointer;margin-left:auto;width:30px;height:30px;',
         'border-radius:9px;display:flex;align-items:center;justify-content:center;transition:background .16s}',
         '.x:hover{background:rgba(255,255,255,.28)}',
+        /* the visitor can delete their conversation: a bin beside the close
+           button (only once there is a conversation), confirmed inside the panel */
+        '.del{background:rgba(255,255,255,.15);border:none;color:var(--on);cursor:pointer;margin-left:auto;width:30px;height:30px;',
+        'border-radius:9px;display:none;align-items:center;justify-content:center;transition:background .16s}',
+        '.del:hover{background:rgba(255,255,255,.28)}',
+        '.w.has-chat .del{display:flex}.w.has-chat .x{margin-left:6px}',
+        '.cf{position:absolute;inset:0;z-index:5;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:22px}',
+        '.cf[hidden]{display:none}',
+        '.cf-box{background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:var(--r2);padding:18px;box-shadow:0 18px 50px rgba(0,0,0,.2);max-width:290px;font-size:14px;line-height:1.5}',
+        '.cf-box b{display:block;font-size:15px;margin-bottom:4px}.cf-box p{margin:0 0 14px;color:var(--mut)}',
+        '.cf-row{display:flex;gap:8px;justify-content:flex-end}',
+        '.cf-row button{border:1px solid var(--bd);background:var(--bg);color:var(--fg);border-radius:10px;padding:8px 14px;font:600 13.5px/1 inherit;cursor:pointer}',
+        '.cf-row .cf-yes{background:#e5484d;border-color:#e5484d;color:#fff}',
 
         '.ms{flex:1;overflow-y:auto;padding:16px 14px;background:var(--panel);display:flex;flex-direction:column;gap:9px;scroll-behavior:smooth}',
         '.ms::-webkit-scrollbar{width:6px}.ms::-webkit-scrollbar-thumb{background:var(--bd);border-radius:3px}',
@@ -309,6 +337,7 @@
         chat: '<svg class="ic-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.5 8.5 0 0 1-3.8-.9L3 20.5l1.5-5.2a8.4 8.4 0 0 1-.9-3.8 8.4 8.4 0 0 1 8.4-9 8.4 8.4 0 0 1 9 8.4z"/></svg>',
         x: '<svg class="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
         close: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+        trash: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>',
         send: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/></svg>',
         bot: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V4M9 14h.01M15 14h.01"/></svg>',
         smile: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0M9 9.5h.01M15 9.5h.01"/></svg>',
@@ -325,8 +354,13 @@
             '<div class="hd">' +
                 '<span class="av">' + ICON.bot + '</span>' +
                 '<span><b class="ttl"></b><span class="st"><i class="dot"></i><span class="stx">We typically reply in a moment</span></span></span>' +
+                '<button class="del" type="button" aria-label="Delete this conversation" title="Delete this conversation">' + ICON.trash + '</button>' +
                 '<button class="x" aria-label="Close chat">' + ICON.close + '</button>' +
             '</div>' +
+            '<div class="cf" hidden role="alertdialog" aria-label="Delete this conversation"><div class="cf-box">' +
+                '<b>Delete this conversation?</b><p>It will be cleared from this chat and you will not be able to see it again.</p>' +
+                '<div class="cf-row"><button type="button" class="cf-no">Cancel</button><button type="button" class="cf-yes">Delete</button></div>' +
+            '</div></div>' +
             '<div class="ms" role="log" aria-live="polite"></div>' +
             '<div class="guest" hidden>' +
                 '<p class="g-intro"></p><div class="g-fields"></div>' +
@@ -347,7 +381,8 @@
             (cfg.hide_brand ? '' : '<div class="brand">Powered by Banimark</div>') +
         '</div>' +
         '<button class="btn' + (LABEL ? ' pill' : '') + '" aria-label="Open support chat"><span class="ics">' + LAUNCH_ICON + ICON.x + '</span>'
-        + (LABEL ? '<span class="lbl"></span>' : '') + '<span class="pip">1</span></button>';
+        + (LABEL ? '<span class="lbl"></span>' : '') + '<span class="pip">1</span></button>'
+        + '<button type="button" class="hide" aria-label="Hide the chat bubble" title="Hide">&times;</button>';
     root.appendChild(wrap);
 
     var panel = wrap.querySelector('.p'), btn = wrap.querySelector('.btn'), pip = wrap.querySelector('.pip');
@@ -456,7 +491,7 @@
     }
     if (MODE !== 'page' && AUTO !== 'off' && autoHere) {
         setTimeout(function () {
-            if (greeted || wrap.classList.contains('open')) { return; }
+            if (greeted || wrap.classList.contains('open') || wrap.classList.contains('away')) { return; }
             var phone = window.matchMedia && window.matchMedia('(max-width: 600px)').matches;
             if (AUTO === 'open' && !phone && !openedThisVisit()) { openPanel(true); return; }
             showTeaser();
@@ -517,6 +552,7 @@
     function adoptSession(id) {
         if (!id || id === session) { return; }
         session = id;
+        wrap.classList.add('has-chat');
         try { localStorage.setItem(SS_KEY, session); } catch (err) {}
     }
 
@@ -532,11 +568,17 @@
             if (!res || !res.ok || !res.messages || !res.messages.length) { if (done) { done(); } return; }
             msgs.innerHTML = '';
             greeted = true;
+            var seen = seenId(), missed = 0;
             res.messages.forEach(function (m) {
                 var b = bubble(m.role === 'user' ? 'user' : 'bot', m.text, m.files);
                 b.style.animation = 'none'; // a replay should not look like new arrivals
                 lastAgentId = Math.max(lastAgentId, m.id || 0);
+                if (seen !== null && m.role !== 'user' && (m.id || 0) > seen) { missed++; }
             });
+            // replies that landed while the visitor was away: the badge, unless they are looking
+            if (wrap.classList.contains('open') && !document.hidden) { markSeen(); }
+            else if (seen === null) { markSeen(); }
+            else if (missed) { addUnread(missed); }
             oldestId = res.oldest_id || 0;
             offerEarlier(!!res.has_more);
             bubble('sys', 'Picking up where you left off.');
@@ -586,14 +628,26 @@
      * visitor who switched tabs sees "(2) Acme Help". Cleared the moment the
      * chat is looked at. */
     var unread = 0, baseTitle = document.title;
+    /* The count survives a page load: the id of the last message the visitor
+     * LOOKED AT is kept, and a restored thread counts what arrived after it.
+     * Nothing stored (a visitor from before this) = everything so far is read. */
+    var SEEN_KEY = 'banimark_seen';
+    function seenId() {
+        try { var v = localStorage.getItem(SEEN_KEY); return v === null ? null : (parseInt(v, 10) || 0); } catch (e) { return null; }
+    }
+    function markSeen() {
+        try { localStorage.setItem(SEEN_KEY, String(lastAgentId)); } catch (e) {}
+    }
     function addUnread(n) {
         unread += n;
+        if (wrap.classList.contains('away')) { showLauncher(); } // a reply is the one thing that brings it back
         pip.textContent = unread > 9 ? '9+' : String(unread);
         pip.classList.add('on');
         document.title = '(' + unread + ') ' + (baseTitle || 'New message');
     }
     function clearUnread() {
         unread = 0;
+        markSeen();
         pip.classList.remove('on'); // also the greeting teaser's badge
         if (document.title !== baseTitle) { document.title = baseTitle; }
     }
@@ -658,8 +712,100 @@
     }
 
     btn.addEventListener('click', function () {
+        if (Date.now() - draggedAt < 500) { return; } // the end of a drag is not a click
         wrap.classList.contains('open') ? closePanel() : openPanel();
     });
+
+    /* ---- the launcher can be dragged anywhere, and put away ----
+     * The spot is kept as FRACTIONS of the free area, so a different window
+     * size keeps it in the same corner. Put away with the small x, it comes
+     * back after the owner's minutes (0 = not until the next visit), and at
+     * once when a reply arrives. The admin's test page never remembers either. */
+    var POS_KEY = 'banimark_pos', HIDE_KEY = 'banimark_hidden_until', HIDE_SESSION = 'banimark_hidden';
+    var REAPPEAR_MS = Math.max(0, Math.min(1440, parseInt(cfg.launcher_reappear_minutes, 10) || 0)) * 60000;
+    var MARGIN = 20, draggedAt = 0, drag = null, frac = null, backTimer = null;
+    var hideBtn = wrap.querySelector('.hide');
+    function free() {
+        return { w: Math.max(0, window.innerWidth - (host.offsetWidth || 56) - 2 * MARGIN),
+                 h: Math.max(0, window.innerHeight - (host.offsetHeight || 56) - 2 * MARGIN) };
+    }
+    function place() {
+        if (!frac) { return; }
+        var f = free(), x = MARGIN + frac.x * f.w, y = MARGIN + frac.y * f.h;
+        host.style.left = x + 'px'; host.style.top = y + 'px'; host.style.right = 'auto'; host.style.bottom = 'auto';
+        var centre = x + (host.offsetWidth || 56) / 2;
+        wrap.classList.toggle('flip-y', y + (host.offsetHeight || 56) / 2 < window.innerHeight / 2);
+        wrap.classList.toggle('flip-x', side === 'right' ? centre < window.innerWidth / 2 : centre > window.innerWidth / 2);
+    }
+    function setPx(x, y) {
+        var f = free();
+        frac = { x: f.w ? Math.max(0, Math.min(1, (x - MARGIN) / f.w)) : 0, y: f.h ? Math.max(0, Math.min(1, (y - MARGIN) / f.h)) : 0 };
+        place();
+    }
+    function dragStart(px, py) {
+        if (wrap.classList.contains('open')) { return; }
+        var r = host.getBoundingClientRect();
+        drag = { sx: px, sy: py, x0: r.left, y0: r.top, moved: false };
+    }
+    function dragMove(px, py) {
+        if (!drag) { return false; }
+        var dx = px - drag.sx, dy = py - drag.sy;
+        if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 6) { return false; } // a wobbly tap is still a tap
+        drag.moved = true;
+        btn.classList.add('dragging');
+        setPx(drag.x0 + dx, drag.y0 + dy);
+        return true;
+    }
+    function dragEnd() {
+        if (!drag) { return; }
+        var moved = drag.moved;
+        drag = null;
+        btn.classList.remove('dragging');
+        if (!moved) { return; }
+        draggedAt = Date.now();
+        if (!PREVIEW && frac) { try { localStorage.setItem(POS_KEY, frac.x + ',' + frac.y); } catch (e) {} }
+    }
+    btn.addEventListener('mousedown', function (e) { if (e.button === 0) { dragStart(e.clientX, e.clientY); } });
+    document.addEventListener('mousemove', function (e) { if (dragMove(e.clientX, e.clientY)) { e.preventDefault(); } });
+    document.addEventListener('mouseup', dragEnd);
+    btn.addEventListener('touchstart', function (e) { var t = e.touches[0]; if (t) { dragStart(t.clientX, t.clientY); } }, { passive: true });
+    document.addEventListener('touchmove', function (e) { var t = e.touches[0]; if (t && dragMove(t.clientX, t.clientY)) { e.preventDefault(); } }, { passive: false });
+    document.addEventListener('touchend', dragEnd);
+    document.addEventListener('touchcancel', dragEnd);
+    window.addEventListener('resize', place);
+
+    function showLauncher() {
+        clearTimeout(backTimer); backTimer = null;
+        wrap.classList.remove('away');
+        try { localStorage.removeItem(HIDE_KEY); sessionStorage.removeItem(HIDE_SESSION); } catch (e) {}
+    }
+    function hideLauncher(untilMs) {
+        if (teaser) { teaser.remove(); teaser = null; } // not dropTeaser(): hiding is not reading
+
+        wrap.classList.add('away');
+        var wait = untilMs !== undefined ? untilMs - Date.now() : REAPPEAR_MS;
+        if (REAPPEAR_MS <= 0) {
+            if (!PREVIEW) { try { sessionStorage.setItem(HIDE_SESSION, '1'); } catch (e) {} } // this visit only
+            return;
+        }
+        if (!PREVIEW) { try { localStorage.setItem(HIDE_KEY, String(Date.now() + wait)); } catch (e) {} }
+        clearTimeout(backTimer);
+        backTimer = setTimeout(showLauncher, Math.max(0, wait));
+    }
+    hideBtn.addEventListener('click', function (e) { e.stopPropagation(); hideLauncher(); });
+    if (!PREVIEW && MODE !== 'page') {
+        try {
+            var saved = (localStorage.getItem(POS_KEY) || '').split(',');
+            if (saved.length === 2 && !isNaN(parseFloat(saved[0])) && !isNaN(parseFloat(saved[1]))) {
+                frac = { x: Math.max(0, Math.min(1, parseFloat(saved[0]))), y: Math.max(0, Math.min(1, parseFloat(saved[1]))) };
+                place();
+            }
+            var until = parseInt(localStorage.getItem(HIDE_KEY) || '0', 10);
+            if (until > Date.now() && REAPPEAR_MS > 0) { hideLauncher(until); }
+            else if (until) { localStorage.removeItem(HIDE_KEY); }
+            if (sessionStorage.getItem(HIDE_SESSION)) { wrap.classList.add('away'); }
+        } catch (e) {}
+    }
     wrap.querySelector('.x').addEventListener('click', closePanel);
     document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape' && wrap.classList.contains('open')) { closePanel(); }
@@ -876,7 +1022,7 @@
      * is around - and emails them the reply when they are not. */
     /* open panel: every POLL_MS; closed panel: a slow background check so a
      * human's reply still arrives (pip + chime) - a real live chat never goes deaf */
-    var BG_MS = Math.max(POLL_MS * 3, 30000);
+    var BG_MS = Math.max(10, Math.min(600, parseInt(cfg.poll_idle_seconds, 10) || 30)) * 1000;
     function startPolling(background) {
         stopPolling();
         pollAgent();
@@ -980,13 +1126,60 @@
             if (fresh.length) {
                 chime();
                 // unread = the visitor cannot be looking: panel closed, or tab in the background
-                if (!wrap.classList.contains('open') || document.hidden) { addUnread(fresh.length); }
+                if (!wrap.classList.contains('open') || document.hidden) { addUnread(fresh.length); } else { markSeen(); }
             }
             var wasAgent = agentMode;
             agentMode = res.mode === 'agent';
             if (agentMode && !wasAgent) { enterAgentMode(true); }
             showAgentTyping(!!res.agent_typing && wrap.classList.contains('open'));
         });
+    }
+
+    /* ---- the visitor deletes their conversation ----
+     * Soft on the server (Http\DeleteEndpoint): gone for the visitor at once,
+     * kept for the team until it is erased. Here it is simply a fresh start. */
+    var confirmBox = wrap.querySelector('.cf');
+    if (session) { wrap.classList.add('has-chat'); }
+    wrap.querySelector('.del').addEventListener('click', function () {
+        confirmBox.hidden = false;
+        confirmBox.querySelector('.cf-no').focus();
+    });
+    confirmBox.querySelector('.cf-no').addEventListener('click', function () { confirmBox.hidden = true; });
+    confirmBox.querySelector('.cf-yes').addEventListener('click', function () {
+        var yes = this;
+        yes.disabled = true;
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', cfg.endpoint + '/delete', true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.timeout = 15000;
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== 4) { return; }
+            yes.disabled = false;
+            var res = null;
+            try { res = JSON.parse(xhr.responseText); } catch (e) {}
+            confirmBox.hidden = true;
+            if (!res || !res.ok) {
+                bubble('sys', (res && res.error) || 'The conversation could not be deleted just now. Please try again.');
+                return;
+            }
+            startOver();
+        };
+        xhr.send(JSON.stringify({ session_id: session, token: cfg.token || '' }));
+    });
+    function startOver() {
+        stopPolling();
+        showAgentTyping(false);
+        session = '';
+        lastAgentId = 0; oldestId = 0; agentMode = false;
+        try { localStorage.removeItem(SS_KEY); localStorage.removeItem(SEEN_KEY); } catch (e) {}
+        wrap.classList.remove('has-chat');
+        clearUnread();
+        offerEarlier(false);
+        msgs.innerHTML = '';
+        bubble('sys', 'Your conversation was deleted.');
+        greeted = true;
+        if (cfg.greeting) { bubble('bot', cfg.greeting); }
+        if (guestNeeded()) { showGuest(true); } else { showStarters(); }
     }
 
     // at load: bring back the thread, then listen in the background

@@ -40,6 +40,10 @@ class WidgetConfig
         'sound',
         'auto_open',
         'auto_open_after',
+        // unread badge while the chat is closed: how often to look, and how long
+        // a launcher the visitor dismissed stays away (0 = until their next visit)
+        'poll_idle_seconds',
+        'launcher_reappear_minutes',
     ];
 
     /** The choices behind each select; anything else falls back to the default. */
@@ -84,6 +88,8 @@ class WidgetConfig
         'sound' => '1',
         'auto_open' => 'teaser',
         'auto_open_after' => 0,
+        'poll_idle_seconds' => 30,
+        'launcher_reappear_minutes' => 10,
     ];
 
     /**
@@ -170,6 +176,8 @@ class WidgetConfig
         }
         // clamp: a bad value here becomes a request storm on the host's server
         $cfg['poll_seconds'] = max(3, min(600, (int) $cfg['poll_seconds']));
+        $cfg['poll_idle_seconds'] = max(10, min(600, (int) $cfg['poll_idle_seconds']));
+        $cfg['launcher_reappear_minutes'] = max(0, min(1440, (int) $cfg['launcher_reappear_minutes']));
         $cfg['position'] = $cfg['position'] === 'left' ? 'left' : 'right';
         $cfg['guest_mode'] = in_array($cfg['guest_mode'], ['off', 'optional', 'required'], true) ? $cfg['guest_mode'] : 'off';
         $cfg['theme'] = in_array($cfg['theme'], ['auto', 'light', 'dark'], true) ? $cfg['theme'] : 'auto';

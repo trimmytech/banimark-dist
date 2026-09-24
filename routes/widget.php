@@ -14,6 +14,10 @@ Route::get('/banimark/chat/poll', [WidgetController::class, 'poll'])
 Route::get('/banimark/chat/history', [WidgetController::class, 'history'])
     ->middleware('throttle:banimark-chat')
     ->name('banimark.chat.history');
+// the visitor deletes their own conversation (soft - see Http\DeleteEndpoint)
+Route::post('/banimark/chat/delete', [WidgetController::class, 'deleteChat'])
+    ->middleware('throttle:banimark-chat')
+    ->name('banimark.chat.delete');
 Route::post('/banimark/upload', [WidgetController::class, 'upload'])
     ->middleware('throttle:banimark-chat')
     ->name('banimark.upload');

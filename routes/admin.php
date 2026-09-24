@@ -63,6 +63,7 @@ Route::post('/data/delete-all', [PanelController::class, 'deleteAllHistory'])->n
 Route::get('/team', [PanelController::class, 'team'])->name('banimark.admin.team');
 Route::post('/conversation/{sessionId}/delete', [PanelController::class, 'deleteConversation'])->name('banimark.admin.conversation.delete');
 Route::post('/conversation/{sessionId}/forget', [PanelController::class, 'forgetVisitor'])->name('banimark.admin.conversation.forget');
+Route::post('/conversation/{sessionId}/keep', [PanelController::class, 'keepConversation'])->name('banimark.admin.conversation.keep');
 Route::get('/files', [PanelController::class, 'files'])->name('banimark.admin.files');
 Route::post('/files', [PanelController::class, 'saveFiles'])->name('banimark.admin.files.save');
 Route::post('/files/test', [PanelController::class, 'testFiles'])->name('banimark.admin.files.test');

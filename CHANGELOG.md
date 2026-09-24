@@ -4,6 +4,25 @@ Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
 ## Unreleased
+- **Visitors can delete their conversation.** A bin in the chat header - on
+  the website, the shareable chat link and the app - clears the conversation
+  after asking first, and the chat starts fresh. It disappears for the visitor
+  straight away; your team still sees it in the inbox, marked "Deleted by
+  visitor", and it is erased permanently, with its files, after 30 days. Open
+  it and press **Keep this conversation** to stop that. The number of days is
+  on the Data & protection page. Laravel: run `php artisan migrate` after
+  updating (standalone installs update themselves on the next admin visit).
+- **Unread replies show on the launcher - and stay counted.** When a visitor's
+  chat is closed, a reply from your team shows as a count on the chat bubble
+  (9+ past nine), on the website and in the app, and the count now survives a
+  page reload or an app restart: only replies after the last one the visitor
+  actually looked at are counted. Two new knobs on the Widget page: how often
+  a closed chat checks for replies (10 s to 10 min, default 30 s), and how
+  long a dismissed app bubble stays away (0 = until the next visit, default
+  10 min). The chat bubble - on the website and in the app - can be dragged
+  anywhere (it remembers the spot, and the chat opens on the side where there
+  is room) and closed with a small ×; a reply from your team always brings it
+  back.
 - **Every button answers on the spot.** In the admin panel (Laravel and
   standalone) a button now posts in the background: the result is printed at
   the top of the page and as a small pop-up, an error keeps you on the page

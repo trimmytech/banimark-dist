@@ -269,6 +269,10 @@ final class Pages
         $behaviour = '<div class="grid2">'
             .'<div><label>Check for replies every</label><div class="row"><input type="number" name="poll_seconds" min="3" max="600" value="'.$e($g('poll_seconds', '10')).'" style="max-width:120px"><span class="muted">seconds</span></div>'
             .'<div class="hint">Only while the chat is open. This is also the visitor\'s heartbeat.</div></div>'
+            .'<div><label>While the chat is closed, check every</label><div class="row"><input type="number" name="poll_idle_seconds" min="10" max="600" value="'.$e($g('poll_idle_seconds', '30')).'" style="max-width:120px"><span class="muted">seconds</span></div>'
+            .'<div class="hint">A reply from your team shows as an unread count on the launcher (9+ past nine) on the website and in the app. Slower is kinder to your server.</div></div>'
+            .'<div><label>Bring a dismissed launcher back after</label><div class="row"><input type="number" name="launcher_reappear_minutes" min="0" max="1440" value="'.$e($g('launcher_reappear_minutes', '10')).'" style="max-width:120px"><span class="muted">minutes</span></div>'
+            .'<div class="hint">On the website and in the app a visitor can drag the chat bubble anywhere (it stays where they put it) and close it with its small ×; it returns after this long. 0 = not until they open the app again. A reply from your team always brings it back.</div></div>'
             .'<div><label>Ask guests who they are</label><select name="guest_mode">'
             .'<option value="off"'.$sel('guest_mode', 'off', 'off').'>Off - chat straight away</option>'
             .'<option value="optional"'.$sel('guest_mode', 'optional', 'off').'>Optional - offer, allow skip</option>'
@@ -760,7 +764,27 @@ final class Pages
         ] as [$k, $v]) {
             $facts .= '<div><dt>'.$e($k).'</dt><dd>'.$v.'</dd></div>';
         }
+        // the visitor deleted it (widget / app): hidden from them, erased on a
+        // date unless someone here keeps it
+        $gone = (int) ($p['visitor_deleted_at'] ?? 0);
+        $deletedCard = '';
+        if ($gone > 0) {
+            $kept = !empty($p['kept']);
+            $eraseOn = $gone + max(1, (int) ($o['visitor_delete_days'] ?? \Banimark\Storage\Retention::VISITOR_DELETE_DEFAULT)) * 86400;
+            $deletedCard = '<div class="bm-card danger-zone" data-visitor-deleted><h2>Deleted by the visitor</h2>'
+                .'<p class="muted" style="margin:4px 0 12px">The visitor deleted this conversation on '.$e(date('j M Y, H:i', $gone)).'. They can no longer see it. '
+                .($kept ? 'Your team chose to <b>keep</b> it, so it is not erased automatically.'
+                        : 'It will be <b>erased permanently on '.$e(date('j M Y', $eraseOn)).'</b>, with its files, unless you keep it.').'</p>'
+                .(!empty($o['can_delete']) && isset($u['keep'])
+                    ? '<form method="post" action="'.$e($u['keep']).'">'.$o['csrf_field'].'<input type="hidden" name="keep" value="'.($kept ? '0' : '1').'">'
+                        .($kept ? '<button class="btn-ghost wide" data-confirm="Let this conversation be erased automatically again?">'.Icons::get('trash', 14).' Let it be erased</button>'
+                                : '<button class="btn2 wide">'.Icons::get('check', 14).' Keep this conversation</button>')
+                        .'</form>'
+                    : '')
+                .'</div>';
+        }
         $side = '<aside class="convo-side">'
+            .$deletedCard
             .'<div class="bm-card"><h2>Visitor</h2><dl class="facts">'.$facts.'</dl></div>'
             .'<div class="bm-card"><h2>This conversation</h2><p class="muted" style="margin:4px 0 12px">'.$e($stateText).'</p>'
             .'<div class="stack">'
@@ -1219,6 +1243,8 @@ final class Pages
                 .'<span class="bm-thread-main">'
                 .'<span class="bm-thread-head"><b>'.$e($r['visitor_label'] ?: 'Anonymous visitor').'</b>'
                 .'<span class="pill s-'.$e($state['tone']).'" title="'.$e($state['title']).'">'.$e($state['label']).'</span>'
+                .((int) ($r['visitor_deleted_at'] ?? 0) > 0
+                    ? '<span class="pill closed" title="The visitor deleted this conversation'.(!empty($r['kept']) ? ' - kept by your team' : ' - it is erased automatically unless you keep it').'">'.(!empty($r['kept']) ? 'Deleted by visitor · kept' : 'Deleted by visitor').'</span>' : '')
                 .$flags
                 // while someone is waiting, the pill already carries that number -
                 // repeating it as "last message" just says the same thing twice
@@ -1467,7 +1493,10 @@ final class Pages
             .Layout::section('How long chats are kept', 'Old conversations are deleted automatically - messages and any files in them. This keeps storage small and is what a privacy policy usually promises.',
                 '<label style="margin-top:0">Delete conversations after (days) <span class="muted">(0 = keep forever)</span></label>'
                 .'<input type="number" name="retention_days" min="0" max="3650" value="'.$days.'" style="max-width:200px">'
-                .'<div class="hint">'.($days > 0 ? 'Runs once a day; anything quiet for more than '.$days.' days goes.' : 'Nothing is deleted automatically.').'</div>')
+                .'<div class="hint">'.($days > 0 ? 'Runs once a day; anything quiet for more than '.$days.' days goes.' : 'Nothing is deleted automatically.').'</div>'
+                .'<label>When a visitor deletes their conversation, erase it after (days)</label>'
+                .'<input type="number" name="visitor_delete_days" min="1" max="3650" value="'.Retention::visitorDeleteDays($s).'" style="max-width:200px">'
+                .'<div class="hint">Visitors can delete a conversation from the chat on your website and in the app. It disappears for them at once; your team still sees it, marked "Deleted by visitor", until this many days pass - then it is erased for good with its files. Open it and press <b>Keep this conversation</b> to stop that.</div>')
             .Layout::section('Protection against floods', 'Limits on the public chat so a script or a bot cannot run up your AI bill or fill the inbox. Real visitors never notice these numbers.',
                 '<label class="check" style="margin:0 0 6px"><input type="checkbox" name="flood_enabled" value="1"'.(($s['flood_enabled'] ?? '1') !== '0' ? ' checked' : '').'> Protection on</label>'
                 .'<div class="grid2">'
@@ -1496,6 +1525,9 @@ final class Pages
     public static function saveDataSettings(array $p, callable $set): void
     {
         $set('retention_days', (string) max(0, min(3650, (int) ($p['retention_days'] ?? 0))));
+        if (isset($p['visitor_delete_days']) && $p['visitor_delete_days'] !== '') {
+            $set('visitor_delete_days', (string) max(1, min(3650, (int) $p['visitor_delete_days'])));
+        }
         $set('flood_enabled', !empty($p['flood_enabled']) ? '1' : '0');
         foreach (array_keys(Flood::DEFAULTS) as $k) {
             $set($k, (string) max(1, min(10000, (int) ($p[$k] ?? Flood::DEFAULTS[$k]))));

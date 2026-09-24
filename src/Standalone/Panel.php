@@ -423,6 +423,13 @@ class Panel
             $this->go($this->url('/inbox').'?bm_ok='.rawurlencode('Conversation deleted.'));
             return null;
         }
+        if (preg_match('#^/conversation/([a-f0-9]{32})/keep$#', $route, $m)) {
+            $keep = ($p['keep'] ?? '1') === '1';
+            $this->store->setKept($m[1], $keep);
+            return $this->go($this->url('/conversation/'.$m[1]).'?bm_ok='.rawurlencode($keep
+                ? 'Kept - this conversation will not be erased automatically.'
+                : 'It will be erased automatically when its time comes.'));
+        }
         if (preg_match('#^/conversation/([a-f0-9]{32})/forget$#', $route, $m)) {
             $identity = $this->store->identityOf($m[1]);
             if ($identity === '' || $identity === 'anon') {
@@ -705,6 +712,8 @@ class Panel
             $this->settings->set('title', mb_substr(trim((string) ($p['title'] ?? '')), 0, 60) ?: 'Support');
             $this->settings->set('greeting', mb_substr(trim((string) ($p['greeting'] ?? '')), 0, 300));
             $this->settings->set('poll_seconds', (string) max(3, min(600, (int) ($p['poll_seconds'] ?? 10) ?: 10)));
+            $this->settings->set('poll_idle_seconds', (string) max(10, min(600, (int) ($p['poll_idle_seconds'] ?? 30) ?: 30)));
+            $this->settings->set('launcher_reappear_minutes', (string) max(0, min(1440, ($p['launcher_reappear_minutes'] ?? '') === '' ? 10 : (int) $p['launcher_reappear_minutes'])));
             $this->settings->set('guest_mode', in_array($p['guest_mode'] ?? '', ['off', 'optional', 'required'], true) ? $p['guest_mode'] : 'off');
             $this->settings->set('offline_note', mb_substr(trim((string) ($p['offline_note'] ?? '')), 0, 200));
             // whitelabel is a plan feature; when it is not covered the stored
@@ -1045,6 +1054,7 @@ class Panel
             'quick' => QuickReplies::fromSettings($this->settings->all()),
             'files_on' => \Banimark\Files\FileStoreFactory::enabled($this->settings->all()),
             'can_delete' => $this->auth->can('inbox.delete'),
+            'visitor_delete_days' => \Banimark\Storage\Retention::visitorDeleteDays($this->settings->all()),
             'csrf_field' => $this->csrfField(),
             'csrf_name' => '_csrf',
             'csrf_value' => $this->auth->csrf(),
@@ -1053,6 +1063,7 @@ class Panel
                 'mode' => $this->url($c.'/mode'),
                 'delete' => $this->url($c.'/delete'),
                 'forget' => $this->url($c.'/forget'),
+                'keep' => $this->url($c.'/keep'),
                 'messages' => $this->url($c.'/messages'),
                 'reply' => $this->url($c.'/reply'),
                 'upload' => $this->url($c.'/upload'),

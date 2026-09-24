@@ -38,6 +38,8 @@ class Schema
             visitor_typing_at INTEGER NOT NULL DEFAULT 0,
             agent_typing_at INTEGER NOT NULL DEFAULT 0,
             staff_seen_at INTEGER NOT NULL DEFAULT 0,
+            visitor_deleted_at INTEGER NOT NULL DEFAULT 0,
+            kept INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL DEFAULT 0
         ){$tail}");
         self::index($pdo, "{$prefix}conv_session", "{$prefix}conversations", 'session_id', true);
@@ -232,6 +234,10 @@ class Schema
         self::addColumn($pdo, "{$prefix}agents", 'permissions', 'TEXT NULL');
         // 0.22: the owner chooses which details a guest is asked for
         self::addColumn($pdo, "{$prefix}conversations", 'visitor_phone', "VARCHAR(40) NOT NULL DEFAULT ''");
+        // 0.30.10: the visitor deleted the chat (soft: hidden from them at once,
+        // erased for good after visitor_delete_days unless staff keep it)
+        self::addColumn($pdo, "{$prefix}conversations", 'visitor_deleted_at', 'INTEGER NOT NULL DEFAULT 0');
+        self::addColumn($pdo, "{$prefix}conversations", 'kept', 'INTEGER NOT NULL DEFAULT 0');
         // 0.20: a tool can call the owner's API instead of reading their database
         self::addColumn($pdo, "{$prefix}tools", 'kind', "VARCHAR(10) NOT NULL DEFAULT 'sql'");
         self::addColumn($pdo, "{$prefix}tools", 'config', 'TEXT NULL');
