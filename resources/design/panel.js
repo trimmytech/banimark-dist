@@ -138,6 +138,7 @@
      while every toast was exactly one line. A wrapped message overlapped it. */
   var stack;
   function toastStack() {
+    if (!stack) stack = document.querySelector('.bm-toasts'); // the form answers share the stack
     if (!stack) {
       stack = document.createElement('div');
       stack.className = 'bm-toasts';
@@ -493,6 +494,191 @@
           });
         });
       });
+    });
+  });
+})();
+
+
+/* ---- every POST button answers in place (AJAX forms) ----
+ * A button click posts through fetch; the answer is printed at the TOP of the
+ * page and as a toast. An error keeps the owner on the page with what they
+ * typed; a success goes where the server said (or reloads here) and the message
+ * travels with it. Only POST forms - links stay links. Forms with their own
+ * script (update card, tool builder, live reply) or data-native are left alone.
+ * Declarative and served as a file: customer CSPs kill inline handlers.
+ * The answer is JSON {ok, message, redirect} from Laravel\Http\FormAnswer
+ * (HQ and the Laravel package) or Standalone\Panel::formAnswer(). Anything
+ * else (a gate that redirected, an expired session) is handled by status. */
+(function () {
+  'use strict';
+  if (!window.fetch || !window.FormData) return;
+  var KEY = 'bm-pending-flash';
+  var ICONS = {
+    ok: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    err: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5v5.5M12 16.2v.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
+  };
+  function wrap() { return document.querySelector('.bm-wrap'); }
+  /* the RESULT of an action carries data-flash (the layouts mark it); a
+     standing notice (update available, database behind) is also a .flash-*
+     box and must be neither toasted on every page load nor replaced */
+  function topFlash() {
+    return document.querySelector('.bm-wrap [data-flash], .bm-card [data-flash], [data-flash]');
+  }
+  function showTop(ok, text, near) {
+    var olds = document.querySelectorAll('[data-flash]');
+    for (var i = 0; i < olds.length; i++) olds[i].remove();
+    var el = document.createElement('div');
+    el.className = ok ? 'flash-ok' : 'flash-err';
+    el.setAttribute('data-flash', ok ? 'ok' : 'err');
+    el.setAttribute('role', ok ? 'status' : 'alert');
+    el.innerHTML = ICONS[ok ? 'ok' : 'err'] + '<span></span>';
+    el.querySelector('span').textContent = text;
+    var w = wrap();
+    if (w) { w.insertBefore(el, w.firstChild); }
+    else if (near && near.parentNode) { near.parentNode.insertBefore(el, near); }
+    else { document.body.insertBefore(el, document.body.firstChild); }
+    return el;
+  }
+  function stackEl() {
+    var s = document.querySelector('.bm-toasts');
+    if (!s) {
+      s = document.createElement('div');
+      s.className = 'bm-toasts';
+      s.setAttribute('role', 'status');
+      s.setAttribute('aria-live', 'polite');
+      document.body.appendChild(s);
+    }
+    return s;
+  }
+  function toast(ok, text) {
+    var el = document.createElement('div');
+    el.className = 'bm-toast ' + (ok ? 'ok' : 'err');
+    el.innerHTML = '<span class="ic"></span><span class="tx"><b></b><span class="msg"></span></span><button type="button" class="x" aria-label="Dismiss">&times;</button>';
+    el.querySelector('.ic').innerHTML = ICONS[ok ? 'ok' : 'err'];
+    el.querySelector('b').textContent = ok ? 'Done' : 'Not saved';
+    el.querySelector('.msg').textContent = text;
+    var gone = false;
+    function dismiss() { if (gone) return; gone = true; el.classList.remove('on'); setTimeout(function () { el.remove(); }, 260); }
+    el.querySelector('.x').addEventListener('click', dismiss);
+    var timer = setTimeout(dismiss, ok ? 6000 : 9000);
+    el.addEventListener('mouseenter', function () { clearTimeout(timer); });
+    el.addEventListener('mouseleave', function () { timer = setTimeout(dismiss, 2500); });
+    var box = stackEl();
+    box.appendChild(el);
+    while (box.children.length > 4) { box.removeChild(box.firstChild); }
+    requestAnimationFrame(function () { el.classList.add('on'); });
+    return el;
+  }
+  function remember(ok, text) {
+    try { sessionStorage.setItem(KEY, JSON.stringify({ ok: ok, text: text, t: Date.now() })); } catch (e) {}
+  }
+  function pending() {
+    try {
+      var raw = sessionStorage.getItem(KEY);
+      if (!raw) return null;
+      sessionStorage.removeItem(KEY);
+      var p = JSON.parse(raw);
+      return (p && p.text && Date.now() - (p.t || 0) < 60000) ? p : null;
+    } catch (e) { return null; }
+  }
+  function samePage(a, b) {
+    function norm(u) {
+      try { u = new URL(u, location.href); } catch (e) { return String(u || ''); }
+      u.hash = '';
+      return u.href.replace(/\/+$/, '').replace(/\/(\?)/, '$1');
+    }
+    return norm(a) === norm(b);
+  }
+  function here() { return location.href.split('#')[0]; }
+  function navigate(url) {
+    if (url && !samePage(url, here())) { location.assign(url); }
+    else { location.reload(); }
+  }
+
+  /* on arrival: a message the server rendered at the top is also a toast; one
+     an AJAX answer left behind (a reload after a success) is printed at the top */
+  function onLoad() {
+    var top = topFlash();
+    var p = pending();
+    if (top) {
+      toast(top.classList.contains('flash-ok'), (top.textContent || '').trim());
+    } else if (p) {
+      showTop(!!p.ok, p.text);
+      toast(!!p.ok, p.text);
+    }
+  }
+  if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', onLoad); } else { onLoad(); }
+
+  function skip(form) {
+    if ((form.getAttribute('method') || 'get').toLowerCase() !== 'post') return true;
+    if (form.hasAttribute('data-native') || form.hasAttribute('data-reply')) return true;
+    if (form.target && form.target !== '_self') return true;
+    if (form.closest('[data-fetch],[data-check],[data-tryit],[data-recover]')) return true;
+    return false;
+  }
+  function busy(btn, on) {
+    if (!btn) return;
+    if (on) {
+      btn.setAttribute('data-was', btn.textContent);
+      btn.disabled = true;
+      if (btn.getAttribute('data-busy')) btn.textContent = btn.getAttribute('data-busy');
+      btn.classList.add('is-busy');
+    } else {
+      btn.disabled = false;
+      btn.classList.remove('is-busy');
+      if (btn.hasAttribute('data-was')) { btn.textContent = btn.getAttribute('data-was'); btn.removeAttribute('data-was'); }
+    }
+  }
+  function handle(json, btn, form) {
+    var ok = !!json.ok;
+    var text = String(json.message || json.error || '');
+    if (typeof json.message === 'object' && json.message) text = '';
+    var to = json.redirect ? String(json.redirect) : '';
+    if (ok || (to && !samePage(to, here()))) {
+      if (text) remember(ok, text);
+      navigate(to);
+      return;
+    }
+    showTop(false, text || 'Something went wrong. Please try again.', form);
+    toast(false, text || 'Something went wrong. Please try again.');
+    busy(btn, false);
+  }
+  document.addEventListener('submit', function (ev) {
+    var form = ev.target;
+    if (!form || form.tagName !== 'FORM' || ev.defaultPrevented || skip(form)) return;
+    ev.preventDefault();
+    var btn = ev.submitter || form.querySelector('button:not([type=button]):not([type=reset]),input[type=submit]');
+    var fd = new FormData(form);
+    if (ev.submitter && ev.submitter.name) { fd.append(ev.submitter.name, ev.submitter.value); }
+    busy(btn, true);
+    fetch(form.getAttribute('action') || here(), {
+      method: 'POST',
+      body: fd,
+      credentials: 'same-origin',
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-Banimark-Form': '1',
+        'X-Banimark-Page': here(),
+        'Accept': 'application/json, text/html'
+      }
+    }).then(function (res) {
+      var ct = res.headers.get('content-type') || '';
+      if (ct.indexOf('application/json') >= 0) {
+        return res.json().then(function (j) { handle(j || {}, btn, form); });
+      }
+      if (res.redirected) { navigate(res.url); return; }   // a gate (login, licence) sent us somewhere
+      if (res.status >= 400) {
+        var why = res.status === 419 ? 'Your session expired. Reload the page and try again.'
+          : 'Something went wrong (HTTP ' + res.status + '). Reload the page and try again.';
+        showTop(false, why, form); toast(false, why); busy(btn, false);
+        return;
+      }
+      return res.text().then(function (html) {   // a page rendered in place: show it
+        document.open(); document.write(html); document.close();
+      });
+    }).catch(function () {
+      var why = 'Could not reach the server. Check your connection and try again.';
+      showTop(false, why, form); toast(false, why); busy(btn, false);
     });
   });
 })();

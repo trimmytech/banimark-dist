@@ -86,8 +86,8 @@ Layout::configure(['events' => $bmAuth->can('inbox.view') ? route('banimark.admi
                 route('banimark.admin.changelog'),
                 request()->routeIs('banimark.admin.changelog')
             ) !!}
-            @if(session('bm_ok'))<div class="flash-ok">{!! Icons::get('check', 16) !!}<span>{{ session('bm_ok') }}</span></div>@endif
-            @if(session('bm_error'))<div class="flash-err">{!! Icons::get('escalation', 16) !!}<span>{{ session('bm_error') }}</span></div>@endif
+            @if(session('bm_ok'))<div class="flash-ok" data-flash>{!! Icons::get('check', 16) !!}<span>{{ session('bm_ok') }}</span></div>@endif
+            @if(session('bm_error'))<div class="flash-err" data-flash>{!! Icons::get('escalation', 16) !!}<span>{{ session('bm_error') }}</span></div>@endif
             @yield('content')
         </div>
     </main>

@@ -68,18 +68,18 @@ class Panel
         if ($route === '/login' && ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             $result = $this->auth->attempt((string) ($_POST['email'] ?? ''), (string) ($_POST['password'] ?? ''));
             if ($result === '2fa') {
-                header('Location: '.$this->url('/login/2fa'));
+                $this->go($this->url('/login/2fa'));
                 return;
             }
             if ($result === 'pending') {
-                echo $this->login('Your account is not activated yet. Use the link in your invitation email, or ask an owner to resend it.');
+                $this->fail('Your account is not activated yet. Use the link in your invitation email, or ask an owner to resend it.', fn (string $m) => $this->login($m));
                 return;
             }
             if ($result) {
-                header('Location: '.$this->url());
+                $this->go($this->url());
                 return;
             }
-            echo $this->login('Wrong email or password.');
+            $this->fail('Wrong email or password.', fn (string $m) => $this->login($m));
             return;
         }
         if (preg_match('#^/activate/([a-f0-9]{48})$#', $route, $m)) {
@@ -87,10 +87,14 @@ class Panel
             if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && $agent) {
                 $pw = (string) ($_POST['password'] ?? '');
                 if (strlen($pw) < 8 || $pw !== (string) ($_POST['password_confirmation'] ?? '')) {
-                    echo Html::activate($this->url('/activate/'.$m[1]), $this->url('/login'), $agent, 'Use at least 8 characters, and type the same password twice.');
+                    $this->fail('Use at least 8 characters, and type the same password twice.', fn (string $e) => Html::activate($this->url('/activate/'.$m[1]), $this->url('/login'), $agent, $e));
                     return;
                 }
                 $this->agents->activate((int) $agent['id'], (string) ($_POST['name'] ?? $agent['name']), $pw);
+                if (self::ajaxForm()) {
+                    $this->json(['ok' => true, 'message' => 'Your account is active - sign in with your new password.', 'redirect' => $this->url('/login')]);
+                    return;
+                }
                 echo $this->login('', 'Your account is active - sign in with your new password.');
                 return;
             }
@@ -99,15 +103,15 @@ class Panel
         }
         if ($route === '/login/2fa') {
             if (!$this->auth->pendingTotp()) {
-                header('Location: '.$this->url());
+                $this->go($this->url());
                 return;
             }
             if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 if ($this->auth->verifyTotp((string) ($_POST['code'] ?? ''))) {
-                    header('Location: '.$this->url());
+                    $this->go($this->url());
                     return;
                 }
-                echo Html::totp($this->url('/login/2fa'), $this->url('/logout'), 'That code did not match. Codes change every 30 seconds - try the current one.');
+                $this->fail('That code did not match. Codes change every 30 seconds - try the current one.', fn (string $e) => Html::totp($this->url('/login/2fa'), $this->url('/logout'), $e));
                 return;
             }
             echo Html::totp($this->url('/login/2fa'), $this->url('/logout'));
@@ -119,7 +123,7 @@ class Panel
         }
         if ($route === '/logout') {
             $this->auth->logout();
-            header('Location: '.$this->url());
+            $this->go($this->url());
             return;
         }
 
@@ -132,7 +136,7 @@ class Panel
         // CSRF on every mutation
         if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && !$this->auth->csrfOk($_POST['_csrf'] ?? null)) {
             http_response_code(419);
-            echo Html::page('Expired', '<div class="bm-card"><h2>Session expired</h2><p><a href="'.Html::e($this->url()).'">Back</a></p></div>');
+            $this->fail('Your session expired. Reload the page and try again.', fn (string $e) => Html::page('Expired', '<div class="bm-card"><h2>Session expired</h2><p><a href="'.Html::e($this->url()).'">Back</a></p></div>'));
             return;
         }
 
@@ -152,13 +156,13 @@ class Panel
             if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 $to .= (str_contains($to, '?') ? '&' : '?').'bm_err='.rawurlencode($msg);
             }
-            header('Location: '.$to);
+            $this->go($to);
             return;
         }
         // owner policy "everyone uses 2FA": an un-enrolled account can only reach the page where it enrols
         if (!in_array($route, ['/security', '/security/begin', '/security/confirm', '/license', '/changelog', '/logout'], true)
             && $this->settings->get('require_2fa', '0') === '1' && !$this->agents->totpEnabled((int) $this->auth->id())) {
-            header('Location: '.$this->url('/security'));
+            $this->go($this->url('/security'));
             return;
         }
         Layout::configure(['events' => $this->auth->can('inbox.view') ? $this->url('/events') : '', 'conversation' => $this->url('/conversation/__SID__')]);
@@ -180,14 +184,18 @@ class Panel
         if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             $flash = $this->handlePost($route);
             if ($flash === null) {
-                return; // redirected
+                return; // redirected (or answered JSON itself)
+            }
+            if (self::ajaxForm()) {
+                $this->formAnswer($flash); // the message in place, no page render
+                return;
             }
         }
         if (isset($_GET['bm_ok']) && trim((string) $_GET['bm_ok']) !== '') {
-            $flash .= '<div class="flash-ok">'.Html::e(mb_substr((string) $_GET['bm_ok'], 0, 200)).'</div>';
+            $flash .= '<div class="flash-ok" data-flash>'.Html::e(mb_substr((string) $_GET['bm_ok'], 0, 200)).'</div>';
         }
         if (isset($_GET['bm_err']) && trim((string) $_GET['bm_err']) !== '') {
-            $flash .= '<div class="flash-err">'.Html::e(mb_substr((string) $_GET['bm_err'], 0, 200)).'</div>';
+            $flash .= '<div class="flash-err" data-flash>'.Html::e(mb_substr((string) $_GET['bm_err'], 0, 200)).'</div>';
         }
         $flash = \Banimark\Licensing\HqNotice::html($this->settings->all(), (string) ($_SERVER['HTTP_HOST'] ?? ''))
             .\Banimark\Update\Notice::html($this->settings->all(), $this->auth->isOwner(),
@@ -255,6 +263,75 @@ class Panel
     }
 
     /** @return string|null flash html, or null when a redirect was sent */
+    /* ---- answering a button posted by panel.js ----
+     * The page prints the message at the top and as a toast; on success it
+     * goes where we say (or reloads), on an error the owner keeps what they
+     * typed. Every branch keeps its plain redirect / flash for a browser
+     * without JavaScript - go() and formAnswer() translate, they never decide. */
+
+    /** True when panel.js posted the form (X-Banimark-Form: 1). */
+    private static function ajaxForm(): bool
+    {
+        return ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && (string) ($_SERVER['HTTP_X_BANIMARK_FORM'] ?? '') === '1';
+    }
+
+    private function json(array $answer, int $status = 200): void
+    {
+        if ($status !== 200) {
+            http_response_code($status);
+        }
+        header('Content-Type: application/json');
+        echo json_encode($answer);
+    }
+
+    /** Redirect - as a Location header, or as the JSON answer when panel.js asked. Returns null so a POST branch can `return $this->go(…)`. */
+    private function go(string $to): ?string
+    {
+        if (!self::ajaxForm()) {
+            header('Location: '.$to);
+            return null;
+        }
+        $a = self::redirectAnswer($to, (string) ($_SERVER['HTTP_X_BANIMARK_PAGE'] ?? ''));
+        $this->json($a, $a['ok'] ? 200 : 422);
+        return null;
+    }
+
+    /**
+     * What a redirect means to the page: its ?bm_ok / ?bm_err is the message,
+     * and an error back to the SAME page is answered in place (no redirect) so
+     * the typed form survives. Static so a test can pin every case.
+     */
+    public static function redirectAnswer(string $to, string $page): array
+    {
+        $q = [];
+        parse_str((string) parse_url($to, PHP_URL_QUERY), $q);
+        $ok = !isset($q['bm_err']) || trim((string) $q['bm_err']) === '';
+        $message = mb_substr(trim((string) ($ok ? ($q['bm_ok'] ?? '') : $q['bm_err'])), 0, 200);
+        $bare = preg_replace('/[?&]bm_(?:ok|err)=[^&#]*/', '', $to) ?? $to;
+        $bare = preg_replace('/\?&/', '?', $bare) ?? $bare;
+        $norm = static fn (string $u): string => rtrim(rtrim((string) strtok($u, '#'), '/'), '?');
+        $stay = !$ok && $page !== '' && $norm($bare) === $norm($page);
+        return ['ok' => $ok, 'message' => $message, 'redirect' => $stay ? null : $to];
+    }
+
+    /** A flash a POST branch rendered in place (`<div class="flash-ok">…`), as the JSON answer. */
+    private function formAnswer(string $flash): void
+    {
+        $ok = !str_contains($flash, 'flash-err');
+        $text = trim(html_entity_decode(strip_tags($flash), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $this->json(['ok' => $ok, 'message' => $text, 'redirect' => null], $ok ? 200 : 422);
+    }
+
+    /** An auth-page error: the page with the message for a browser, JSON for panel.js. */
+    private function fail(string $message, callable $page): void
+    {
+        if (self::ajaxForm()) {
+            $this->json(['ok' => false, 'message' => $message, 'redirect' => null], 422);
+            return;
+        }
+        echo $page($message);
+    }
+
     private function handlePost(string $route): ?string
     {
         $p = $_POST;
@@ -323,7 +400,7 @@ class Panel
                 echo json_encode(['ok' => $text !== '', 'message' => $row, 'emailed' => $emailed, 'mode' => $this->store->mode($m[1])]);
                 return null;
             }
-            header('Location: '.$this->url('/conversation/'.$m[1]));
+            $this->go($this->url('/conversation/'.$m[1]));
             return null;
         }
         if ($route === '/ai') {
@@ -343,7 +420,7 @@ class Panel
         }
         if (preg_match('#^/conversation/([a-f0-9]{32})/delete$#', $route, $m)) {
             $this->retention()->deleteConversation($m[1]);
-            header('Location: '.$this->url('/inbox').'?bm_ok='.rawurlencode('Conversation deleted.'));
+            $this->go($this->url('/inbox').'?bm_ok='.rawurlencode('Conversation deleted.'));
             return null;
         }
         if (preg_match('#^/conversation/([a-f0-9]{32})/forget$#', $route, $m)) {
@@ -354,12 +431,13 @@ class Panel
             } else {
                 $notice = 'Deleted '.$this->retention()->deleteVisitor($identity).' conversation(s) from that visitor.';
             }
-            header('Location: '.$this->url('/inbox').'?bm_ok='.rawurlencode($notice));
+            $this->go($this->url('/inbox').'?bm_ok='.rawurlencode($notice));
             return null;
         }
         if ($route === '/files') {
             $set = fn (string $k, string $v) => $this->settings->set($k, $v);
             $set('files_enabled', !empty($p['files_enabled']) ? '1' : '0');
+            $set('files_ai_read', !empty($p['files_ai_read']) ? '1' : '0');
             $set('files_max_mb', (string) max(1, min(100, (int) ($p['files_max_mb'] ?? 10))));
             $set('files_types', trim((string) ($p['files_types'] ?? '')));
             $wantsS3 = ($p['files_driver'] ?? '') === 's3';
@@ -405,20 +483,20 @@ class Panel
             if ($this->auth->isOwner()) {
                 $this->agents->resetTotp((int) ($p['id'] ?? 0));
             }
-            header('Location: '.$this->url('/agents'));
+            $this->go($this->url('/agents'));
             return null;
         }
         if ($route === '/agents/2fa-require') {
             if ($this->auth->isOwner()) {
                 $this->settings->set('require_2fa', !empty($p['require_2fa']) ? '1' : '0');
             }
-            header('Location: '.$this->url('/agents'));
+            $this->go($this->url('/agents'));
             return null;
         }
         if (preg_match('#^/conversation/([a-f0-9]{32})/mode$#', $route, $m)) {
             $mode = in_array($p['mode'] ?? '', ['ai', 'agent', 'closed'], true) ? $p['mode'] : 'ai';
             $this->store->setMode($m[1], $mode);
-            header('Location: '.$this->url('/conversation/'.$m[1]));
+            $this->go($this->url('/conversation/'.$m[1]));
             return null;
         }
         if ($route === '/tools/data') {
@@ -518,7 +596,7 @@ class Panel
         }
         if ($route === '/tools/delete') {
             $this->exec('DELETE FROM banimark_tools WHERE name = ?', [(string) ($p['name'] ?? '')]);
-            header('Location: '.$this->url('/tools'));
+            $this->go($this->url('/tools'));
             return null;
         }
         if (str_starts_with($route, '/rules')) {
@@ -526,7 +604,7 @@ class Panel
             if ($flash !== '') {
                 return $flash;
             }
-            header('Location: '.$this->url('/rules'));
+            $this->go($this->url('/rules'));
             return null;
         }
         if ($route === '/providers') {
@@ -544,7 +622,7 @@ class Panel
         }
         if ($route === '/providers/delete') {
             $this->exec('DELETE FROM banimark_providers WHERE slug = ?', [(string) ($p['slug'] ?? '')]);
-            header('Location: '.$this->url('/providers'));
+            $this->go($this->url('/providers'));
             return null;
         }
         if ($route === '/agents') {
@@ -588,7 +666,7 @@ class Panel
             if ($this->auth->isOwner()) {
                 $this->agents->delete((int) ($p['id'] ?? 0));
             }
-            header('Location: '.$this->url('/agents'));
+            $this->go($this->url('/agents'));
             return null;
         }
         if ($route === '/escalation') {
@@ -655,7 +733,7 @@ class Panel
             if ($route === '/license/trial') {
                 $r = \Banimark\Licensing\PhoneHome::startTrial($this->settings->all(), Master::siteUrlFromServer($_SERVER), $set, $forget);
                 if (!empty($r['ok'])) {
-                    header('Location: '.$this->url()); // straight into the desk
+                    $this->go($this->url()); // straight into the desk
                     return null;
                 }
                 return '<div class="flash-err">'.Html::e(($r['message'] ?? '') !== '' ? $r['message'] : 'Could not reach Banimark HQ to start the trial. Try again in a moment, or enter a purchased key.').'</div>';
@@ -697,7 +775,7 @@ class Panel
                 return '<div class="flash-err">'.Html::e(\Banimark\Licensing\PhoneHome::unreachableMessage($this->settings->all())).'</div>';
             }
             if ($result['license'] === 'active') {
-                header('Location: '.$this->url()); // activated: straight into the module dashboard
+                $this->go($this->url()); // activated: straight into the module dashboard
                 return null;
             }
             return '<div class="flash-err">License checked - status: <b>'.Html::e($result['license']).'</b>'
@@ -790,7 +868,7 @@ class Panel
             $definition['max_rows'], $definition['kind'], $definition['kind'] === 'http' ? json_encode($definition['config']) : null,
             !empty($p['enabled']) ? 1 : 0, date('Y-m-d H:i:s'), date('Y-m-d H:i:s'),
         ]);
-        header('Location: '.$this->url('/tools'));
+        $this->go($this->url('/tools'));
         return null;
     }
 
@@ -1042,7 +1120,7 @@ class Panel
         switch ($route) {
             case '/security/begin':
                 $this->agents->beginTotp($id);
-                header('Location: '.$this->url('/security'));
+                $this->go($this->url('/security'));
                 return null;
             case '/security/confirm':
                 if ($this->agents->confirmTotp($id, (string) ($p['code'] ?? ''))) {

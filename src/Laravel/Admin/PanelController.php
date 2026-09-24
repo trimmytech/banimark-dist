@@ -426,6 +426,7 @@ class PanelController
         if ($r = $this->gate($auth)) { return $r; }
         $set = fn (string $k, string $v) => DB::table('banimark_settings')->updateOrInsert(['key' => $k], ['value' => $v]);
         $set('files_enabled', $request->boolean('files_enabled') ? '1' : '0');
+        $set('files_ai_read', $request->boolean('files_ai_read') ? '1' : '0');
         $set('files_max_mb', (string) max(1, min(100, (int) $request->input('files_max_mb', 10))));
         $set('files_types', trim((string) $request->input('files_types')));
         $wantsS3 = $request->input('files_driver') === 's3';

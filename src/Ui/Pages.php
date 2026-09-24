@@ -447,7 +447,8 @@ final class Pages
         $cards = '';
         foreach ($rows as $r) {
             $on = (bool) $r['enabled'];
-            $label = \Banimark\Ai\ProviderPresets::MODELS[$r['driver']][$r['model']] ?? $r['model'];
+            $label = (\Banimark\Ai\ProviderPresets::MODELS[$r['driver']][$r['model']] ?? $r['model'])
+                .' — '.\Banimark\Ai\ProviderPresets::capabilityClause((string) $r['driver'], (string) $r['model']);
             $cards .= '<div class="prov'.($on ? ' on' : '').'">'
                 .'<div class="prov-h"><span class="prov-ic">'.Icons::get('providers', 18).'</span>'
                 .'<div><b>'.$e($r['slug']).'</b><small>'.$e(['gemini' => 'Google Gemini', 'anthropic' => 'Anthropic Claude', 'openai-compat' => 'OpenAI-compatible'][$r['driver']] ?? $r['driver']).'</small></div>'
@@ -517,6 +518,8 @@ final class Pages
             .'<form method="post" action="'.$e($o['urls']['save']).'" class="set-form">'.$csrf
             .Layout::section('File sharing', 'Visitors and staff can attach files to a message. Turn it off and the paperclip disappears everywhere.',
                 '<label class="check" style="margin-top:0"><span class="switch"><input type="checkbox" name="files_enabled" value="1"'.(($s['files_enabled'] ?? '1') === '1' ? ' checked' : '').'><span class="sl"></span></span> Allow files</label>'
+                .'<label class="check" style="margin-top:10px"><span class="switch"><input type="checkbox" name="files_ai_read" value="1"'.(($s['files_ai_read'] ?? '1') !== '0' ? ' checked' : '').'><span class="sl"></span></span> Let the assistant read attachments</label>'
+                .'<div class="hint">Images, PDFs and plain-text files a visitor attaches are sent to your AI provider so the assistant can answer from them (only with a model marked "reads images &amp; PDFs"). Switch this off and the assistant only sees that a file was attached.</div>'
                 .'<div class="grid2" style="margin-top:6px"><div><label>Largest file (MB)</label>'
                 .'<input type="number" name="files_max_mb" min="1" max="100" value="'.$g('files_max_mb', (string) \Banimark\Files\UploadPolicy::DEFAULT_MAX_MB).'"></div>'
                 .'<div><label>Accepted types <span class="muted">(comma-separated, blank = the default list)</span></label>'

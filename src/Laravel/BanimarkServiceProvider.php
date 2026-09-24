@@ -254,6 +254,11 @@ class BanimarkServiceProvider extends ServiceProvider
             // want extra restriction add banimark.admin.extra_middleware.
             $middleware = array_values(array_unique(array_merge(
                 ['web'],
+                // a button posted by panel.js gets its flash+redirect as JSON
+                // (message at the top of the page + toast); browsers without
+                // JS keep the redirect. Inside 'web' (it reads the session),
+                // outside the gate (a gate's bounce is an answer too).
+                [\Banimark\Laravel\Http\FormAnswer::class],
                 (array) config('banimark.admin.extra_middleware', []),
                 // NO error-catching middleware here: Laravel's routing pipeline
                 // renders an exception through the host's handler before any

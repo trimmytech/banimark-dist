@@ -107,9 +107,13 @@ class Layout
         $selected = $current !== '' ? $current : (\Banimark\Ai\ProviderPresets::DEFAULT_MODEL[$driver] ?? '');
         $opts = '';
         foreach (\Banimark\Ai\ProviderPresets::modelOptions($driver, $current) as $value => $label) {
-            $opts .= '<option value="'.$e($value).'"'.($value === $selected ? ' selected' : '').'>'.$e($label).'</option>';
+            // the clause is shown BEFORE the owner saves: it decides whether the
+            // assistant can read what visitors attach (images, PDFs, plain text)
+            $clause = \Banimark\Ai\ProviderPresets::capabilityClause($driver, (string) $value);
+            $opts .= '<option value="'.$e($value).'"'.($value === $selected ? ' selected' : '').'>'.$e($label).' — '.$e($clause).'</option>';
         }
-        return '<div><label>Model <span class="muted">(each one tested with Banimark)</span></label><select name="model" required>'.$opts.'</select></div>';
+        return '<div><label>Model <span class="muted">(each one tested with Banimark)</span></label><select name="model" required>'.$opts.'</select>'
+            .'<div class="hint">"Reads images &amp; PDFs" means the assistant can look at what a visitor attaches (images, PDF, plain text) and answer from it. "Text only" means it can see that a file was attached, but not what is inside.</div></div>';
     }
 
     /**

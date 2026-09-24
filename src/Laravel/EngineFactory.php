@@ -44,11 +44,30 @@ class EngineFactory
             }
         }
 
+        // Can the ACTIVE model read attachments, and has the owner left that on?
+        // (see Standalone\EngineBuilder for the same decision)
+        $readsFiles = \Banimark\Ai\ProviderPresets::readsAttachments($driverName, (string) ($providerConfig['model'] ?? ''))
+            && \Banimark\Files\ModelInput::enabled($settings);
+        $extra = [];
+        if ($readsFiles) {
+            try {
+                $extra['attachmentResolver'] = \Banimark\Files\ModelInput::resolver(
+                    new \Banimark\Storage\Attachments(\Illuminate\Support\Facades\DB::connection()->getPdo()),
+                    app(\Banimark\Files\FileStore::class),
+                    $settings,
+                );
+            } catch (\Throwable $e) {
+                // no file store wired = nothing to hand over; the chat still answers
+                $readsFiles = false;
+            }
+        }
+
         return new Engine($manager->driver(), $registry, [
-            'system' => self::systemInstruction()."\n".\Banimark\Ai\Behaviour::systemLines($settings),
+            'system' => self::systemInstruction()."\n".\Banimark\Ai\Behaviour::systemLines($settings, $readsFiles),
             'temperature' => $temperature,
             'max_tokens' => \Banimark\Ai\Behaviour::maxTokens($settings),
             'max_iterations' => 4,
+            'extra' => $extra,
         ]);
     }
 

@@ -35,7 +35,7 @@ class EngineBuilder
         }
     }
 
-    public static function make(\PDO $pdo, string $prefix = 'banimark_'): Engine
+    public static function make(\PDO $pdo, string $prefix = 'banimark_', ?\Banimark\Storage\Attachments $attachments = null, ?\Banimark\Files\FileStore $files = null): Engine
     {
         $provider = $pdo->query("SELECT * FROM {$prefix}providers WHERE enabled = 1 ORDER BY is_default DESC, id LIMIT 1")
             ->fetch(\PDO::FETCH_ASSOC);
@@ -83,11 +83,25 @@ class EngineBuilder
         // folder by folder, in the owner's order - see Storage\Rules
         $system = (new \Banimark\Storage\Rules($pdo, $prefix))->systemInstruction($base);
 
+        // Can the ACTIVE model read attachments, and has the owner left that on?
+        // If so the prompt says it may use file contents, and the driver gets a
+        // resolver that hands it the bytes behind each marker. A text-only model
+        // keeps exactly the old prompt and never receives bytes.
+        $readsFiles = \Banimark\Ai\ProviderPresets::readsAttachments((string) $provider['driver'], (string) $provider['model'])
+            && \Banimark\Files\ModelInput::enabled($settings);
+        $extra = [];
+        if ($readsFiles) {
+            $attachments ??= new \Banimark\Storage\Attachments($pdo);
+            $files ??= \Banimark\Files\FileStoreFactory::make($settings, dirname($_SERVER['SCRIPT_FILENAME'] ?? __FILE__).'/banimark-files');
+            $extra['attachmentResolver'] = \Banimark\Files\ModelInput::resolver($attachments, $files, $settings);
+        }
+
         return new Engine($manager->driver(), $registry, [
-            'system' => $system."\n".\Banimark\Ai\Behaviour::systemLines($settings),
+            'system' => $system."\n".\Banimark\Ai\Behaviour::systemLines($settings, $readsFiles),
             'temperature' => (float) $provider['temperature'],
             'max_tokens' => \Banimark\Ai\Behaviour::maxTokens($settings),
             'max_iterations' => 4,
+            'extra' => $extra,
         ]);
     }
 }

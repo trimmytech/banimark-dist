@@ -11,7 +11,7 @@
                 <h2>Welcome back</h2>
                 <p class="muted">Sign in to your Banimark support desk.</p>
             </div>
-            @if(session('bm_error'))<div class="flash-err"><span>{{ session('bm_error') }}</span></div>@endif
+            @if(session('bm_error'))<div class="flash-err" data-flash><span>{{ session('bm_error') }}</span></div>@endif
             <form method="post" action="{{ route('banimark.admin.login.post') }}">
                 @csrf
                 <label>Email</label>

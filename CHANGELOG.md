@@ -4,12 +4,41 @@ Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
 ## Unreleased
+- **Every button answers on the spot.** In the admin panel (Laravel and
+  standalone) a button now posts in the background: the result is printed at
+  the top of the page and as a small pop-up, an error keeps you on the page
+  with what you typed, and a success takes you where it always did - with the
+  message shown there. Links are unchanged. Browsers without JavaScript get the
+  old full-page reload. The same applies to every button in Banimark HQ.
+- **Banimark HQ (our vendor site):** fixed a 500 ("Unknown column
+  'overrides'") when customising a licence on a production HQ - the new
+  columns and tables (licence overrides, bound sites, review flags, install
+  fingerprints) now ship as a migration; run `php artisan migrate` after
+  deploying HQ.
 - **Banimark HQ (our vendor site):** a free trial now mirrors the lowest plan
   instead of unlocking everything - the same sites, staff, tools and features
   as the cheapest tier (which plan it mirrors is a setting). A licence's type
   can now be changed after it is issued (upgrade or downgrade), from the
   Licences page or via the link on each install; the new limits reach the
   install at its next check-in.
+- **Banimark HQ (our vendor site):** a licence can now be customised
+  individually - its sites, staff, tools and features set for that one licence,
+  above or below its plan. A trial, for example, can be granted a feature on
+  its own. Anything left blank keeps the plan's value, and one button returns a
+  licence to the plan's defaults. The install picks it up at its next check-in.
+- **The assistant can now read what your customers attach.** With a model
+  marked "reads images & PDFs" (every current Gemini model), an attached image,
+  PDF or plain-text file is read and answered from - a receipt photo, a
+  screenshot, a document - instead of "I can't open attachments". Follow-up
+  questions about a file you sent earlier work too. Word, Excel, zips, audio
+  and video are still not read, and the assistant says so rather than guessing.
+- **You choose the model knowing what it can do.** The AI Providers page now
+  labels every model "reads images & PDFs" or "text only" before you pick it.
+  A text-only model behaves exactly as before.
+- **A switch on the Files page: "Let the assistant read attachments".** It is
+  on by default. File contents are sent to your AI provider so the assistant
+  can read them; switch it off and the assistant only sees that a file was
+  attached.
 
 ## 0.30.9
 - **The admin panel now locks if the host app replaces Banimark's login
