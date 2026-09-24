@@ -17,7 +17,7 @@ class WidgetController
     public function chat(Request $request, ChatEndpoint $endpoint, \Banimark\Http\RateLimiter $limiter)
     {
         // flood rules first: a script hammering this route costs no storage and no model call
-        $settings = \Banimark\Laravel\BanimarkServiceProvider::settings();
+        $settings = self::withLicenceFallback(\Banimark\Laravel\BanimarkServiceProvider::settings());
         $sid = (string) $request->input('session_id', '');
         // a never-activated install (no trial, no key) serves no chat yet
         if (!\Banimark\Licensing\Master::widgetActivated($settings)) {
@@ -167,19 +167,30 @@ class WidgetController
             $settings = array_merge($settings, \Illuminate\Support\Facades\DB::table('banimark_settings')->pluck('value', 'key')->all());
         } catch (\Throwable $e) {
         }
+        return self::withLicenceFallback($settings);
+    }
+
+    /**
+     * The activation gate (Master::widgetActivated) keys off the licence in
+     * $settings, but a licence set in the server's env/config lives OUTSIDE the
+     * settings table - and the admin already falls back to it. Mirror that here,
+     * or a perfectly licensed install (key in env) would show its widget as
+     * "not activated" while its admin worked fine. Never leaks: the key is not a
+     * public WidgetConfig key.
+     */
+    public static function withLicenceFallback(array $settings): array
+    {
+        if (trim((string) ($settings['license_key'] ?? '')) === '') {
+            $settings['license_key'] = (string) (config('banimark.license.key') ?? env('BANIMARK_LICENSE_KEY', ''));
+        }
         return $settings;
     }
 
     /** GET /banimark/widget.js - the widget with server-side config injected */
     public function script()
     {
-        $settings = (array) config('banimark.widget', []);
-        try {
-            // panel-saved settings win over config
-            $settings = array_merge($settings, \Illuminate\Support\Facades\DB::table('banimark_settings')->pluck('value', 'key')->all());
-        } catch (\Throwable $e) {
-            // not migrated yet - config only
-        }
+        // one source, incl. the env/config licence fallback (see settings())
+        $settings = $this->settings();
         // allow-list: this script is public, and the settings table holds secrets
         $cfg = WidgetConfig::build($settings, url('/banimark/chat'));
         $js = 'window.__BANIMARK_CFG = '.json_encode($cfg, JSON_UNESCAPED_SLASHES).";\n"
