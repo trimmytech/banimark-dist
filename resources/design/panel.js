@@ -506,8 +506,8 @@
  * travels with it. Only POST forms - links stay links. Forms with their own
  * script (update card, tool builder, live reply) or data-native are left alone.
  * Declarative and served as a file: customer CSPs kill inline handlers.
- * The answer is JSON {ok, message, redirect} from Laravel\Http\FormAnswer
- * (HQ and the Laravel package) or Standalone\Panel::formAnswer(). Anything
+ * The answer is JSON {ok, message, redirect} from the server (Laravel\Http\
+ * FormAnswer, or Standalone\Panel::formAnswer()). Anything
  * else (a gate that redirected, an expired session) is handled by status. */
 (function () {
   'use strict';

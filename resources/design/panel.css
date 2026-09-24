@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Banimark UI - one design system for the customer panel, HQ and the widget.
+   Banimark UI - one design system for the admin panel and the widget.
    Zero dependencies, no build step, one self-served webfont (Inter): it must
    render inside ANY host app, offline, on any PHP stack. Inlined by both runtimes' layouts.
    Data colours come from a validated categorical palette (see the chart
@@ -697,8 +697,7 @@ fieldset.bare { border: 0; margin: 0; padding: 0; min-width: 0; }
 
 /* ==========================================================================
    Dashboard components (2026-09): period switch, spotlight card, ring chart,
-   "needs your attention". Used by the customer dashboard (Ui\Pages::dashboard)
-   and HQ's dashboard alike.
+   "needs your attention". Used by the dashboard (Ui\Pages::dashboard).
    ========================================================================== */
 
 /* the 7 / 30 / 90 day switch - plain links, so it works without JavaScript */
@@ -1051,7 +1050,7 @@ h3.bm-step::before { content: counter(bstep); width: 26px; height: 26px; border-
 .bm-thread { padding: 14px 18px; }
 .bm-thread:hover { background: var(--surface-2); }
 
-/* ---- HQ licence cards ---- */
+/* ---- licence cards ---- */
 .lic { padding: 0; overflow: hidden; margin-bottom: 14px; }
 .lic-h { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 16px 18px; border-bottom: 1px solid var(--border); }
 .lic-id small { display: block; color: var(--muted); font-size: 12.5px; margin-top: 3px; }
