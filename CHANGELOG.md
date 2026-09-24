@@ -4,8 +4,12 @@ Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
 ## Unreleased
-
-_Nothing yet._
+- **Banimark HQ (our vendor site):** a free trial now mirrors the lowest plan
+  instead of unlocking everything - the same sites, staff, tools and features
+  as the cheapest tier (which plan it mirrors is a setting). A licence's type
+  can now be changed after it is issued (upgrade or downgrade), from the
+  Licences page or via the link on each install; the new limits reach the
+  install at its next check-in.
 
 ## 0.30.9
 - **The admin panel now locks if the host app replaces Banimark's login
