@@ -19,6 +19,10 @@ class WidgetController
         // flood rules first: a script hammering this route costs no storage and no model call
         $settings = \Banimark\Laravel\BanimarkServiceProvider::settings();
         $sid = (string) $request->input('session_id', '');
+        // a never-activated install (no trial, no key) serves no chat yet
+        if (!\Banimark\Licensing\Master::widgetActivated($settings)) {
+            return response()->json(['ok' => false, 'session_id' => $sid, 'reply' => '', 'error' => 'This chat is not available yet.'], 403);
+        }
         $blocked = \Banimark\Http\Flood::check($limiter, $settings, (string) $request->ip(), $sid, 'chat')
             ?? ($sid === '' ? \Banimark\Http\Flood::check($limiter, $settings, (string) $request->ip(), '', 'session') : null);
         if ($blocked !== null) {

@@ -956,7 +956,10 @@ class PanelController
 
     public function dashboard(Request $request, AgentAuth $auth, PdoStore $store)
     {
-        if ($r = $this->gate($auth)) { return $r; }
+        // the dashboard stays reachable while the licence is locked (the middleware
+        // exempts it too), so an owner on a never-activated install lands somewhere
+        // that shows what to do. Login is still required; only the licence check is skipped.
+        if ($r = $this->gate($auth, false)) { return $r; }
         // the daily HQ re-check now lives in EnsureBanimarkAccess (before the verdict)
         $pdo = DB::connection()->getPdo();
         $days = (int) $request->query('days', 30);

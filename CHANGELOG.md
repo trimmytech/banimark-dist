@@ -4,8 +4,13 @@ Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
 ## Unreleased
-
-_Nothing yet._
+- **A fresh install now asks you to activate before the chat goes live.** Until
+  you start a free trial or enter a licence key, the chat widget, the shareable
+  chat link and the mobile app stay off, and the admin panel shows only the
+  dashboard - every other page sends you to the Licence screen to activate.
+  Nothing changes for an install that has already activated: once you have ever
+  started a trial or entered a key, your chat keeps working for good, even if the
+  licence later expires or Banimark HQ can't be reached.
 
 ## 0.30.2
 - **Licences can now cover more than one site.** A licence type's "Sites this

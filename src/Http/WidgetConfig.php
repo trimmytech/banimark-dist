@@ -63,7 +63,7 @@ class WidgetConfig
 
     /** Not settings the owner types - derived, so the widget can hide the clip,
      *  say when a person is next around, and build the first-run screen. */
-    public const DERIVED = ['files', 'away_note', 'guest_fields', 'starters', 'logo_url', 'show_on', 'hide_on', 'auto_open_pages'];
+    public const DERIVED = ['enabled', 'files', 'away_note', 'guest_fields', 'starters', 'logo_url', 'show_on', 'hide_on', 'auto_open_pages'];
 
     public const DEFAULTS = [
         'color' => '#6F04D9',
@@ -187,6 +187,10 @@ class WidgetConfig
             $cfg['color'] = self::DEFAULTS['color'];
         }
         $cfg['endpoint'] = $endpoint;
+        // never-activated install (no trial, no key) = the chat is not live yet.
+        // Crypto-free (Master::widgetActivated) because this is the visitor path.
+        // Once activated it stays live for good - an expiry never gates the widget.
+        $cfg['enabled'] = \Banimark\Licensing\Master::widgetActivated($settings);
         // uploads on? (the clip button is hidden entirely when they are not)
         $cfg['files'] = ($settings['files_enabled'] ?? '1') === '1';
         // "a person is back tomorrow at 9:00" - empty while the team is in

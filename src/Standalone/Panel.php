@@ -140,8 +140,19 @@ class Panel
         // license lock: no valid license = no admin, pages AND actions. The
         // verdict comes from AgentAuth->lockReason() (encoded Master), not a
         // local call, so it cannot be stripped here. Widget/chat is never gated.
-        if (!in_array($route, ['/license', '/changelog', '/logout'], true) && !str_starts_with($route, '/license/') && $this->auth->lockReason() !== null) {
-            header('Location: '.$this->url('/license'));
+        // the DASHBOARD ('/' or '') stays reachable while locked; every other
+        // page needs a verified licence. GET -> the licence screen; POST -> the
+        // licence screen carrying the actionable error.
+        $lock = $this->auth->lockReason();
+        if (!in_array($route, ['/', '', '/license', '/changelog', '/logout'], true) && !str_starts_with($route, '/license/') && $lock !== null) {
+            $msg = ($lock['reason'] ?? '') === 'missing'
+                ? 'Start your free trial or enter your licence key on this page to enable Banimark.'
+                : (string) ($lock['message'] ?? 'Enter a valid licence key to restore access.');
+            $to = $this->url('/license');
+            if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
+                $to .= (str_contains($to, '?') ? '&' : '?').'bm_err='.rawurlencode($msg);
+            }
+            header('Location: '.$to);
             return;
         }
         // owner policy "everyone uses 2FA": an un-enrolled account can only reach the page where it enrols
@@ -174,6 +185,9 @@ class Panel
         }
         if (isset($_GET['bm_ok']) && trim((string) $_GET['bm_ok']) !== '') {
             $flash .= '<div class="flash-ok">'.Html::e(mb_substr((string) $_GET['bm_ok'], 0, 200)).'</div>';
+        }
+        if (isset($_GET['bm_err']) && trim((string) $_GET['bm_err']) !== '') {
+            $flash .= '<div class="flash-err">'.Html::e(mb_substr((string) $_GET['bm_err'], 0, 200)).'</div>';
         }
         $flash = \Banimark\Licensing\HqNotice::html($this->settings->all(), (string) ($_SERVER['HTTP_HOST'] ?? ''))
             .\Banimark\Update\Notice::html($this->settings->all(), $this->auth->isOwner(),

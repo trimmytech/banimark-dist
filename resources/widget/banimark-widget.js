@@ -64,6 +64,12 @@
     var MODE = (script && script.getAttribute('data-mode')) || cfg.mode || 'widget';
     var PREVIEW = !!(script && script.getAttribute('data-preview') === '1');
 
+    /* A never-activated install (no trial started, no licence key) serves no
+       chat - the widget, the shared link and the mobile SDK stay dark until the
+       owner starts a trial or enters a key. The server decides (cfg.enabled,
+       from Master::widgetActivated); the preview always renders. */
+    if (cfg.enabled === false && !PREVIEW) { return; }
+
     /* Page rules: "/blog/*" style paths, * = anything. "Never" wins over
        "only". The shareable link (page mode) and the admin's test page ignore
        them - the link IS the chat, and the test page must always show it. */
