@@ -131,6 +131,16 @@ class Panel
         // where a package update reaches the database: once per version, on a
         // staff visit. The widget/chat path never pays for it.
         \Banimark\Storage\Schema::ensureCurrent($this->pdo, Master::PACKAGE_VERSION);
+        // the same for PHP's compiled code: files updated on disk while OPcache
+        // (validate_timestamps=0) still runs the old ones - reset once, reload
+        if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET' && \Banimark\Update\CacheRefresh::healStaleCode(
+            Master::PACKAGE_VERSION,
+            (int) $this->settings->get('opcache_heal_at', '0'),
+            fn (int $t) => $this->settings->set('opcache_heal_at', (string) $t),
+        )) {
+            header('Location: '.$this->url($route === '/' ? '' : $route).(($_SERVER['QUERY_STRING'] ?? '') !== '' ? '?'.$_SERVER['QUERY_STRING'] : ''));
+            return;
+        }
         $this->auth->touchActivity(); // "last seen" for the team page; throttled inside
 
         // CSRF on every mutation
@@ -1443,6 +1453,8 @@ class Panel
 
         if ($route === '/changelog/database') {
             $did = \Banimark\Storage\Schema::ensureCurrent($this->pdo, Master::PACKAGE_VERSION);
+            // this request runs the new code: make sure no worker keeps the old
+            \Banimark\Update\CacheRefresh::opcache(\Banimark\Update\Paths::packageRoot());
             if ($did) {
                 return $ok('Your database is up to date with '.Master::PACKAGE_VERSION.'.');
             }

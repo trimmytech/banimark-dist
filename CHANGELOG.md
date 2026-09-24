@@ -4,14 +4,16 @@ Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
 ## Unreleased
-- **Updating a Laravel site that uses `php artisan route:cache` no longer
-  breaks pages.** Laravel kept serving the route list from before the update,
-  so pages that used a new route failed ("Route [...] not defined") and new
-  chat actions answered 404. The admin now shows a banner naming the one
-  command to run (`php artisan route:cache`), `banimark:doctor` checks for it,
-  the one-click updater clears the stale cache itself, and a page never
-  crashes over it. If you cache routes: run `php artisan route:cache` again
-  after every Banimark update.
+- **Updates now refresh the server's caches themselves, on every kind of
+  site.** After an update a server could keep running the previous version:
+  PHP's OPcache (any site, including plain PHP and WordPress) and, on Laravel,
+  the route/config/event/view caches - pages failed with "Route [...] not
+  defined" and new chat actions answered 404. Now the updater clears them
+  when it installs and rebuilds the ones you had switched on in its database
+  step, just like the database itself; and if you update another way
+  (composer, a copied zip), the next admin page notices and fixes it on its
+  own. Nothing to run by hand. `banimark:doctor` reports it, and a banner
+  appears only on a server where Banimark is not allowed to do it itself.
 - **Visitors can delete their conversation.** A bin in the chat header - on
   the website, the shareable chat link and the app - clears the conversation
   after asking first, and the chat starts fresh. It disappears for the visitor

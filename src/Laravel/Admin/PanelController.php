@@ -38,6 +38,20 @@ class PanelController
      */
     public function callAction(string $method, array $parameters)
     {
+        // Self-heal before drawing anything, like ensureCurrent does for the
+        // database: an update that reached the disk but not the running
+        // server (OPcache holding old code, or a route cache from before) is
+        // fixed here once, then the page is loaded again on the fresh state.
+        if (request()->isMethod('GET') && $method !== 'asset') {
+            $healed = \Banimark\Update\CacheRefresh::healStaleCode(
+                Master::PACKAGE_VERSION,
+                (int) (DB::table('banimark_settings')->where('key', 'opcache_heal_at')->value('value') ?? 0),
+                fn (int $t) => self::setSetting('opcache_heal_at', (string) $t),
+            ) || \Banimark\Laravel\RouteCache::heal();
+            if ($healed) {
+                return redirect()->to(request()->fullUrl());
+            }
+        }
         try {
             $result = $this->{$method}(...array_values($parameters));
             if ($result instanceof \Illuminate\Contracts\View\View) {
@@ -735,10 +749,12 @@ class PanelController
         // the files moved under our feet; yesterday's version check is stale
         DB::table('banimark_settings')->where('key', 'updates_checked_at')->delete();
         $installer->pruneBackups();
-        // a cached route list would hide every route this version added
-        $cleared = \Banimark\Laravel\RouteCache::clearIfCached();
+        // Laravel's caches (routes, config, events, views) would keep serving
+        // the old version: dropped now, rebuilt by the database step, which
+        // runs on the new code
+        \Banimark\Laravel\RouteCache::clearForUpdate();
 
-        return response()->json(['ok' => true, 'message' => $out['message'].($cleared ? ' Laravel\'s route cache was cleared so the new pages work - run php artisan route:cache again if you use it.' : ''), 'schema_next' => true]);
+        return response()->json(['ok' => true, 'message' => $out['message'], 'schema_next' => true]);
     }
 
     /**
@@ -804,15 +820,18 @@ class PanelController
         if (!$auth->isOwner()) { return redirect()->route('banimark.admin.dashboard'); }
 
         $did = \Banimark\Storage\Schema::ensureCurrent(DB::connection()->getPdo(), Master::PACKAGE_VERSION);
+        // and the caches the install step dropped, rebuilt from the new files
+        $rebuilt = \Banimark\Laravel\RouteCache::rebuildAfterUpdate();
+        $cachesNote = $rebuilt === [] ? '' : ' Laravel\'s '.implode(', ', $rebuilt).' cache'.(count($rebuilt) > 1 ? 's were' : ' was').' rebuilt.';
         if ($did) {
-            return $this->answer(true, 'Your database is up to date with '.Master::PACKAGE_VERSION.'.');
+            return $this->answer(true, 'Your database is up to date with '.Master::PACKAGE_VERSION.'.'.$cachesNote);
         }
         // ensureCurrent never throws, so "false" is either nothing-to-do or a
         // permission problem. Ask the DATABASE which it was - asking a cached
         // settings array is how this came to accuse healthy installs.
         $stored = (string) (DB::table('banimark_settings')->where('key', 'schema_version')->value('value') ?? '');
         return $stored === Master::PACKAGE_VERSION
-            ? $this->answer(true, 'Your database was already up to date.')
+            ? $this->answer(true, 'Your database was already up to date.'.$cachesNote)
             : $this->answer(false, 'The database did not change - it is still on '
                 .($stored !== '' ? $stored : 'no recorded version')
                 .'. The database user Banimark connects with probably cannot alter tables; ask your host for CREATE, ALTER and INDEX rights, then try again.');

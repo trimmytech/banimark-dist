@@ -96,6 +96,7 @@ final class RecoverPage
                 return ['ok' => false, 'error' => $done['message']];
             }
             logger()->info('Banimark updated from the error screen: '.$done['message']);
+            \Banimark\Laravel\RouteCache::clearForUpdate();
             $request->session()->put('banimark_recover_applied', (string) $staged['version']);
             return ['ok' => true, 'message' => $done['message']];
         });
@@ -115,6 +116,7 @@ final class RecoverPage
             }
             $pdo = \Illuminate\Support\Facades\DB::connection()->getPdo();
             $current = \Banimark\Licensing\Master::PACKAGE_VERSION;
+            \Banimark\Laravel\RouteCache::rebuildAfterUpdate();
             if (\Banimark\Storage\Schema::ensureCurrent($pdo, $current)) {
                 return ['ok' => true, 'message' => 'Your database is up to date with '.$current.'.'];
             }

@@ -315,6 +315,9 @@ final class Installer
             return $fail('The new version could not be moved into place, so the previous one was restored. Nothing was lost.');
         }
 
+        // the new files are on disk; PHP may still hold the old ones compiled
+        CacheRefresh::opcache($root);
+
         return [
             'ok' => true,
             'from' => $from,
@@ -345,6 +348,7 @@ final class Installer
             return ['ok' => false, 'message' => 'Could not restore that backup, so the current version was put back.'];
         }
         self::rmrf($aside);
+        CacheRefresh::opcache($root);
         return ['ok' => true, 'message' => 'Rolled back to '.Paths::versionOnDisk($root).'.'];
     }
 
