@@ -29,14 +29,14 @@ in plain language — no experience needed.
 
 | Your stack | Setup time | Guide |
 |---|---|---|
-| **Laravel** | about 5 minutes | https://banimark.dev/install/laravel |
-| **Custom PHP** — plain PHP, WordPress, older apps | about 10 minutes | https://banimark.dev/install/php |
-| **CodeIgniter** | about 10 minutes | https://banimark.dev/install/codeigniter |
-| **Node.js** — Express, Next.js, Nuxt | about 25 minutes | https://banimark.dev/install/nodejs |
-| **Python** — Django, Flask, FastAPI | about 25 minutes | https://banimark.dev/install/python |
-| **Docker** — a server with no PHP | about 20 minutes | https://banimark.dev/install/docker |
+| **Laravel** | about 5 minutes | https://banimark.com/install/laravel |
+| **Custom PHP** — plain PHP, WordPress, older apps | about 10 minutes | https://banimark.com/install/php |
+| **CodeIgniter** | about 10 minutes | https://banimark.com/install/codeigniter |
+| **Node.js** — Express, Next.js, Nuxt | about 25 minutes | https://banimark.com/install/nodejs |
+| **Python** — Django, Flask, FastAPI | about 25 minutes | https://banimark.com/install/python |
+| **Docker** — a server with no PHP | about 20 minutes | https://banimark.com/install/docker |
 
-Not sure which one? Start at **https://banimark.dev/install** and it points you to
+Not sure which one? Start at **https://banimark.com/install** and it points you to
 the right guide.
 
 ## Once it's running
@@ -62,7 +62,7 @@ for its term. If a licence ever lapses, only the admin panel pauses —
 ## Support & help
 
 Your licence includes support. Contact your Banimark supplier, or find the full
-guides and help at **https://banimark.dev**.
+guides and help at **https://banimark.com**.
 
 ---
 
