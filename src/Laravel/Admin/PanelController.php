@@ -735,8 +735,10 @@ class PanelController
         // the files moved under our feet; yesterday's version check is stale
         DB::table('banimark_settings')->where('key', 'updates_checked_at')->delete();
         $installer->pruneBackups();
+        // a cached route list would hide every route this version added
+        $cleared = \Banimark\Laravel\RouteCache::clearIfCached();
 
-        return response()->json(['ok' => true, 'message' => $out['message'], 'schema_next' => true]);
+        return response()->json(['ok' => true, 'message' => $out['message'].($cleared ? ' Laravel\'s route cache was cleared so the new pages work - run php artisan route:cache again if you use it.' : ''), 'schema_next' => true]);
     }
 
     /**
@@ -1061,7 +1063,8 @@ class PanelController
                     'mode' => route('banimark.admin.conversation.mode', $sessionId),
                     'delete' => route('banimark.admin.conversation.delete', $sessionId),
                     'forget' => route('banimark.admin.conversation.forget', $sessionId),
-                    'keep' => route('banimark.admin.conversation.keep', $sessionId),
+                    // a stale route cache must not take the whole page down
+                    'keep' => \Banimark\Laravel\RouteCache::url('banimark.admin.conversation.keep', $sessionId),
                     'messages' => route('banimark.admin.conversation.messages', $sessionId),
                     'reply' => route('banimark.admin.conversation.reply', $sessionId),
                     'upload' => route('banimark.admin.conversation.upload', $sessionId),

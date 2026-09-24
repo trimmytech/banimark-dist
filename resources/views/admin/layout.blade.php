@@ -77,6 +77,7 @@ Layout::configure(['events' => $bmAuth->can('inbox.view') ? route('banimark.admi
             {!! Layout::themeButton() !!}
         </header>
         <div class="bm-wrap">
+            {!! \Banimark\Laravel\RouteCache::notice() !!}
             {!! \Banimark\Licensing\HqNotice::html(\Banimark\Laravel\BanimarkServiceProvider::settings(), request()->getSchemeAndHttpHost()) !!}
             {{-- owners see a new release on every page, from the cache only -
                  the Changelog page is what actually asks HQ --}}

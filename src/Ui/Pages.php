@@ -775,7 +775,7 @@ final class Pages
                 .'<p class="muted" style="margin:4px 0 12px">The visitor deleted this conversation on '.$e(date('j M Y, H:i', $gone)).'. They can no longer see it. '
                 .($kept ? 'Your team chose to <b>keep</b> it, so it is not erased automatically.'
                         : 'It will be <b>erased permanently on '.$e(date('j M Y', $eraseOn)).'</b>, with its files, unless you keep it.').'</p>'
-                .(!empty($o['can_delete']) && isset($u['keep'])
+                .(!empty($o['can_delete']) && !empty($u['keep'])
                     ? '<form method="post" action="'.$e($u['keep']).'">'.$o['csrf_field'].'<input type="hidden" name="keep" value="'.($kept ? '0' : '1').'">'
                         .($kept ? '<button class="btn-ghost wide" data-confirm="Let this conversation be erased automatically again?">'.Icons::get('trash', 14).' Let it be erased</button>'
                                 : '<button class="btn2 wide">'.Icons::get('check', 14).' Keep this conversation</button>')

@@ -53,6 +53,11 @@ class DoctorCommand extends Command
         }
         $check('database tables', $tables, 'run: php artisan banimark:install');
 
+        // a route cache from before this version hides the routes it added
+        $stale = \Banimark\Laravel\RouteCache::missing();
+        $check('route cache is current'.($stale === [] ? '' : ' ('.count($stale).' Banimark routes missing, e.g. '.$stale[0].')'),
+            $stale === [], 'run: php artisan route:cache  (or route:clear) - again after every Banimark update');
+
         // the upgrade trap: Laravel will not re-run a recorded migration, so a
         // customer who only ran `composer update` can sit on an old schema
         $current = true;
