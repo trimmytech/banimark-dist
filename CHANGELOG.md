@@ -4,6 +4,16 @@ Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
 ## Unreleased
+
+_Nothing yet._
+
+## 0.30.7
+- **Fix: on Laravel, the dashboard now stays reachable on a not-yet-activated
+  install.** In 0.30.6 the dashboard could still be sent to the Licence screen
+  along with every other page; now it opens, so you land somewhere that shows
+  how to activate. Standalone was already correct.
+
+## 0.30.6
 - **A fresh install now asks you to activate before the chat goes live.** Until
   you start a free trial or enter a licence key, the chat widget, the shareable
   chat link and the mobile app stay off, and the admin panel shows only the
