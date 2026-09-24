@@ -1,0 +1,86 @@
+<?php
+
+use Banimark\Laravel\Admin\PanelController;
+use Illuminate\Support\Facades\Route;
+
+Route::get('/login', [PanelController::class, 'login'])->name('banimark.admin.login');
+Route::post('/login', [PanelController::class, 'doLogin'])->name('banimark.admin.login.post');
+Route::get('/login/2fa', [PanelController::class, 'login2fa'])->name('banimark.admin.login.2fa');
+Route::post('/login/2fa', [PanelController::class, 'doLogin2fa'])->name('banimark.admin.login.2fa.post');
+Route::get('/activate/{token}', [PanelController::class, 'activate'])->name('banimark.admin.activate');
+Route::post('/activate/{token}', [PanelController::class, 'doActivate'])->name('banimark.admin.activate.post');
+Route::get('/security', [PanelController::class, 'security'])->name('banimark.admin.security');
+Route::post('/security/begin', [PanelController::class, 'securityBegin'])->name('banimark.admin.security.begin');
+Route::post('/security/confirm', [PanelController::class, 'securityConfirm'])->name('banimark.admin.security.confirm');
+Route::post('/security/disable', [PanelController::class, 'securityDisable'])->name('banimark.admin.security.disable');
+Route::get('/events', [PanelController::class, 'events'])->name('banimark.admin.events');
+Route::post('/quick-replies', [PanelController::class, 'saveQuickReplies'])->name('banimark.admin.quick.save');
+Route::post('/logout', [PanelController::class, 'logout'])->name('banimark.admin.logout');
+Route::get('/', [PanelController::class, 'dashboard'])->name('banimark.admin.dashboard');
+// customer insights: the owner's AI reads what visitors wrote (owner-only - not in the Permissions map, and it costs a provider call)
+Route::post('/insights', [PanelController::class, 'runInsights'])->name('banimark.admin.insights');
+Route::get('/inbox', [PanelController::class, 'inbox'])->name('banimark.admin.inbox');
+Route::get('/staff', [PanelController::class, 'agents'])->name('banimark.admin.agents');
+Route::post('/staff', [PanelController::class, 'saveAgent'])->name('banimark.admin.agents.save');
+Route::post('/staff/delete', [PanelController::class, 'deleteAgent'])->name('banimark.admin.agents.delete');
+Route::post('/staff/2fa-reset', [PanelController::class, 'staffTotpReset'])->name('banimark.admin.agents.totp.reset');
+Route::post('/staff/2fa-require', [PanelController::class, 'staffTotpRequire'])->name('banimark.admin.agents.totp.require');
+Route::post('/staff/reinvite', [PanelController::class, 'reinviteAgent'])->name('banimark.admin.agents.reinvite');
+Route::post('/staff/permissions', [PanelController::class, 'setPermissions'])->name('banimark.admin.agents.permissions');
+Route::get('/escalation', [PanelController::class, 'escalation'])->name('banimark.admin.escalation');
+Route::post('/escalation', [PanelController::class, 'saveEscalation'])->name('banimark.admin.escalation.save');
+Route::post('/escalation/test', [PanelController::class, 'testEmail'])->name('banimark.admin.escalation.test');
+Route::post('/escalation/hours', [PanelController::class, 'saveWorkingHours'])->name('banimark.admin.escalation.hours');
+Route::get('/conversation/{sessionId}', [PanelController::class, 'conversation'])->name('banimark.admin.conversation');
+Route::get('/conversation/{sessionId}/messages', [PanelController::class, 'messages'])->name('banimark.admin.conversation.messages');
+Route::post('/conversation/{sessionId}/reply', [PanelController::class, 'reply'])->name('banimark.admin.conversation.reply');
+Route::post('/conversation/{sessionId}/upload', [PanelController::class, 'uploadReply'])->name('banimark.admin.conversation.upload');
+Route::post('/conversation/{sessionId}/mode', [PanelController::class, 'setMode'])->name('banimark.admin.conversation.mode');
+Route::get('/providers', [PanelController::class, 'providers'])->name('banimark.admin.providers');
+Route::post('/providers', [PanelController::class, 'saveProvider'])->name('banimark.admin.providers.save');
+Route::post('/providers/delete', [PanelController::class, 'deleteProvider'])->name('banimark.admin.providers.delete');
+Route::post('/providers/activate', [PanelController::class, 'activateProvider'])->name('banimark.admin.providers.activate');
+Route::get('/rules', [PanelController::class, 'rules'])->name('banimark.admin.rules');
+Route::post('/rules', [PanelController::class, 'saveRule'])->name('banimark.admin.rules.save');
+Route::post('/rules/delete', [PanelController::class, 'deleteRule'])->name('banimark.admin.rules.delete');
+Route::post('/rules/move', [PanelController::class, 'moveRule'])->name('banimark.admin.rules.move');
+Route::post('/rules/folder', [PanelController::class, 'saveFolder'])->name('banimark.admin.rules.folder');
+Route::post('/rules/folder/delete', [PanelController::class, 'deleteFolder'])->name('banimark.admin.rules.folder.delete');
+Route::post('/rules/folder/move', [PanelController::class, 'moveFolder'])->name('banimark.admin.rules.folder.move');
+Route::get('/tools', [PanelController::class, 'tools'])->name('banimark.admin.tools');
+Route::get('/tools/schema', [PanelController::class, 'toolSchema'])->name('banimark.admin.tools.schema');
+Route::post('/tools/try', [PanelController::class, 'tryTool'])->name('banimark.admin.tools.try');
+Route::post('/tools/assist', [PanelController::class, 'assistTool'])->name('banimark.admin.tools.assist');
+Route::post('/tools/data', [PanelController::class, 'saveDataConnection'])->name('banimark.admin.tools.data');
+Route::post('/tools/data/test', [PanelController::class, 'testDataConnection'])->name('banimark.admin.tools.data.test');
+Route::post('/tools', [PanelController::class, 'saveTool'])->name('banimark.admin.tools.save');
+Route::post('/tools/delete', [PanelController::class, 'deleteTool'])->name('banimark.admin.tools.delete');
+Route::get('/ai', [PanelController::class, 'aiSettings'])->name('banimark.admin.ai');
+Route::post('/ai', [PanelController::class, 'saveAiSettings'])->name('banimark.admin.ai.save');
+Route::get('/data', [PanelController::class, 'dataPage'])->name('banimark.admin.data');
+Route::post('/data', [PanelController::class, 'saveDataSettings'])->name('banimark.admin.data.save');
+Route::post('/data/delete-all', [PanelController::class, 'deleteAllHistory'])->name('banimark.admin.data.delete_all');
+Route::get('/team', [PanelController::class, 'team'])->name('banimark.admin.team');
+Route::post('/conversation/{sessionId}/delete', [PanelController::class, 'deleteConversation'])->name('banimark.admin.conversation.delete');
+Route::post('/conversation/{sessionId}/forget', [PanelController::class, 'forgetVisitor'])->name('banimark.admin.conversation.forget');
+Route::get('/files', [PanelController::class, 'files'])->name('banimark.admin.files');
+Route::post('/files', [PanelController::class, 'saveFiles'])->name('banimark.admin.files.save');
+Route::post('/files/test', [PanelController::class, 'testFiles'])->name('banimark.admin.files.test');
+Route::get('/widget', [PanelController::class, 'widget'])->name('banimark.admin.widget');
+Route::get('/widget/try', [PanelController::class, 'tryWidget'])->name('banimark.admin.widget.try');
+Route::get('/changelog', [PanelController::class, 'changelog'])->name('banimark.admin.changelog');
+// one-click updates: owner-only, and each one is a deliberate POST
+Route::post('/changelog/update', [PanelController::class, 'runUpdate'])->name('banimark.admin.update');
+// the same update in two stages, for the progress panel
+Route::post('/changelog/update/fetch', [PanelController::class, 'runUpdateFetch'])->name('banimark.admin.update.fetch');
+Route::post('/changelog/update/apply', [PanelController::class, 'runUpdateApply'])->name('banimark.admin.update.apply');
+Route::post('/changelog/check', [PanelController::class, 'runRecheck'])->name('banimark.admin.update.check');
+// reinstall this version / leave a TEST build for the stable release
+Route::post('/changelog/switch', [PanelController::class, 'runSwitch'])->name('banimark.admin.update.switch');
+Route::post('/changelog/database', [PanelController::class, 'runSchema'])->name('banimark.admin.update.db');
+Route::post('/changelog/rollback', [PanelController::class, 'runRollback'])->name('banimark.admin.update.rollback');
+Route::get('/license', [PanelController::class, 'license'])->name('banimark.admin.license');
+Route::post('/license', [PanelController::class, 'saveLicense'])->name('banimark.admin.license.save');
+Route::post('/license/trial', [PanelController::class, 'startTrial'])->name('banimark.admin.license.trial');
+Route::post('/license/recheck', [PanelController::class, 'recheckLicense'])->name('banimark.admin.license.recheck');
+Route::post('/widget', [PanelController::class, 'saveWidget'])->name('banimark.admin.widget.save');
