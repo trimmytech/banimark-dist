@@ -4,6 +4,10 @@ Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
 ## Unreleased
+
+_Nothing yet._
+
+## 0.30.2
 - **Licences can now cover more than one site.** A licence type's "Sites this
   licence may activate on" is finally enforced: a 3-site licence works on three
   sites, an unlimited one on any number, and a one-site licence stays locked to
@@ -42,6 +46,7 @@ on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
   fix applies to the Data page.
 - **A new typeface.** The admin panel now uses Inter. It is served from your
   own server, so no visitor or staff address goes to a font service.
+## 0.30.1
 - **Every admin screen redesigned.** Settings pages now explain each section on
   the left and hold the controls on the right. A conversation shows the visitor's
   details and your actions beside the chat. Staff, tools and AI providers are
