@@ -7,6 +7,22 @@ on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
 _Nothing yet._
 
+## 0.30.9
+- **The admin panel now locks if the host app replaces Banimark's login
+  service.** If the application Banimark is installed in overrides Banimark's
+  own auth service, the licence check could previously be switched off without
+  anyone noticing. Now the panel locks, keeps the Dashboard and Licence pages
+  open, and says exactly what to fix. Nothing changes for a normal install.
+- **Banimark HQ (our vendor site):** our own site hosts a Banimark install and
+  was doing exactly that, so its licence gate was off. Fixed on our side, and
+  the change above makes sure it can never be silent again.
+
+## 0.30.8
+- **A licence set in your server's environment now switches the chat on.** If
+  your key lives in `BANIMARK_LICENSE_KEY` (or the config file) rather than on
+  the Licence page, the admin already recognised it but the chat widget stayed
+  off. The widget now honours it the same way.
+
 ## 0.30.7
 - Maintenance re-release, identical in behaviour to 0.30.6.
 
