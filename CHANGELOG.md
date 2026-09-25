@@ -4,6 +4,34 @@ Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
 ## Unreleased
+- **Banimark HQ (our website):** the assistant on banimark.com finds the right
+  part of the manual far more often - it now searches for several words at
+  once and understands everyday wording such as "features", "what can it do"
+  or "connect my database".
+- **Fixed: the assistant sometimes gave up and handed a simple question to
+  your team.** After looking things up several times, some models (seen with
+  Gemini) kept asking for yet another lookup instead of answering, and the
+  chat was escalated with "max iterations reached". The assistant now always
+  writes its answer from what it has already found.
+- **Plan features now follow your plan everywhere they take effect.** Removing
+  "Powered by Banimark" and S3 file storage are checked against your licence
+  where they are used, not only when you save the setting. If your plan does
+  not include S3, files already in your bucket stay readable and new files are
+  kept on your server. Fixed: a plan with no extra features (including free
+  trials) was being treated as having all of them.
+- **Banimark HQ (our website):** the Installs page shows how many tools,
+  templates and staff each site has, and the Review page flags a site that
+  stops reporting them. Run `php artisan migrate` after deploying HQ.
+- **Your plan's limits now apply to what is used, not only to what is added.**
+  The assistant uses the tools your plan covers - the oldest first, with
+  templates up to half the plan - and staff accounts beyond your plan cannot
+  sign in (the first owner always can). The Tools and Staff pages say plainly
+  which tools are switched off and who cannot sign in, and why. Nothing you
+  had within your plan changes.
+- **Banimark HQ (our website):** each install now reports how many tools,
+  templates and staff accounts it has, and HQ's Review page flags an install
+  that has more than its plan, clearing the flag by itself once it is back
+  within. Advisory only - it never locks anyone.
 - **Choose your own addresses.** Laravel: put the panel and the chat
   anywhere with `BANIMARK_ADMIN_PATH` and `BANIMARK_WIDGET_PATH` in `.env`
   (for example `/support/control` and `/help/widget.js`). Plain PHP,

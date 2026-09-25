@@ -255,6 +255,22 @@
   });
 })();
 
+/* Folded sections (<details data-remember>) - closed by default; an open one
+   stays open across the reload that follows adding something from it, for
+   this browser tab only (sessionStorage), so a fresh visit starts closed. */
+(function () {
+  'use strict';
+  var folds = document.querySelectorAll('details[data-remember]');
+  if (!folds.length) return;
+  function key(d) { return 'bm-fold-' + d.getAttribute('data-remember'); }
+  Array.prototype.forEach.call(folds, function (d) {
+    try { if (sessionStorage.getItem(key(d)) === '1') d.open = true; } catch (e) {}
+    d.addEventListener('toggle', function () {
+      try { if (d.open) { sessionStorage.setItem(key(d), '1'); } else { sessionStorage.removeItem(key(d)); } } catch (e) {}
+    });
+  });
+})();
+
 /* Access presets: picking a preset ticks the matching permissions; ticking by
    hand flips the preset to "custom". The preset list is shared with the server. */
 (function () {

@@ -507,6 +507,13 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monosp
 .bm-toast .ic { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: color-mix(in srgb, var(--s2) 14%, transparent); color: var(--s2); }
 .bm-toast.esc .ic { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
 /* ---- the tool templates and the rule library ---- */
+.lib-fold { padding: 0; }
+.lib-fold > .lib-fold-h { cursor: pointer; list-style: none; display: flex; gap: 12px; align-items: center; padding: 18px 20px; }
+.lib-fold > .lib-fold-h::-webkit-details-marker { display: none; }
+.lib-fold > .lib-fold-h h2 { margin: 0 0 2px; }
+.lib-fold-chev { display: inline-flex; color: var(--muted); transition: transform .2s; }
+.lib-fold[open] .lib-fold-chev { transform: rotate(180deg); }
+.lib-fold-body { padding: 0 20px 20px; border-top: 1px solid var(--border); padding-top: 14px; }
 .tpl-allow { margin: 4px 0 12px; color: var(--muted); }
 .tpl-allow.full { color: var(--critical); }
 .tpl-group h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 16px 0 8px; }

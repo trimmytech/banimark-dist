@@ -43,6 +43,7 @@ class Icons
         'globe'      => '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/>',
         'key'        => '<circle cx="7.5" cy="15.5" r="4"/><path d="M10.5 12.5 21 2M17 6l3 3M14 9l2.5 2.5"/>',
         'lock'       => '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
+        'chevron'    => '<path d="m6 9 6 6 6-6"/>',
     ];
 
     public static function get(string $name, int $size = 18): string

@@ -82,10 +82,11 @@ final class ModelInput
                 return null;
             }
             // only the store the bytes actually live on (the FileEndpoint's own rule)
-            if ($files->name() !== (string) ($row['disk'] ?? '')) {
+            $store = HandoverFileStore::storeFor($files, (string) ($row['disk'] ?? ''));
+            if ($store === null) {
                 return null;
             }
-            $bytes = $files->read((string) $row['path']);
+            $bytes = $store->read((string) $row['path']);
             if ($bytes === null || $bytes === '') {
                 return null;
             }

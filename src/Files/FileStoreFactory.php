@@ -11,8 +11,10 @@ final class FileStoreFactory
     /** @param array<string,string> $settings the settings table */
     public static function make(array $settings, string $defaultLocalDir): FileStore
     {
+        $dir = trim((string) ($settings['files_local_path'] ?? ''));
+        $local = new LocalFileStore($dir !== '' ? $dir : $defaultLocalDir);
         if (($settings['files_driver'] ?? 'local') === 's3') {
-            return new S3FileStore([
+            $s3 = new S3FileStore([
                 'bucket' => (string) ($settings['files_s3_bucket'] ?? ''),
                 'region' => (string) ($settings['files_s3_region'] ?? 'us-east-1'),
                 'key' => (string) ($settings['files_s3_key'] ?? ''),
@@ -21,9 +23,16 @@ final class FileStoreFactory
                 'prefix' => (string) ($settings['files_s3_prefix'] ?? ''),
                 'path_style' => ($settings['files_s3_path_style'] ?? '0') === '1',
             ]);
+            // S3 is a plan feature, read from the signed licence here - where the
+            // store is made - not only at the Files page's save button. Not
+            // covered: read-only S3 (what is there stays readable, new files
+            // stay on this server).
+            if (!\Banimark\Licensing\Master::tokenFeature((string) ($settings['license_token'] ?? ''), 's3')) {
+                return new HandoverFileStore($local, $s3);
+            }
+            return $s3;
         }
-        $dir = trim((string) ($settings['files_local_path'] ?? ''));
-        return new LocalFileStore($dir !== '' ? $dir : $defaultLocalDir);
+        return $local;
     }
 
     public static function enabled(array $settings): bool

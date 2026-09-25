@@ -76,6 +76,10 @@ class Panel
                 $this->fail('Your account is not activated yet. Use the link in your invitation email, or ask an owner to resend it.', fn (string $m) => $this->login($m));
                 return;
             }
+            if ($result === 'seat') {
+                $this->fail((string) $this->auth->seatRefusal(), fn (string $m) => $this->login($m));
+                return;
+            }
             if ($result) {
                 $this->go($this->url());
                 return;
@@ -766,7 +770,7 @@ class Panel
                 }
                 return '<div class="flash-err">'.Html::e(($r['message'] ?? '') !== '' ? $r['message'] : 'Could not reach Banimark HQ to start the trial. Try again in a moment, or enter a purchased key.').'</div>';
             }
-            $r = \Banimark\Licensing\PhoneHome::run($this->settings->all(), Master::siteUrlFromServer($_SERVER), $set, $forget, force: true);
+            $r = \Banimark\Licensing\PhoneHome::run($this->settings->all(), Master::siteUrlFromServer($_SERVER), $set, $forget, force: true, pdo: $this->pdo);
             return ($r === null || empty($r['ok']))
                 ? '<div class="flash-err">'.Html::e(\Banimark\Licensing\PhoneHome::unreachableMessage($this->settings->all())).'</div>'
                 : '<div class="flash-ok">Checked with HQ just now - status: <b>'.Html::e($r['license']).'</b>.</div>';
@@ -798,6 +802,7 @@ class Panel
                 fn (string $k, string $v) => $this->settings->set($k, $v),
                 fn (string $k) => $this->settings->set($k, ''),
                 force: true,
+                pdo: $this->pdo,
             );
             if ($result === null || empty($result['ok'])) {
                 return '<div class="flash-err">'.Html::e(\Banimark\Licensing\PhoneHome::unreachableMessage($this->settings->all())).'</div>';
@@ -1244,6 +1249,7 @@ class Panel
             'editing' => $ed !== null,
             'csrf' => $this->csrfField(),
             'allowance' => $toolRoom,
+            'plan_off' => \Banimark\Licensing\Entitlements::planOffTools($this->pdo, 'banimark_', $this->entitlements()),
             'library' => $this->toolLibrary(),
             'upgrade_url' => $upgradeUrl,
             'assist_ready' => $assistDriver !== null,

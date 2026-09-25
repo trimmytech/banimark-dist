@@ -181,7 +181,14 @@ class WidgetConfig
         $cfg['position'] = $cfg['position'] === 'left' ? 'left' : 'right';
         $cfg['guest_mode'] = in_array($cfg['guest_mode'], ['off', 'optional', 'required'], true) ? $cfg['guest_mode'] : 'off';
         $cfg['theme'] = in_array($cfg['theme'], ['auto', 'light', 'dark'], true) ? $cfg['theme'] : 'auto';
-        $cfg['hide_brand'] = in_array($cfg['hide_brand'], ['1', 1, true, 'true'], true);
+        // whitelabel is a plan feature, read from the signed licence HERE as well
+        // as at the save button: a hide_brand=1 written into the database does
+        // nothing on a plan without it. From the token's own list (no signature
+        // check on the visitor path) - and a token keeps its features after
+        // expiry or an HQ outage, so a lapsed licence still never brings our
+        // name back; only a plan that does not include it does.
+        $cfg['hide_brand'] = in_array($cfg['hide_brand'], ['1', 1, true, 'true'], true)
+            && \Banimark\Licensing\Master::tokenFeature((string) ($settings['license_token'] ?? ''), 'whitelabel');
         $pick = fn (string $k, array $allowed) => isset($allowed[(string) $cfg[$k]]) ? (string) $cfg[$k] : self::DEFAULTS[$k];
         $cfg['launcher_icon'] = $pick('launcher_icon', self::LAUNCHER_ICONS);
         $cfg['corner'] = $pick('corner', self::CORNERS);

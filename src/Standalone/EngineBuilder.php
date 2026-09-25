@@ -61,22 +61,9 @@ class EngineBuilder
             \Banimark\Ai\Behaviour::escalation($settings),
             \Banimark\Desk\BusinessHours::fromSettings($settings),
         ));
-        foreach ($pdo->query("SELECT * FROM {$prefix}tools WHERE enabled = 1") as $row) {
-            try {
-                $registry->register(\Banimark\Tools\ToolFactory::make([
-                    'name' => $row['name'],
-                    'description' => $row['description'],
-                    'parameters' => json_decode($row['parameters'], true) ?: [],
-                    'sql' => $row['sql'],
-                    'columns' => json_decode($row['columns'], true) ?: [],
-                    'context' => json_decode((string) $row['context'], true) ?: [],
-                    'max_rows' => (int) $row['max_rows'],
-                    'kind' => $row['kind'] ?? 'sql',
-                    'config' => json_decode((string) ($row['config'] ?? ''), true) ?: [],
-                ], $runner));
-            } catch (\Throwable $e) {
-                // invalid tool rows are skipped, never fatal
-            }
+        // which tools, and how many, is the licence's call - decided in the core
+        foreach (\Banimark\Tools\ToolFactory::forDesk($pdo, $prefix, $settings, $runner) as $tool) {
+            $registry->register($tool);
         }
 
         $base = "You are a helpful, concise customer support agent. Use the provided tools to look up real data before answering; never invent order or account details. If a tool errors, apologise briefly and offer to escalate.";

@@ -51,6 +51,7 @@ final class Pages
         $full = !$editing && $o['allowance']['full'];
         $edit = fn (string $name) => $u['page'].(str_contains($u['page'], '?') ? '&' : '?').'edit='.rawurlencode($name).'#build';
 
+        $planOff = array_flip((array) ($o['plan_off'] ?? []));
         $list = '';
         foreach ($rows as $r) {
             $needs = \Banimark\Tools\ToolTester::identityKeys((string) $r['sql']);
@@ -60,7 +61,10 @@ final class Pages
             }
             $list .= '<div class="toolrow'.($r['enabled'] ? '' : ' off').'">'
                 .'<span class="prov-ic">'.Icons::get('tools', 17).'</span>'
-                .'<div class="toolrow-t"><b class="mono-name">'.$e($r['name']).'</b> <span class="pill '.($r['enabled'] ? 'good' : 'closed').'">'.($r['enabled'] ? 'ON' : 'OFF').'</span>'
+                .'<div class="toolrow-t"><b class="mono-name">'.$e($r['name']).'</b> '
+                .(isset($planOff[$r['name']])
+                    ? '<span class="pill expired" data-plan-off title="Saved and switched on, but beyond what your plan runs - the assistant does not use it">OFF · OVER PLAN</span>'
+                    : '<span class="pill '.($r['enabled'] ? 'good' : 'closed').'">'.($r['enabled'] ? 'ON' : 'OFF').'</span>')
                 .'<p>'.$e(mb_strimwidth((string) $r['description'], 0, 160, '…')).'</p>'
                 .'<div class="toolrow-m">'.($chips !== '' ? '<span class="muted">Asks for</span> '.$chips : '<span class="muted">Asks the customer for nothing</span>')
                 .' <span class="muted">· up to '.(int) $r['max_rows'].' rows</span>'
@@ -109,6 +113,7 @@ final class Pages
         return '<div class="bm-card pad0"><div class="bm-sec-h" style="padding:18px 20px 12px;margin:0;border-bottom:1px solid var(--border)"><div><h2>Your tools</h2>'
                 .'<div class="muted">Each tool is one question the assistant can answer from your data - "find this customer\'s orders". It can only read, and only what you allow.</div></div>'
                 .'<div class="spacer"></div><a class="btn btn-sm" href="#build">'.Icons::get('plus', 14).' New tool</a></div>'
+                .($planOff !== [] ? '<div class="flash-err" style="margin:12px 20px 0" data-plan-off-note><span>'.count($planOff).' of your switched-on tools '.(count($planOff) === 1 ? 'is' : 'are').' beyond what your plan runs, so the assistant does not use '.(count($planOff) === 1 ? 'it' : 'them').': <b>'.$e(implode(', ', array_keys($planOff))).'</b>. The oldest tools are kept (and templates may use half the plan). Remove or switch off tools you do not need, or move to a bigger plan.</span></div>' : '')
                 .'<div class="toollist">'.$list.'</div></div>'
             .(isset($o['library']) ? self::toolTemplates($o['library'], $csrf) : '')
             .$o['data_card']
@@ -155,11 +160,19 @@ final class Pages
             }
             $cards .= '</div></div>';
         }
-        return '<div class="bm-card" id="templates"><div class="bm-sec-h"><div><h2>Templates: tools you can add in one click</h2>'
-            .'<div class="muted">Each calls a free public service - no key, no database - so it works straight away. Add one, open it to see how it is built, press <b>Try it</b>, then build your own on your data the same way.</div></div></div>'
+        $total = count(\Banimark\Library\ToolTemplates::all());
+        $added = count($lib['installed']);
+        // folded by default: the owner's own tools are what this page is for
+        return '<details class="bm-card lib-fold" id="templates" data-remember="tool-templates">'
+            .'<summary class="lib-fold-h"><div><h2>Templates: tools you can add in one click</h2>'
+            .'<div class="muted">Ready-made tools on free public services - open to see them.</div></div>'
+            .'<span class="spacer"></span><span class="pill '.($added > 0 ? 'good' : 'closed').'">'.$total.' templates · '.$added.' added</span>'
+            .'<span class="lib-fold-chev" aria-hidden="true">'.Icons::get('chevron', 16).'</span></summary>'
+            .'<div class="lib-fold-body">'
+            .'<p class="muted" style="margin:0 0 6px">Each calls a free public service - no key, no database - so it works straight away. Add one, open it to see how it is built, press <b>Try it</b>, then build your own on your data the same way.</p>'
             .'<p class="tpl-allow'.($room ? '' : ' full').'">'.$line.'</p>'
             .(!$room && $a['left'] !== null ? Layout::lockedNote('Remove a template you no longer need to add another, or build your own tool - the rest of your allowance is for those.') : '')
-            .$cards.'</div>';
+            .$cards.'</div></details>';
     }
 
     /**
@@ -191,9 +204,19 @@ final class Pages
                 .'<div class="row" style="justify-content:flex-end;margin-top:10px"><button type="submit" class="btn2"'.($all ? ' disabled' : '').'>'.Icons::get('plus', 14).' Add the ticked rules</button></div>'
                 .'</form></details>';
         }
-        return '<div class="bm-card" id="library"><div class="bm-sec-h"><div><h2>Rule library</h2>'
-            .'<div class="muted">Ready-made rules for every business, and packs for common industries - VTU &amp; data, online shops, fintech, logistics, and more. Add a pack, then make it yours.</div></div></div>'
-            .'<div class="lib-packs">'.$packs.'</div></div>';
+        $allRules = 0;
+        foreach (\Banimark\Library\RulePacks::all() as $p) {
+            $allRules += count($p['rules']);
+        }
+        $haveRules = count($lib['installed']);
+        return '<details class="bm-card lib-fold" id="library" data-remember="rule-library">'
+            .'<summary class="lib-fold-h"><div><h2>Rule library</h2>'
+            .'<div class="muted">Ready-made rules for every business and for common industries - open to browse.</div></div>'
+            .'<span class="spacer"></span><span class="pill '.($haveRules > 0 ? 'good' : 'closed').'">'.count(\Banimark\Library\RulePacks::all()).' packs · '.$haveRules.' of '.$allRules.' rules added</span>'
+            .'<span class="lib-fold-chev" aria-hidden="true">'.Icons::get('chevron', 16).'</span></summary>'
+            .'<div class="lib-fold-body">'
+            .'<p class="muted" style="margin:0 0 10px">A common pack for every business, and packs for industries - VTU &amp; data, online shops, fintech, logistics, and more. Add a pack, then make it yours.</p>'
+            .'<div class="lib-packs">'.$packs.'</div></div></details>';
     }
 
     /**
@@ -443,6 +466,8 @@ final class Pages
     public static function staff(array $rows, array $o): string
     {
         $e = [self::class, 'e'];
+        // who is inside the plan's seats - the same rule sign-in enforces
+        $seated = \Banimark\Licensing\Entitlements::seatedStaff($rows, (int) ($o['seats']['limit'] ?? 0));
         $u = $o['urls'];
         $csrf = $o['csrf'];
         $P = \Banimark\Auth\Permissions::class;
@@ -471,6 +496,9 @@ final class Pages
             $owner = $a['role'] === 'owner';
             $status = $pending ? '<span class="pill expired" title="Invited '.$e($a['invited_at'] ?? '').'">INVITED</span>'
                 : '<span class="pill '.($a['enabled'] ? 'good' : 'closed').'">'.($a['enabled'] ? 'ACTIVE' : 'DISABLED').'</span>';
+            if (!in_array($id, $seated, true)) {
+                $status .= ' <span class="pill expired" data-unseated title="Beyond the staff accounts your plan covers - cannot sign in">CANNOT SIGN IN · OVER PLAN</span>';
+            }
             $people .= '<div class="person">'
                 .'<span class="avatar lg '.Layout::tone((string) $a['name']).'">'.$e(strtoupper(mb_substr((string) $a['name'], 0, 1))).'</span>'
                 .'<div class="person-id"><b>'.$e($a['name']).($id === (int) $o['me_id'] ? ' <span class="muted">(you)</span>' : '').'</b><small>'.$e($a['email']).'</small></div>'
@@ -494,8 +522,10 @@ final class Pages
         }
 
         $seats = $o['seats'];
+        $outside = count($rows) - count($seated);
         return Layout::section('Your team', 'Everyone who can sign in to this panel. Owners can do everything; staff get the access you choose.',
-                '<div class="people">'.$people.'</div>')
+                ($outside > 0 ? '<div class="flash-err" data-unseated-note><span>Your plan covers '.(int) $seats['limit'].' staff account'.((int) $seats['limit'] === 1 ? '' : 's').'; '.$outside.' '.($outside === 1 ? 'account is' : 'accounts are').' beyond that and cannot sign in. The first owner always can, then accounts in the order they were added. Remove accounts nobody uses, or move to a bigger plan.</span></div>' : '')
+                .'<div class="people">'.$people.'</div>')
             .Layout::section('Two-factor policy', 'When on, every staff member - owners included - must set up an authenticator app before they can use the panel. Anyone locked out can be reset above.',
                 '<form method="post" action="'.$e($u['totp_require']).'" class="row" style="gap:14px;flex-wrap:wrap">'.$csrf
                 .'<label class="check" style="margin:0"><span class="switch"><input type="checkbox" name="require_2fa" value="1"'.($o['require_2fa'] ? ' checked' : '').'><span class="sl"></span></span> Require 2FA for all staff</label>'

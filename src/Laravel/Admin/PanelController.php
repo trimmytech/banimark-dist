@@ -113,6 +113,9 @@ class PanelController
         if ($result === 'pending') {
             return back()->with('bm_error', 'Your account is not activated yet. Use the link in your invitation email, or ask an owner to resend it.');
         }
+        if ($result === 'seat') {
+            return back()->with('bm_error', (string) $auth->seatRefusal());
+        }
         if ($result) {
             return redirect()->route('banimark.admin.dashboard');
         }
@@ -601,7 +604,7 @@ class PanelController
         $settings['hq_url'] = $this->hqEndpoint($settings);
         $result = PhoneHome::run($settings, $request->getSchemeAndHttpHost(),
             fn (string $k, string $v) => DB::table('banimark_settings')->updateOrInsert(['key' => $k], ['value' => $v]),
-            fn (string $k) => DB::table('banimark_settings')->where('key', $k)->delete(), force: true);
+            fn (string $k) => DB::table('banimark_settings')->where('key', $k)->delete(), force: true, pdo: DB::connection()->getPdo());
         if ($result === null || empty($result['ok'])) {
             return back()->with('bm_error', PhoneHome::unreachableMessage($settings));
         }
@@ -886,6 +889,7 @@ class PanelController
             fn (string $k, string $v) => DB::table('banimark_settings')->updateOrInsert(['key' => $k], ['value' => $v]),
             fn (string $k) => DB::table('banimark_settings')->where('key', $k)->delete(),
             force: true,
+            pdo: DB::connection()->getPdo(),
         );
         if ($result === null || empty($result['ok'])) {
             return back()->with('bm_error', \Banimark\Licensing\PhoneHome::unreachableMessage($settings));
@@ -1458,6 +1462,7 @@ class PanelController
                 // how many tools the plan covers. Editing an existing one is never
                 // blocked - only adding the next one.
                 'allowance' => \Banimark\Licensing\Entitlements::allowance($this->entitlements(), 'tools', count($rows)),
+                'plan_off' => \Banimark\Licensing\Entitlements::planOffTools(DB::connection()->getPdo(), 'banimark_', $this->entitlements()),
                 ...(($lib = $this->toolLibrary()) !== null ? ['library' => $lib] : []),
                 'upgrade_url' => (string) ($settings['support_url'] ?? ''),
                 'assist_ready' => \Banimark\Laravel\EngineFactory::driver()[0] !== null,

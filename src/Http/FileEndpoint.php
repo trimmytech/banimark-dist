@@ -27,11 +27,13 @@ final class FileEndpoint
             return ['ok' => false, 'error' => 'That file is no longer available.'];
         }
         // object storage can hand the browser a short-lived URL of its own
-        $url = $this->files->name() === (string) $row['disk'] ? $this->files->temporaryUrl((string) $row['path'], 600) : null;
+        // the store the file actually lives on (after a plan change that is not the current one)
+        $store = \Banimark\Files\HandoverFileStore::storeFor($this->files, (string) $row['disk']);
+        $url = $store?->temporaryUrl((string) $row['path'], 600);
         if ($url !== null) {
             return ['ok' => true, 'redirect' => $url];
         }
-        $bytes = $this->files->name() === (string) $row['disk'] ? $this->files->read((string) $row['path']) : null;
+        $bytes = $store?->read((string) $row['path']);
         if ($bytes === null) {
             return ['ok' => false, 'error' => 'That file is no longer available.'];
         }

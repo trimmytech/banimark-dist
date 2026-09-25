@@ -36,12 +36,10 @@ class EngineFactory
         // tools read from the owner's data connection, which may be a read-only
         // user, a replica, or another server entirely
         $runner = \Banimark\Storage\DataSource::runner(self::dataPdo());
-        foreach (self::toolRows() as $row) {
-            try {
-                $registry->register(\Banimark\Tools\ToolFactory::make($row, $runner));
-            } catch (\Throwable $e) {
-                Log::warning('banimark: skipped invalid tool "'.($row['name'] ?? '?').'": '.$e->getMessage());
-            }
+        // which tools, and how many, is the licence's call - decided in the core
+        foreach (\Banimark\Tools\ToolFactory::forDesk(DB::connection()->getPdo(), 'banimark_', $settings, $runner,
+            fn (string $name, string $why) => Log::warning('banimark: skipped invalid tool "'.$name.'": '.$why)) as $tool) {
+            $registry->register($tool);
         }
 
         // Can the ACTIVE model read attachments, and has the owner left that on?
@@ -134,25 +132,6 @@ class EngineFactory
             return (new \Banimark\Storage\Rules(DB::connection()->getPdo()))->systemInstruction($base);
         } catch (\Throwable $e) {
             return $base;
-        }
-    }
-
-    private static function toolRows(): array
-    {
-        try {
-            return DB::table('banimark_tools')->where('enabled', 1)->get()->map(fn ($r) => [
-                'name' => $r->name,
-                'description' => $r->description,
-                'parameters' => json_decode($r->parameters, true) ?: [],
-                'sql' => $r->sql,
-                'columns' => json_decode($r->columns, true) ?: [],
-                'context' => json_decode((string) $r->context, true) ?: [],
-                'max_rows' => (int) $r->max_rows,
-                'kind' => $r->kind ?? 'sql',
-                'config' => json_decode((string) ($r->config ?? ''), true) ?: [],
-            ])->all();
-        } catch (\Throwable $e) {
-            return [];
         }
     }
 }
