@@ -33,8 +33,9 @@ final class CoreUnavailable
     {
         // Registered GLOBALLY when the core cannot run, so it sees every request
         // of the host app - and must leave everything that is not ours alone.
-        $admin = trim((string) config('banimark.admin.prefix', 'banimark/admin'), '/');
-        if (!$request->is('banimark', 'banimark/*', $admin, $admin.'/*')) {
+        $admin = \Banimark\Laravel\Urls::admin();
+        $w = \Banimark\Laravel\Urls::widget();
+        if (!$request->is($w, $w.'/*', $admin, $admin.'/*')) {
             return $next($request);
         }
         $problem = CoreHealth::problem(dirname(__DIR__));
@@ -51,7 +52,7 @@ final class CoreUnavailable
                 'Cache-Control' => 'no-store',
             ]);
         }
-        $visitorApi = (bool) preg_match('~^/banimark/(chat|upload|file|widget/appearance)(/|$)~', $path);
+        $visitorApi = (bool) preg_match('~^/'.preg_quote(\Banimark\Laravel\Urls::widget(), '~').'/(chat|upload|file|widget/appearance)(/|$)~', $path);
         if ($visitorApi || $request->expectsJson()) {
             return response()->json(CoreHealth::forVisitor(), 503, ['Cache-Control' => 'no-store']);
         }
@@ -113,7 +114,7 @@ final class CoreUnavailable
                 $done = self::recovery()->install((string) $request->input('banimark_recover_version'));
                 if ($done['ok']) {
                     logger()->info('Banimark updated from the recovery page: '.$done['message']);
-                    $admin = $e('/'.trim((string) config('banimark.admin.prefix', 'banimark/admin'), '/'));
+                    $admin = $e('/'.\Banimark\Laravel\Urls::admin());
                     return '<div class="upd"><h2 class="good">Installed.</h2><p>'.$e($done['message']).'</p>'
                         .'<p>'.($back !== '' ? '<a class="btn" href="'.$e($back).'">Back to the page you were on</a> ' : '')
                         .'<a class="btn'.($back !== '' ? ' ghost' : '').'" href="'.$admin.'">Open Banimark</a></p></div>';

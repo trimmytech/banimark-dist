@@ -4,6 +4,25 @@ Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
 ## Unreleased
+- **Choose your own addresses.** Laravel: put the panel and the chat
+  anywhere with `BANIMARK_ADMIN_PATH` and `BANIMARK_WIDGET_PATH` in `.env`
+  (for example `/support/control` and `/help/widget.js`). Plain PHP,
+  WordPress and CodeIgniter: clean addresses such as `/support` through
+  `.htaccess` or nginx - Banimark notices the address your visitors used and
+  builds every link from it - and move the panel with `'admin_path'` in
+  `banimark.config.php`. A moved panel's old address answers "nothing here".
+  The old `/banimark.php/...` addresses keep working.
+- **Banimark HQ (our website):** the install guides for plain PHP, Laravel
+  and CodeIgniter now explain custom addresses, with copy-paste `.htaccess`,
+  nginx and `.env` examples.
+- **The chat link works properly on phones.** When the keyboard opened, the
+  top of the chat - including a new visitor's first messages - was pushed off
+  the screen, so people typed and saw nothing. The chat now fits the part of
+  the screen the keyboard leaves visible, a short conversation sits right
+  above the typing box, and the floating widget rides above the keyboard
+  instead of under it.
+- **No emoji button in the website chat.** Visitors can still type emoji from
+  their keyboard; the widget is smaller without the picker.
 - **A rule library.** The Rules page now has ready-made rules you can add in
   one click and then edit: a common pack for every business (tone, honesty,
   never inventing facts, never asking for PINs or OTPs, when to hand over) and

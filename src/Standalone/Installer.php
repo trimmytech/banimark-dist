@@ -157,7 +157,10 @@ class Installer
             'db_user' => $user,
             'db_pass' => $pass,
             'prefix' => 'banimark_',
-        ], true).";\n";
+        ], true).";\n"
+            ."\n// Optional - where things live (see the install guide):\n"
+            ."//   'admin_path'  => 'control',   // the panel at .../control instead of .../admin\n"
+            ."//   'public_path' => '/support',  // only if links come out wrong behind a rewrite\n";
         if (@file_put_contents($configPath, $config) === false) {
             return ['ok' => false, 'error' => 'Installed the database but could not write '.$configPath.' - create it manually with your DB credentials.'];
         }

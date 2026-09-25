@@ -1087,7 +1087,7 @@ class PanelController
                     'messages' => route('banimark.admin.conversation.messages', $sessionId),
                     'reply' => route('banimark.admin.conversation.reply', $sessionId),
                     'upload' => route('banimark.admin.conversation.upload', $sessionId),
-                    'file' => url('banimark/file').'/',
+                    'file' => url(\Banimark\Laravel\Urls::widgetPath('file')).'/',
                 ],
             ]),
         ]);
@@ -1704,7 +1704,7 @@ class PanelController
             'body' => \Banimark\Ui\Pages::widget($cfg, [
                 'csrf' => csrf_field()->toHtml(),
                 'save_url' => route('banimark.admin.widget.save'),
-                'widget_js' => url('banimark/widget.js'),
+                'widget_js' => route('banimark.widget'),
                 'chat_page_url' => route('banimark.chat.page'),
                 'try_url' => route('banimark.admin.widget.try'),
                 'token_snippet' => "\$token = \\Banimark\\Identity\\VisitorToken::mint(\n    ['user_id' => auth()->id()],\n    config('banimark.identity_secret')\n);",

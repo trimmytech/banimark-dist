@@ -143,8 +143,8 @@ class WidgetController
     public function page(Request $request)
     {
         $token = preg_replace('/[^A-Za-z0-9._~-]/', '', (string) $request->query('t', ''));
-        $cfg = WidgetConfig::build($this->settings(), url('/banimark/chat'));
-        $html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
+        $cfg = WidgetConfig::build($this->settings(), route('banimark.chat'));
+        $html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">'
             .'<title>'.htmlspecialchars((string) $cfg['title'], ENT_QUOTES).'</title>'
             .'<style>html,body{margin:0;height:100%;background:'.($cfg['theme'] === 'dark' ? '#101015' : '#f7f7fb').'}</style></head><body>'
             .'<script src="'.htmlspecialchars(route('banimark.widget'), ENT_QUOTES).'" defer data-mode="page"'
@@ -156,7 +156,7 @@ class WidgetController
     /** GET /banimark/widget/appearance - the public widget settings as JSON (the Flutter SDK reads these). */
     public function appearance()
     {
-        $cfg = WidgetConfig::build($this->settings(), url('/banimark/chat'));
+        $cfg = WidgetConfig::build($this->settings(), route('banimark.chat'));
         unset($cfg['endpoint']);
         return response()->json($cfg)->header('Cache-Control', 'public, max-age=300');
     }
@@ -203,11 +203,8 @@ class WidgetController
         // one source, incl. the env/config licence fallback (see settings())
         $settings = $this->settings();
         // allow-list: this script is public, and the settings table holds secrets
-        $cfg = WidgetConfig::build($settings, url('/banimark/chat'));
+        $cfg = WidgetConfig::build($settings, route('banimark.chat'));
         $js = 'window.__BANIMARK_CFG = '.json_encode($cfg, JSON_UNESCAPED_SLASHES).";\n"
-            // the emoji picker is shared with the panel; the widget captures it
-            // and removes the global, so the host page is left exactly as it was
-            .file_get_contents(__DIR__.'/../../resources/design/emoji.js')."\n"
             .file_get_contents(__DIR__.'/../../resources/design/markdown.js')."\n"
             .file_get_contents(__DIR__.'/../../resources/widget/banimark-widget.js');
 

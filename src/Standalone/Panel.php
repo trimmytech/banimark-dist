@@ -34,6 +34,7 @@ class Panel
         private Settings $settings,
         private AgentAuth $auth,
         private string $base,
+        private string $admin = 'admin',
     ) {
         $this->store = new PdoStore($pdo);
         $this->agents = new Agents($pdo);
@@ -41,7 +42,7 @@ class Panel
 
     private function url(string $path = ''): string
     {
-        return $this->base.'/admin'.$path;
+        return $this->base.'/'.$this->admin.$path;
     }
 
     public function dispatch(string $route): void

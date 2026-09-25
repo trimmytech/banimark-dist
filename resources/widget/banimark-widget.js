@@ -103,9 +103,6 @@
     };
     var POLL_MS = Math.max(3, Math.min(600, parseInt(cfg.poll_seconds, 10) || 10)) * 1000;
     var GUEST = ['off', 'optional', 'required'].indexOf(cfg.guest_mode) >= 0 ? cfg.guest_mode : 'off';
-    // the emoji picker is served just above this file; take it and tidy up after
-    var EMOJI = window.BanimarkEmoji;
-    try { delete window.BanimarkEmoji; } catch (e) { window.BanimarkEmoji = undefined; }
     var MD = window.BanimarkMarkdown;
     try { delete window.BanimarkMarkdown; } catch (e) { window.BanimarkMarkdown = undefined; }
     var UPLOAD_URL = cfg.endpoint.replace(/\/chat$/, '/upload');
@@ -231,6 +228,10 @@
         '.cf-row .cf-yes{background:#e5484d;border-color:#e5484d;color:#fff}',
 
         '.ms{flex:1;overflow-y:auto;padding:16px 14px;background:var(--panel);display:flex;flex-direction:column;gap:9px;scroll-behavior:smooth}',
+        /* a short thread sits just above the composer, like every messaging app -
+           so a new visitor's first messages are next to the keyboard, not at the
+           top of the screen where an open keyboard pushes them out of sight */
+        '.ms>:first-child{margin-top:auto}',
         '.ms::-webkit-scrollbar{width:6px}.ms::-webkit-scrollbar-thumb{background:var(--bd);border-radius:3px}',
         '.m{max-width:84%;padding:10px 14px;border-radius:var(--r2);font-size:14px;line-height:1.5;white-space:pre-wrap;',
         'word-wrap:break-word;animation:mIn .26s cubic-bezier(.22,.61,.36,1) both}',
@@ -308,19 +309,6 @@
         '.ic-btn{border:none;background:transparent;color:var(--mut);cursor:pointer;width:30px;height:30px;border-radius:9px;',
         'display:flex;align-items:center;justify-content:center;flex:none;transition:background .15s,color .15s}',
         '.ic-btn:hover{background:var(--panel);color:var(--fg)}',
-        /* emoji picker */
-        '.bm-emoji{position:absolute;bottom:100px;left:12px;right:12px;background:var(--bg);border:1px solid var(--bd);',
-        'border-radius:14px;box-shadow:0 12px 34px rgba(0,0,0,.18);z-index:5;overflow:hidden}',
-        '.bm-emoji-top{padding:8px 8px 4px}',
-        '.bm-emoji-q{width:100%;border:1px solid var(--bd);background:var(--panel);color:var(--fg);border-radius:9px;',
-        'padding:6px 9px;font-size:12.5px;outline:none}',
-        '.bm-emoji-tabs{display:flex;gap:2px;padding:2px 8px;border-bottom:1px solid var(--bd)}',
-        '.bm-emoji-tab{border:none;background:transparent;cursor:pointer;font-size:15px;padding:4px 6px;border-radius:8px;opacity:.55}',
-        '.bm-emoji-tab.on{opacity:1;background:var(--panel)}',
-        '.bm-emoji-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:1px;padding:7px;max-height:172px;overflow-y:auto}',
-        '.bm-emoji-b{border:none;background:transparent;cursor:pointer;font-size:19px;line-height:1;padding:5px;border-radius:8px}',
-        '.bm-emoji-b:hover{background:var(--panel)}',
-        '.bm-emoji-none{grid-column:1/-1;color:var(--mut);font-size:12px;padding:10px;text-align:center}',
         '.st.away .dot{background:#f5a524;box-shadow:none;animation:none}',
         // compact: more of the conversation fits on a small screen
         '.w.compact .hd{padding:13px 15px 12px}.w.compact .av{width:34px;height:34px;border-radius:11px}',
@@ -340,7 +328,6 @@
         trash: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>',
         send: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/></svg>',
         bot: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V4M9 14h.01M15 14h.01"/></svg>',
-        smile: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0M9 9.5h.01M15 9.5h.01"/></svg>',
         clip: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.05 12.25 20.2a5.5 5.5 0 1 1-7.78-7.78l9.2-9.2a3.67 3.67 0 1 1 5.18 5.19l-9.2 9.19a1.83 1.83 0 1 1-2.6-2.59l8.5-8.49"/></svg>',
         doc: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>'
     };
@@ -371,7 +358,6 @@
             '<form class="f"><div class="box">' +
             '<textarea class="in" rows="1" placeholder="Type a message…" aria-label="Message"></textarea>' +
             '<div class="bar">' +
-            '<button type="button" class="ic-btn emo" aria-label="Emoji" title="Emoji">' + ICON.smile + '</button>' +
             (FILES_ON ? '<button type="button" class="ic-btn clip" aria-label="Attach a file" title="Attach a file">' + ICON.clip + '</button>' +
                 '<input type="file" class="fi" hidden>' : '') +
             '<span class="sp"></span>' +
@@ -388,7 +374,7 @@
     var panel = wrap.querySelector('.p'), btn = wrap.querySelector('.btn'), pip = wrap.querySelector('.pip');
     var msgs = wrap.querySelector('.ms'), form = wrap.querySelector('.f');
     var input = wrap.querySelector('.in'), send = wrap.querySelector('.sd');
-    var emoBtn = wrap.querySelector('.emo'), clipBtn = wrap.querySelector('.clip');
+    var clipBtn = wrap.querySelector('.clip');
     var fileInput = wrap.querySelector('.fi'), pendBox = wrap.querySelector('.pend');
     var guestBox = wrap.querySelector('.guest');
     /* the owner chooses which details to ask a guest for, and which are needed;
@@ -942,21 +928,6 @@
         postMessage(text, ready, bub);
     });
 
-    /* ---- emoji ---- */
-    var picker = EMOJI ? EMOJI.create(panel, function (e) {
-        EMOJI.insertAt(input, e);
-        picker.toggle(false);
-    }) : null;
-    if (emoBtn) {
-        emoBtn.addEventListener('click', function (ev) {
-            ev.stopPropagation();
-            if (picker) { picker.toggle(); }
-        });
-    }
-    wrap.addEventListener('click', function (ev) {
-        if (picker && picker.isOpen() && !ev.target.closest('.bm-emoji') && !ev.target.closest('.emo')) { picker.toggle(false); }
-    });
-
     /* ---- attachments ----
      * Files upload the moment they are chosen, so the visitor sees progress and
      * the send button only ever sends ids the server has already accepted. */
@@ -1184,6 +1155,41 @@
 
     // at load: bring back the thread, then listen in the background
     restore(function () { if (session) { startPolling(!wrap.classList.contains('open')); } });
+
+    /* ---- the on-screen keyboard ----
+     * A phone's keyboard shrinks only the VISIBLE part of the page (the visual
+     * viewport); fixed elements keep the full height, and the browser scrolls
+     * to keep the input in view - which pushed the header and the newest
+     * messages off the top of the chat link (a new visitor typed and saw
+     * nothing). So the chat is sized to what is actually visible, and the
+     * thread is kept scrolled to the newest message. */
+    var vv = window.visualViewport;
+    function toBottom() { msgs.scrollTop = msgs.scrollHeight; }
+    function fitToScreen() {
+        if (!vv) { return; }
+        var hidden = Math.max(0, window.innerHeight - vv.height - vv.offsetTop); // what the keyboard covers
+        if (MODE === 'page') {
+            if (window.matchMedia && window.matchMedia('(min-width: 760px)').matches) {
+                panel.style.height = ''; panel.style.top = ''; // the desktop card layout
+            } else {
+                panel.style.top = vv.offsetTop + 'px';
+                panel.style.height = vv.height + 'px';
+                panel.style.bottom = 'auto';
+            }
+        } else {
+            // the floating widget rides above the keyboard instead of under it
+            host.style.bottom = (20 + hidden) + 'px';
+            panel.style.maxHeight = hidden > 0 ? Math.max(220, vv.height - 110) + 'px' : '';
+        }
+        if (wrap.classList.contains('open')) { toBottom(); }
+    }
+    if (vv) {
+        vv.addEventListener('resize', fitToScreen);
+        vv.addEventListener('scroll', fitToScreen);
+    }
+    input.addEventListener('focus', function () {
+        setTimeout(function () { fitToScreen(); toBottom(); }, 250); // after the keyboard has opened
+    });
 
     // shared as a link: the chat is the whole page, open from the first paint
     if (MODE === 'page') { openPanel(); }

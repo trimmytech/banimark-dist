@@ -88,12 +88,12 @@ class InstallCommand extends Command
         // 5. hand-over
         $this->line('');
         $this->info('Done. Next steps:');
-        $this->line('  1. Panel:  '.url((string) config('banimark.admin.prefix', 'banimark/admin')).'  (Banimark staff login - not your app\'s auth)');
+        $this->line('  1. Panel:  '.url(\Banimark\Laravel\Urls::admin()).'  (Banimark staff login - not your app\'s auth)');
         $this->line('  2. Build your first tool there (Tools), write a rule or two (Rules).');
         $this->line('  3. Embed the widget:');
-        $this->line('     <script src="'.url('/banimark/widget.js').'" defer></script>');
+        $this->line('     <script src="'.route('banimark.widget').'" defer></script>');
         $this->line('     Logged-in users (lets tools scope to the user):');
-        $this->line("     <script src=\"".url('/banimark/widget.js')."\" defer");
+        $this->line("     <script src=\"".route('banimark.widget')."\" defer");
         $this->line("             data-token=\"{{ \\Banimark\\Identity\\VisitorToken::mint(['user_id' => auth()->id()], config('banimark.identity_secret')) }}\"></script>");
         $this->line('  4. Health check any time:  php artisan banimark:doctor');
         $this->line('');

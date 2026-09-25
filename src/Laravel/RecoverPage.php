@@ -167,7 +167,7 @@ final class RecoverPage
 
     public static function url(): string
     {
-        return '/'.trim((string) config('banimark.admin.prefix', 'banimark/admin'), '/').'/recover';
+        return '/'.\Banimark\Laravel\Urls::admin().'/recover';
     }
 
     /** The form's hidden fields: CSRF (the web group checks it) and where to return. */
@@ -192,7 +192,7 @@ final class RecoverPage
      */
     public static function safeBack(string $back): string
     {
-        $admin = '/'.trim((string) config('banimark.admin.prefix', 'banimark/admin'), '/');
+        $admin = '/'.\Banimark\Laravel\Urls::admin();
         $path = (string) parse_url($back, PHP_URL_PATH);
         $query = (string) parse_url($back, PHP_URL_QUERY);
         if ($back === '' || str_starts_with($back, '//') || preg_match('~^[a-z][a-z0-9+.-]*:~i', $back)

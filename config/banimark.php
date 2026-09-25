@@ -50,7 +50,9 @@ return [
 
     'admin' => [
         'enabled' => true,
-        'prefix' => 'banimark/admin',
+        // where the panel lives: yoursite.com/<prefix>. Change it to anything
+        // (e.g. 'support/control') - also settable as BANIMARK_ADMIN_PATH.
+        'prefix' => env('BANIMARK_ADMIN_PATH', 'banimark/admin'),
         // Banimark has its OWN staff login (independent of the host site's
         // auth). The admin panel is ALWAYS mounted on 'web' (session + CSRF).
         // Add extra middleware here to further restrict who can even reach the
@@ -60,7 +62,10 @@ return [
     ],
 
     'widget' => [
-        'routes' => true,                 // auto-mount /banimark/widget.js + /banimark/chat
+        'routes' => true,                 // auto-mount <prefix>/widget.js + <prefix>/chat
+        // where the visitor side lives: <prefix>/widget.js, <prefix>/chat, the
+        // chat link <prefix>/chat-page... Also settable as BANIMARK_WIDGET_PATH.
+        'prefix' => env('BANIMARK_WIDGET_PATH', 'banimark'),
         'rate_per_minute' => 20,          // per-IP chat throttle
         'color' => '#6F04D9',
         'position' => 'right',            // right | left

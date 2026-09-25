@@ -158,11 +158,12 @@ class BanimarkServiceProvider extends ServiceProvider
                 if (!class_exists(\Banimark\CoreHealth::class)) {
                     return null;
                 }
-                $adminPrefix = trim((string) config('banimark.admin.prefix', 'banimark/admin'), '/');
-                if (!$request->is('banimark', 'banimark/*', $adminPrefix, $adminPrefix.'/*')) {
+                $adminPrefix = \Banimark\Laravel\Urls::admin();
+                $w = \Banimark\Laravel\Urls::widget();
+                if (!$request->is($w, $w.'/*', $adminPrefix, $adminPrefix.'/*')) {
                     return null;   // not ours - the host handles its own errors
                 }
-                $visitor = $request->expectsJson() || $request->is('banimark/chat*', 'banimark/upload', 'banimark/file/*', 'banimark/widget/*');
+                $visitor = $request->expectsJson() || $request->is($w.'/chat*', $w.'/upload', $w.'/file/*', $w.'/widget/*');
 
                 // (1) the core itself could not load - the fix-the-server page
                 if (\Banimark\CoreHealth::isCoreFailure($e)) {
@@ -275,7 +276,7 @@ class BanimarkServiceProvider extends ServiceProvider
             // A customer's Content-Security-Policy ('self') allows these where
             // it blocks every inline block and onclick= attribute.
             \Illuminate\Support\Facades\Route::get(
-                (string) config('banimark.admin.prefix', 'banimark/admin').'/assets/{name}',
+                \Banimark\Laravel\Urls::admin().'/assets/{name}',
                 [\Banimark\Laravel\Admin\PanelController::class, 'asset']
             )->where('name', '[a-z]+\\.(css|js|woff2)')->name('banimark.admin.asset')
                 ->middleware($coreProblem !== null ? [CoreUnavailable::class] : []);
@@ -283,7 +284,7 @@ class BanimarkServiceProvider extends ServiceProvider
             // update/reinstall with no login and no panel code - the way out
             // when the admin itself throws. Outside the admin group; the
             // licence key is its gate (RecoverPage).
-            $recover = (string) config('banimark.admin.prefix', 'banimark/admin').'/recover';
+            $recover = \Banimark\Laravel\Urls::admin().'/recover';
             $recoverMiddleware = array_values(array_unique(array_merge(['web'], (array) config('banimark.admin.extra_middleware', []))));
             \Illuminate\Support\Facades\Route::match(['get', 'post'], $recover, \Banimark\Laravel\RecoverPage::class)
                 ->name('banimark.admin.recover')->middleware($recoverMiddleware);
@@ -297,12 +298,12 @@ class BanimarkServiceProvider extends ServiceProvider
 
             \Illuminate\Support\Facades\View::composer('banimark::admin.*', function () {
                 \Banimark\Ui\Layout::configure([
-                    'assets' => url((string) config('banimark.admin.prefix', 'banimark/admin').'/assets'),
+                    'assets' => url(\Banimark\Laravel\Urls::admin().'/assets'),
                 ]);
             });
 
             \Illuminate\Support\Facades\Route::group([
-                'prefix' => (string) config('banimark.admin.prefix', 'banimark/admin'),
+                'prefix' => \Banimark\Laravel\Urls::admin(),
                 'middleware' => $middleware,
             ], function () {
                 $this->loadRoutesFrom(__DIR__.'/../../routes/admin.php');
