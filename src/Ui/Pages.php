@@ -110,10 +110,90 @@ final class Pages
                 .'<div class="muted">Each tool is one question the assistant can answer from your data - "find this customer\'s orders". It can only read, and only what you allow.</div></div>'
                 .'<div class="spacer"></div><a class="btn btn-sm" href="#build">'.Icons::get('plus', 14).' New tool</a></div>'
                 .'<div class="toollist">'.$list.'</div></div>'
+            .(isset($o['library']) ? self::toolTemplates($o['library'], $csrf) : '')
             .$o['data_card']
             .Layout::toolAssistant($u['assist'], (bool) $o['assist_ready'], $u['providers'])
             .$builder
             .Layout::toolBuilderScript();
+    }
+
+    /**
+     * Ready-made tools on free public APIs - to learn how a tool is built, and
+     * to show the assistant working on day one. Shown and disabled when the
+     * plan has no room (never hidden): templates may use at most half of the
+     * plan's tools (Entitlements::templateAllowance).
+     *
+     * @param array{installed: array<string,string>, allowance: array, url: string, edit: callable} $lib
+     */
+    public static function toolTemplates(array $lib, string $csrf): string
+    {
+        $e = [self::class, 'e'];
+        $a = $lib['allowance'];
+        $room = $a['left'] === null || $a['left'] > 0;
+        $line = $a['left'] === null
+            ? 'Your plan has no limit on tools, so you can add as many templates as you like.'
+            : 'Templates can use up to <b>'.(int) $a['cap'].'</b> of your plan\'s '.(int) $a['limit'].' tools - half, so the rest stay free for your own. '
+                .(int) $a['used'].' in use, '.(int) $a['left'].' more you can add now.';
+        $groups = [];
+        foreach (\Banimark\Library\ToolTemplates::all() as $slug => $t) {
+            $groups[$t['group']][$slug] = $t;
+        }
+        $cards = '';
+        foreach ($groups as $group => $items) {
+            $cards .= '<div class="tpl-group"><h3>'.$e($group).'</h3><div class="tpl-grid">';
+            foreach ($items as $slug => $t) {
+                $have = $lib['installed'][$slug] ?? null;
+                $action = $have !== null
+                    ? '<span class="pill good">Added</span> <a class="btn2 btn-sm" href="'.$e(($lib['edit'])($have)).'">Open it</a>'
+                    : '<form method="post" action="'.$e($lib['url']).'">'.$csrf.'<input type="hidden" name="template" value="'.$e($slug).'">'
+                        .'<button type="submit" class="btn2 btn-sm"'.($room ? '' : ' disabled title="Your plan has no room for another template"').'>'.Icons::get('plus', 13).' Add this tool</button></form>';
+                $cards .= '<div class="tpl-card" data-template="'.$e($slug).'">'
+                    .'<b>'.$e($t['title']).'</b><p>'.$e($t['about']).'</p>'
+                    .'<div class="tpl-meta"><span class="mono-name">'.$e($t['tool']['name']).'</span> · '.$e($t['api']).'</div>'
+                    .'<div class="tpl-terms">'.$e($t['terms']).'</div>'
+                    .'<div class="tpl-act">'.$action.'</div></div>';
+            }
+            $cards .= '</div></div>';
+        }
+        return '<div class="bm-card" id="templates"><div class="bm-sec-h"><div><h2>Templates: tools you can add in one click</h2>'
+            .'<div class="muted">Each calls a free public service - no key, no database - so it works straight away. Add one, open it to see how it is built, press <b>Try it</b>, then build your own on your data the same way.</div></div></div>'
+            .'<p class="tpl-allow'.($room ? '' : ' full').'">'.$line.'</p>'
+            .(!$room && $a['left'] !== null ? Layout::lockedNote('Remove a template you no longer need to add another, or build your own tool - the rest of your allowance is for those.') : '')
+            .$cards.'</div>';
+    }
+
+    /**
+     * The rule library: a common pack and one per industry. Rules are text, so
+     * every plan gets every pack. Rules already added show as added.
+     *
+     * @param array{installed: array<string,true>, url: string} $lib
+     */
+    public static function ruleLibrary(array $lib, string $csrf): string
+    {
+        $e = [self::class, 'e'];
+        $packs = '';
+        foreach (\Banimark\Library\RulePacks::all() as $slug => $p) {
+            $n = count($p['rules']);
+            $done = 0;
+            $rows = '';
+            foreach ($p['rules'] as $key => $r) {
+                $have = isset($lib['installed'][$slug.'/'.$key]);
+                $done += $have ? 1 : 0;
+                $rows .= '<label class="lib-rule'.($have ? ' have' : '').'"><input type="checkbox" name="rules[]" value="'.$e($key).'"'.($have ? ' checked disabled' : ' checked').'>'
+                    .'<span><b>'.$e($r[0]).'</b>'.($have ? ' <span class="pill good">added</span>' : '').'<br><span class="muted">'.$e($r[1]).'</span></span></label>';
+            }
+            $all = $done === $n;
+            $packs .= '<details class="lib-pack" data-pack="'.$e($slug).'"><summary><b>'.$e($p['title']).'</b> <span class="muted">'.$e($p['blurb']).'</span>'
+                .'<span class="spacer"></span><span class="pill '.($all ? 'good' : 'closed').'">'.$done.' of '.$n.' added</span></summary>'
+                .'<form method="post" action="'.$e($lib['url']).'">'.$csrf.'<input type="hidden" name="pack" value="'.$e($slug).'">'
+                .'<p class="muted" style="margin:6px 0 10px">'.($p['folder'] !== null ? 'Goes into its own folder, "'.$e($p['folder']).'", so you can switch the whole pack off in one click.' : 'Goes into your standard folders (Personality, Response behaviour, Business protection, Service rules).').' Untick any you do not want. Every rule can be edited after.</p>'
+                .$rows
+                .'<div class="row" style="justify-content:flex-end;margin-top:10px"><button type="submit" class="btn2"'.($all ? ' disabled' : '').'>'.Icons::get('plus', 14).' Add the ticked rules</button></div>'
+                .'</form></details>';
+        }
+        return '<div class="bm-card" id="library"><div class="bm-sec-h"><div><h2>Rule library</h2>'
+            .'<div class="muted">Ready-made rules for every business, and packs for common industries - VTU &amp; data, online shops, fintech, logistics, and more. Add a pack, then make it yours.</div></div></div>'
+            .'<div class="lib-packs">'.$packs.'</div></div>';
     }
 
     /**
@@ -132,6 +212,7 @@ final class Pages
         $nF = count($folders);
         $total = array_sum(array_map(fn ($f) => count($f['rules']), $folders));
 
+        $library = isset($o['library']) ? self::ruleLibrary($o['library'], $csrf) : '';
         $html = '<div class="page-head"><div><h2>Your rules</h2><p>'.$nF.' '.($nF === 1 ? 'folder' : 'folders').', '.$total.' '.($total === 1 ? 'rule' : 'rules')
             .'. Folders apply top to bottom; the assistant follows them before anything else.</p></div>'
             .'<div class="row" style="gap:6px;flex-wrap:wrap">'
@@ -195,7 +276,7 @@ final class Pages
                 .'<input type="text" name="content" required placeholder="Add a rule to '.$e($f['title']).'…" aria-label="Rule">'
                 .'<button type="submit" class="btn2">'.Icons::get('plus', 14).' Add</button></form></div></div>';
         }
-        return $html;
+        return $html.$library;
     }
 
     /**

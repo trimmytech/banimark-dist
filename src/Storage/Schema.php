@@ -95,6 +95,7 @@ class Schema
             folder_id INTEGER NOT NULL DEFAULT 0,
             title VARCHAR(190) NOT NULL,
             content TEXT NOT NULL,
+            source VARCHAR(80) NOT NULL DEFAULT '',
             sort INTEGER NOT NULL DEFAULT 0,
             enabled {$bool} NOT NULL DEFAULT 1,
             created_at VARCHAR(32) NULL,
@@ -115,6 +116,7 @@ class Schema
             -- 'sql' reads the owner's database; 'http' calls their own endpoint
             kind VARCHAR(10) NOT NULL DEFAULT 'sql',
             config TEXT NULL,
+            template VARCHAR(40) NOT NULL DEFAULT '',
             enabled {$bool} NOT NULL DEFAULT 1,
             created_at VARCHAR(32) NULL,
             updated_at VARCHAR(32) NULL
@@ -238,6 +240,10 @@ class Schema
         // erased for good after visitor_delete_days unless staff keep it)
         self::addColumn($pdo, "{$prefix}conversations", 'visitor_deleted_at', 'INTEGER NOT NULL DEFAULT 0');
         self::addColumn($pdo, "{$prefix}conversations", 'kept', 'INTEGER NOT NULL DEFAULT 0');
+        // the tool/rule library: which template a tool came from (templates may
+        // use at most half the plan's tools) and which pack a rule came from
+        self::addColumn($pdo, "{$prefix}tools", 'template', "VARCHAR(40) NOT NULL DEFAULT ''");
+        self::addColumn($pdo, "{$prefix}rules", 'source', "VARCHAR(80) NOT NULL DEFAULT ''");
         // 0.20: a tool can call the owner's API instead of reading their database
         self::addColumn($pdo, "{$prefix}tools", 'kind', "VARCHAR(10) NOT NULL DEFAULT 'sql'");
         self::addColumn($pdo, "{$prefix}tools", 'config', 'TEXT NULL');

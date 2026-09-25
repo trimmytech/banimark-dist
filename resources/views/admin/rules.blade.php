@@ -5,6 +5,7 @@
     {{-- ONE body for both runtimes: Ui\Pages::rules --}}
     {!! \Banimark\Ui\Pages::rules($folders, [
         'csrf' => csrf_field()->toHtml(),
+        ...(!empty($library) ? ['library' => $library] : []),
         'urls' => [
             'folder' => route('banimark.admin.rules.folder'),
             'folder_move' => route('banimark.admin.rules.folder.move'),

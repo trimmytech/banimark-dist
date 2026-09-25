@@ -608,6 +608,14 @@ class Panel
             echo json_encode(\Banimark\Tools\ToolTester::run(self::toolDefinitionFromForm($p, $this->storedAuth($p)), (array) ($p['args'] ?? []), $context, $runner));
             return null;
         }
+        if ($route === '/tools/template') {
+            $r = (new \Banimark\Library\LibraryInstaller($this->pdo))->installTool((string) ($p['template'] ?? ''), $this->entitlements());
+            return '<div class="'.($r['ok'] ? 'flash-ok' : 'flash-err').'">'.Html::e($r['message']).'</div>';
+        }
+        if ($route === '/rules/library') {
+            $r = (new \Banimark\Library\LibraryInstaller($this->pdo))->installRules((string) ($p['pack'] ?? ''), array_map('strval', (array) ($p['rules'] ?? [])));
+            return '<div class="'.($r['ok'] ? 'flash-ok' : 'flash-err').'">'.Html::e($r['message']).'</div>';
+        }
         if ($route === '/tools') {
             return $this->saveTool($p);
         }
@@ -879,13 +887,19 @@ class Panel
         if ($target !== $definition['name'] && $this->query('SELECT 1 FROM banimark_tools WHERE name = ?', [$definition['name']]) !== []) {
             return '<div class="flash-err">A tool called "'.Html::e($definition['name']).'" already exists.</div>';
         }
+        // an edited template stays a template: it keeps counting against the
+        // half of the allowance templates may use (else editing would free a slot)
+        $template = '';
+        try {
+            $template = (string) ($this->query('SELECT template FROM banimark_tools WHERE name = ?', [$target])[0]['template'] ?? '');
+        } catch (\Throwable $e) { /* schema not caught up yet */ }
         $this->exec('DELETE FROM banimark_tools WHERE name = ?', [$target]);
         $sqlCol = \Banimark\Storage\Dialect::quote(\Banimark\Storage\Dialect::of($this->pdo), 'sql');
-        $this->exec("INSERT INTO banimark_tools (name, description, parameters, {$sqlCol}, columns, context, max_rows, kind, config, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+        $this->exec("INSERT INTO banimark_tools (name, description, parameters, {$sqlCol}, columns, context, max_rows, kind, config, template, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
             $definition['name'], $definition['description'], json_encode($definition['parameters']),
             $definition['sql'], json_encode($definition['columns']), json_encode($definition['context']),
             $definition['max_rows'], $definition['kind'], $definition['kind'] === 'http' ? json_encode($definition['config']) : null,
-            !empty($p['enabled']) ? 1 : 0, date('Y-m-d H:i:s'), date('Y-m-d H:i:s'),
+            $template, !empty($p['enabled']) ? 1 : 0, date('Y-m-d H:i:s'), date('Y-m-d H:i:s'),
         ]);
         $this->go($this->url('/tools'));
         return null;
@@ -1229,6 +1243,7 @@ class Panel
             'editing' => $ed !== null,
             'csrf' => $this->csrfField(),
             'allowance' => $toolRoom,
+            'library' => $this->toolLibrary(),
             'upgrade_url' => $upgradeUrl,
             'assist_ready' => $assistDriver !== null,
             'data_card' => Layout::dataConnection($this->settings->all(), $this->url('/tools/data'), $this->url('/tools/data/test'),
@@ -1288,6 +1303,19 @@ class Panel
         return '<div class="flash-err">Unknown action.</div>';
     }
 
+    /** The Tools page's templates section: what is added, and the room the plan leaves for templates. */
+    private function toolLibrary(): array
+    {
+        $lib = new \Banimark\Library\LibraryInstaller($this->pdo);
+        [$templates, $total] = $lib->toolCounts();
+        return [
+            'installed' => $lib->installedTemplates(),
+            'allowance' => \Banimark\Licensing\Entitlements::templateAllowance($this->entitlements(), $templates, $total),
+            'url' => $this->url('/tools/template'),
+            'edit' => fn (string $name) => $this->url('/tools').'?edit='.rawurlencode($name).'#build',
+        ];
+    }
+
     private function rules(string $flash): string
     {
         $repo = $this->rulesRepo();
@@ -1295,6 +1323,7 @@ class Panel
         // ONE body for both runtimes: Ui\Pages::rules
         return Html::page('Rules', $flash.\Banimark\Ui\Pages::rules($repo->tree(), [
             'csrf' => $this->csrfField(),
+            'library' => ['installed' => (new \Banimark\Library\LibraryInstaller($this->pdo))->installedRules(), 'url' => $this->url('/rules/library')],
             'urls' => [
                 'folder' => $this->url('/rules/folder'),
                 'folder_move' => $this->url('/rules/folder/move'),

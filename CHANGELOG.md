@@ -4,6 +4,21 @@ Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
 ## Unreleased
+- **A rule library.** The Rules page now has ready-made rules you can add in
+  one click and then edit: a common pack for every business (tone, honesty,
+  never inventing facts, never asking for PINs or OTPs, when to hand over) and
+  packs for 13 industries - VTU & data, online shops, fintech, logistics,
+  restaurants, clinics, schools, property, software, travel, salons, insurance
+  and internet providers. Industry packs get their own folder, so a whole pack
+  can be switched off at once. Every plan gets every pack.
+- **Tool templates.** The Tools page now offers ten ready-made tools on free
+  public services - weather, exchange rates (Naira included), crypto prices,
+  public holidays, Wikipedia, food by barcode, and a practice shop (product
+  search, order lookup, and "my orders" for a signed-in customer). They work
+  the moment they are added, so you can see how a tool is built and try it
+  before building your own. Templates are free, and can use up to half of your
+  plan's tools (for example 3 of 5); the rest are for your own. Laravel: run
+  `php artisan migrate` after updating.
 - **Updates now refresh the server's caches themselves, on every kind of
   site.** After an update a server could keep running the previous version:
   PHP's OPcache (any site, including plain PHP and WordPress) and, on Laravel,

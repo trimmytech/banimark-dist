@@ -1296,7 +1296,44 @@ class PanelController
         if ($r = $this->gate($auth)) { return $r; }
         $rules = $this->rulesRepo();
         $rules->seedDefaults(); // desks installed before folders existed
-        return view('banimark::admin.rules', ['folders' => $rules->tree()]);
+        $url = \Banimark\Laravel\RouteCache::url('banimark.admin.rules.library');
+        return view('banimark::admin.rules', [
+            'folders' => $rules->tree(),
+            'library' => $url === null ? null : ['installed' => (new \Banimark\Library\LibraryInstaller(DB::connection()->getPdo()))->installedRules(), 'url' => $url],
+        ]);
+    }
+
+    /** The Tools page's templates section; absent (not broken) on a stale route cache. */
+    private function toolLibrary(): ?array
+    {
+        $url = \Banimark\Laravel\RouteCache::url('banimark.admin.tools.template');
+        if ($url === null) {
+            return null;
+        }
+        $lib = new \Banimark\Library\LibraryInstaller(DB::connection()->getPdo());
+        [$templates, $total] = $lib->toolCounts();
+        return [
+            'installed' => $lib->installedTemplates(),
+            'allowance' => \Banimark\Licensing\Entitlements::templateAllowance($this->entitlements(), $templates, $total),
+            'url' => $url,
+            'edit' => fn (string $name) => route('banimark.admin.tools').'?edit='.rawurlencode($name).'#build',
+        ];
+    }
+
+    public function installToolTemplate(Request $request, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        $out = (new \Banimark\Library\LibraryInstaller(DB::connection()->getPdo()))->installTool((string) $request->input('template', ''), $this->entitlements());
+        return back()->with($out['ok'] ? 'bm_ok' : 'bm_error', $out['message']);
+    }
+
+    public function installRulePack(Request $request, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        $out = (new \Banimark\Library\LibraryInstaller(DB::connection()->getPdo()))->installRules(
+            (string) $request->input('pack', ''), array_map('strval', (array) $request->input('rules', []))
+        );
+        return back()->with($out['ok'] ? 'bm_ok' : 'bm_error', $out['message']);
     }
 
     private function rulesRepo(): \Banimark\Storage\Rules
@@ -1421,6 +1458,7 @@ class PanelController
                 // how many tools the plan covers. Editing an existing one is never
                 // blocked - only adding the next one.
                 'allowance' => \Banimark\Licensing\Entitlements::allowance($this->entitlements(), 'tools', count($rows)),
+                ...(($lib = $this->toolLibrary()) !== null ? ['library' => $lib] : []),
                 'upgrade_url' => (string) ($settings['support_url'] ?? ''),
                 'assist_ready' => \Banimark\Laravel\EngineFactory::driver()[0] !== null,
                 'data_card' => \Banimark\Ui\Layout::dataConnection($settings, route('banimark.admin.tools.data'), route('banimark.admin.tools.data.test'), csrf_field()->toHtml(),

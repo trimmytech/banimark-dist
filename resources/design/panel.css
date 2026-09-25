@@ -506,6 +506,23 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monosp
 .bm-toast:hover { border-color: var(--s2); }
 .bm-toast .ic { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: color-mix(in srgb, var(--s2) 14%, transparent); color: var(--s2); }
 .bm-toast.esc .ic { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+/* ---- the tool templates and the rule library ---- */
+.tpl-allow { margin: 4px 0 12px; color: var(--muted); }
+.tpl-allow.full { color: var(--critical); }
+.tpl-group h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 16px 0 8px; }
+.tpl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.tpl-card { border: 1px solid var(--border); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 6px; background: var(--surface); }
+.tpl-card p { margin: 0; font-size: 13.5px; }
+.tpl-meta { font-size: 12.5px; color: var(--muted); }
+.tpl-terms { font-size: 12px; color: var(--muted); font-style: italic; }
+.tpl-act { margin-top: auto; padding-top: 6px; display: flex; gap: 8px; align-items: center; }
+.lib-pack { border: 1px solid var(--border); border-radius: 12px; margin-bottom: 10px; background: var(--surface); }
+.lib-pack > summary { cursor: pointer; padding: 12px 14px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; list-style: none; }
+.lib-pack > summary::-webkit-details-marker { display: none; }
+.lib-pack > form { padding: 0 14px 14px; }
+.lib-rule { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13.5px; cursor: pointer; }
+.lib-rule input { margin-top: 3px; }
+.lib-rule.have { opacity: .7; }
 .bm-toast.ok .ic { background: var(--good-soft); color: var(--good); }
 .bm-toast.err .ic { background: var(--critical-soft); color: var(--critical); }
 .bm-toast.err { border-color: color-mix(in srgb, var(--critical) 35%, transparent); }
