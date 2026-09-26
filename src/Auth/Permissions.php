@@ -87,6 +87,7 @@ final class Permissions
             '#^tools#' => 'tools.manage',
             '#^rules#' => 'rules.manage',
             '#^providers#' => 'providers.manage',
+            '#^widget\.secret$#' => 'owner',   // the key that forges every visitor's identity
             '#^widget#' => 'widget.manage',
             '#^files#' => 'files.manage',
             '#^ai#' => 'ai.manage',
@@ -114,6 +115,7 @@ final class Permissions
             '#^/tools#' => 'tools.manage',
             '#^/rules#' => 'rules.manage',
             '#^/providers#' => 'providers.manage',
+            '#^/widget/secret$#' => 'owner',
             '#^/widget#' => 'widget.manage',
             '#^/files#' => 'files.manage',
             '#^/ai#' => 'ai.manage',

@@ -42,8 +42,12 @@ class ChatEndpoint
         private int $aiDailyCap = 0,
         private ?RateLimiter $limiter = null,
         private int $typingGrace = 0,
+        private int $splitChars = 0,
     ) {
     }
+
+    /** For the turn that answers a message sent while the previous reply was still being delivered. */
+    private const INTERRUPTED_NOTE = "\n\nThe customer wrote again while your previous reply was still being delivered. Anything marked as not yet sent never reached them. Briefly acknowledge their new message, finish the point you were making if it still applies (in your own words - never repeat what they already saw), then answer the new message. If it makes the rest of your point unnecessary or changes it, drop or adapt it.";
 
     /* typing-aware turns: how long to listen for typing after a message
      * before answering (the widget's own "reading" pause hides most of it),
@@ -241,6 +245,19 @@ class ChatEndpoint
             ];
         }
 
+        // INTERRUPTED DELIVERY: the client says how far through the previous
+        // reply it got (seen_through); the parts after that are withheld - the
+        // visitor never sees them, staff do - and this turn's window shows them
+        // as "not yet sent", with a note telling the model how to carry on.
+        $interrupted = 0;
+        if ($this->store instanceof PdoStore && isset($input['seen_through']) && $input['seen_through'] !== '') {
+            $interrupted = $this->store->withholdUnseen($sessionId, max(0, (int) $input['seen_through']));
+            if ($interrupted > 0 && ($again = $this->store->load($sessionId)) !== null) {
+                $state = $again['state']; // the window now reads what was and was not said
+            }
+        }
+        $turnExtra = $interrupted > 0 ? ['system_extra' => self::INTERRUPTED_NOTE] : [];
+
         // files the visitor just uploaded travel INSIDE the message text as
         // markers, so they survive the engine's replace-all state write and the
         // model reads a line naming what was attached
@@ -265,8 +282,14 @@ class ChatEndpoint
         $held = false;
         $answered = 0;
         if ($paced) {
+            $before = $this->store->lastUserMessageId($sessionId);
             $this->store->save($sessionId, $state, $identityHash);
             $this->recordVisitor($sessionId, $claims, (array) ($input['visitor'] ?? []));
+            if ($before > 0 && $this->store->answeredThrough($sessionId) === 0) {
+                // a conversation older than this bookkeeping: everything before
+                // this message was answered in its day, never "pending"
+                $this->store->markAnsweredThrough($sessionId, $before);
+            }
             $sentAt = time();
             $mine = $this->store->lastUserMessageId($sessionId);
             $held = $this->waitForTurn($this->store, $sessionId);
@@ -279,10 +302,21 @@ class ChatEndpoint
                 if ($held) { $this->store->unlockTurn($sessionId); }
                 return ['ok' => true, 'session_id' => $sessionId, 'reply' => '', 'mode' => 'agent', 'error' => null];
             }
-            $fresh = $this->store->load($sessionId);
+            // the record, with every message nobody has answered yet moved to the
+            // END: one saved while the previous turn was already answering sits
+            // before that turn's rows, and a history ending on our own answer is
+            // a provider 400 (Gemini 3.6+: "Requests ending with a model turn")
+            $fresh = $this->store->load($sessionId, $this->store->answeredThrough($sessionId));
             if ($fresh !== null) {
                 $state = $fresh['state'];
                 $state->truncateTo($this->historyWindow);
+            }
+            $all = $state->messages();
+            $tail = $all === [] ? null : end($all);
+            if ($tail === null || $tail->role !== Message::USER) {
+                // nothing left to answer: whatever we would say has been said
+                if ($held) { $this->store->unlockTurn($sessionId); }
+                return ['ok' => true, 'session_id' => $sessionId, 'reply' => '', 'mode' => $this->store->mode($sessionId), 'merged' => true, 'error' => null];
             }
             $answered = $this->store->lastUserMessageId($sessionId);
         }
@@ -300,7 +334,7 @@ class ChatEndpoint
             $result = new EngineResult(false, '', 'Daily AI limit reached ('.$this->aiDailyCap.' answers per day, set on the AI settings page). No provider was called.', 0);
         } else {
             try {
-                $result = $this->engine->reply($state, $claims);
+                $result = $this->engine->reply($state, $claims, $turnExtra);
             } catch (\Throwable $e) {
                 $release();
                 throw $e;
@@ -330,7 +364,15 @@ class ChatEndpoint
             ];
         }
 
-        $this->store->save($sessionId, $state, $identityHash);
+        // delivered like a person types: a long answer in a few short messages,
+        // each stored as its own row so every channel plays the same plan back
+        $parts = $this->splitChars > 0 ? \Banimark\Delivery\ReplySplitter::split($result->text, $this->splitChars) : [];
+        $partIds = [];
+        if (count($parts) > 1 && $this->store instanceof PdoStore) {
+            $partIds = $this->store->saveSplit($sessionId, $state, $identityHash, $parts);
+        } else {
+            $this->store->save($sessionId, $state, $identityHash);
+        }
         $release();
         $this->recordVisitor($sessionId, $claims, (array) ($input['visitor'] ?? []));
         $this->noteToolProblems($sessionId, $result);
@@ -353,12 +395,17 @@ class ChatEndpoint
             }
         }
 
-        return [
+        $out = [
             'ok' => true,
             'session_id' => $sessionId,
             'reply' => $result->text,
             'mode' => $mode,
             'error' => null,
         ];
+        if ($partIds !== []) {
+            // an older client ignores this and shows `reply` whole - still correct
+            $out['parts'] = array_map(fn ($i) => ['id' => $partIds[$i], 'text' => $parts[$i]['text'], 'delay_ms' => $parts[$i]['delay_ms']], array_keys($partIds));
+        }
+        return $out;
     }
 }

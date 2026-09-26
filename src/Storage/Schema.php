@@ -53,6 +53,7 @@ class Schema
             content TEXT NOT NULL,
             payload TEXT NULL,
             agent_id INTEGER NOT NULL DEFAULT 0,
+            withheld_at INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL DEFAULT 0
         ){$tail}");
 
@@ -255,6 +256,8 @@ class Schema
         self::addColumn($pdo, "{$prefix}tools", 'config', 'TEXT NULL');
         // 0.16: who sent an agent reply (team page), when staff were last in the panel
         self::addColumn($pdo, "{$prefix}messages", 'agent_id', 'INTEGER NOT NULL DEFAULT 0');
+        // a part of a split reply the visitor never saw (they wrote again first)
+        self::addColumn($pdo, "{$prefix}messages", 'withheld_at', 'INTEGER NOT NULL DEFAULT 0');
         self::addColumn($pdo, "{$prefix}agents", 'last_active_at', 'INTEGER NOT NULL DEFAULT 0');
         // 0.16.1: emoji. Installs created before this release inherited the
         // server's default charset, which on MySQL is usually still utf8mb3.

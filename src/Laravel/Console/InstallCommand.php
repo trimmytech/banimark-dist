@@ -34,17 +34,14 @@ class InstallCommand extends Command
         (new \Banimark\Storage\Rules(\Illuminate\Support\Facades\DB::connection()->getPdo()))->seedDefaults();
         $this->line('✔ tables migrated (banimark_*)');
 
-        // 3. identity secret
-        if ((string) config('banimark.identity_secret', '') === '') {
-            $secret = bin2hex(random_bytes(32));
-            if ($this->writeEnv('BANIMARK_IDENTITY_SECRET', $secret)) {
-                config(['banimark.identity_secret' => $secret]);
-                $this->line('✔ identity secret generated (BANIMARK_IDENTITY_SECRET in .env)');
-            } else {
-                $this->warn('! could not write .env - add BANIMARK_IDENTITY_SECRET='.$secret.' yourself');
-            }
+        // 3. identity secret - lives in Banimark's settings (the owner can
+        // generate a new one from the Widget page, shown once); a .env value
+        // from an older install keeps working as the fallback
+        if (\Banimark\Laravel\IdentitySecret::current() === '') {
+            \Banimark\Laravel\IdentitySecret::generate();
+            $this->line('✔ identity secret generated (Banimark settings - the Widget page can rotate it)');
         } else {
-            $this->line('✔ identity secret already set');
+            $this->line('✔ identity secret already set (from '.(\Banimark\Laravel\IdentitySecret::source() === 'env' ? '.env' : 'Banimark settings').')');
         }
 
         // 3b. first owner account (Banimark's own staff login)
@@ -94,7 +91,7 @@ class InstallCommand extends Command
         $this->line('     <script src="'.route('banimark.widget').'" defer></script>');
         $this->line('     Logged-in users (lets tools scope to the user):');
         $this->line("     <script src=\"".route('banimark.widget')."\" defer");
-        $this->line("             data-token=\"{{ \\Banimark\\Identity\\VisitorToken::mint(['user_id' => auth()->id()], config('banimark.identity_secret')) }}\"></script>");
+        $this->line("             data-token=\"{{ \\Banimark\\Identity\\VisitorToken::mint(['user_id' => auth()->id()], \\Banimark\\Laravel\\IdentitySecret::current()) }}\"></script>");
         $this->line('  4. Health check any time:  php artisan banimark:doctor');
         $this->line('');
 
@@ -138,20 +135,5 @@ class InstallCommand extends Command
             'updated_at' => now(),
         ]);
         $this->line('✔ provider "'.$choice.'" saved as default');
-    }
-
-    private function writeEnv(string $key, string $value): bool
-    {
-        $path = base_path('.env');
-        if (!is_file($path) || !is_writable($path)) {
-            return false;
-        }
-        $env = (string) file_get_contents($path);
-        if (preg_match('/^'.preg_quote($key, '/').'=.*$/m', $env)) {
-            $env = preg_replace('/^'.preg_quote($key, '/').'=.*$/m', $key.'='.$value, $env);
-        } else {
-            $env = rtrim($env, "\n")."\n".$key.'='.$value."\n";
-        }
-        return file_put_contents($path, $env) !== false;
     }
 }

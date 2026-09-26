@@ -36,7 +36,10 @@ return [
     ],
 
     // the shared secret the HOST uses to mint VisitorToken for logged-in
-    // users (Banimark\Identity\VisitorToken::mint(['user_id' => ...], secret))
+    // users. The owner now generates it on the panel's Widget page and
+    // it lives in Banimark's settings; this .env value is only the fallback
+    // for installs made before that. Mint with
+    // \Banimark\Laravel\IdentitySecret::current(), never with config().
     'identity_secret' => env('BANIMARK_IDENTITY_SECRET', ''),
 
     // licensing: the key from your purchase email. The daily phone-home sends

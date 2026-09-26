@@ -79,7 +79,7 @@ class WidgetController
     /** POST /banimark/chat/delete - the visitor deletes their own conversation (soft) */
     public function deleteChat(Request $request)
     {
-        $endpoint = new \Banimark\Http\DeleteEndpoint(app(\Banimark\Storage\PdoStore::class), (string) config('banimark.identity_secret', ''));
+        $endpoint = new \Banimark\Http\DeleteEndpoint(app(\Banimark\Storage\PdoStore::class), \Banimark\Laravel\IdentitySecret::current());
         $out = $endpoint->handle([
             'session_id' => (string) $request->input('session_id', ''),
             'token' => (string) $request->input('token', ''),
@@ -150,7 +150,9 @@ class WidgetController
             .'<script src="'.htmlspecialchars(route('banimark.widget'), ENT_QUOTES).'" defer data-mode="page"'
             .($token !== '' ? ' data-token="'.htmlspecialchars($token, ENT_QUOTES).'"' : '').'></script>'
             .'</body></html>';
-        return response($html, 200, ['Content-Type' => 'text/html; charset=utf-8', 'X-Frame-Options' => 'SAMEORIGIN']);
+        // same-origin only unless the owner listed sites that may frame it
+        [$fh, $fv] = \Banimark\Http\Cors::frameHeader($this->settings());
+        return response($html, 200, ['Content-Type' => 'text/html; charset=utf-8', $fh => $fv]);
     }
 
     /** GET /banimark/widget/appearance - the public widget settings as JSON (the Flutter SDK reads these). */

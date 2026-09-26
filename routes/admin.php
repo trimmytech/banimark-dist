@@ -87,3 +87,4 @@ Route::post('/license', [PanelController::class, 'saveLicense'])->name('banimark
 Route::post('/license/trial', [PanelController::class, 'startTrial'])->name('banimark.admin.license.trial');
 Route::post('/license/recheck', [PanelController::class, 'recheckLicense'])->name('banimark.admin.license.recheck');
 Route::post('/widget', [PanelController::class, 'saveWidget'])->name('banimark.admin.widget.save');
+Route::post('/widget/secret', [PanelController::class, 'generateSecret'])->name('banimark.admin.widget.secret');

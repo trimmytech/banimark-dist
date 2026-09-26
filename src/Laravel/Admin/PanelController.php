@@ -1719,7 +1719,20 @@ class PanelController
                 'widget_js' => route('banimark.widget'),
                 'chat_page_url' => route('banimark.chat.page'),
                 'try_url' => route('banimark.admin.widget.try'),
-                'token_snippet' => "\$token = \\Banimark\\Identity\\VisitorToken::mint(\n    ['user_id' => auth()->id()],\n    config('banimark.identity_secret')\n);",
+                'token_snippet' => "\$token = \\Banimark\\Identity\\VisitorToken::mint(\n    ['user_id' => auth()->id()],\n    \\Banimark\\Laravel\\IdentitySecret::current()\n);",
+                // the secret is never on this page: only the value the owner
+                // just generated, flashed through the session and shown once
+                'is_owner' => $auth->isOwner(),
+                'secret_url' => route('banimark.admin.widget.secret'),
+                'fresh_secret' => $auth->isOwner() ? (string) session('bm_secret', '') : '',
+                'secret_state' => [
+                    'set' => \Banimark\Laravel\IdentitySecret::current() !== '',
+                    'source' => \Banimark\Laravel\IdentitySecret::source(),
+                    'generated_at' => \Banimark\Laravel\IdentitySecret::generatedAt(),
+                    'note' => \Banimark\Laravel\IdentitySecret::source() === 'env'
+                        ? 'Generating one here moves the secret into Banimark\'s own settings. From then on your app must mint with IdentitySecret::current() (the snippet above) - a call to config() would keep signing with the old .env value, and those tokens will be rejected.'
+                        : (\Banimark\Laravel\IdentitySecret::envDiffers() ? 'BANIMARK_IDENTITY_SECRET in .env differs from the active secret and is ignored - remove it, or make sure your app mints with IdentitySecret::current().' : ''),
+                ],
                 'flutter' => $updates['sdks']['flutter'] ?? null, // advertised by HQ; null = not published yet
                 'flutter_lock' => $locks['flutter'],
                 'whitelabel_lock' => $locks['whitelabel'],
@@ -1728,6 +1741,18 @@ class PanelController
                 'flutter_config' => "BanimarkChat(\n  config: BanimarkConfig.laravel('".url('/')."', token: userToken), // token: mint it server-side like the widget's data-token; null = guest\n  theme: BanimarkTheme.fromScheme(Theme.of(context).colorScheme)\n      .copyWith(title: '".str_replace("'", "\\'", (string) ($cfg['title'] ?? 'Support'))."'),\n)",
             ]),
         ]);
+    }
+
+    /** POST <admin>/widget/secret - a new signing secret, shown once on the widget page. Owner only. */
+    public function generateSecret(AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        // the route map makes this owner-only already; the check stays here so a remapped route can never reach the key
+        if (!$auth->isOwner()) { return back()->with('bm_error', 'Only an owner can generate the signing secret.'); }
+        $secret = \Banimark\Laravel\IdentitySecret::generate();
+        return redirect()->route('banimark.admin.widget')
+            ->with('bm_secret', $secret)
+            ->with('bm_ok', 'New signing secret generated - copy it now, it is shown only once.');
     }
 
     public function saveWidget(Request $request, AgentAuth $auth)
@@ -1746,6 +1771,8 @@ class PanelController
             'online_minutes' => fn ($v) => (string) PdoStore::onlineMinutes(['online_minutes' => $v]),
             'guest_mode' => fn ($v) => in_array($v, ['off', 'optional', 'required'], true) ? $v : 'off',
             'offline_note' => fn ($v) => mb_substr(trim($v), 0, 200),
+            // other websites that may carry the widget (Banimark on its own box) - origins only
+            \Banimark\Http\Cors::KEY => fn ($v) => \Banimark\Http\Cors::sanitize($v),
             // auto follows the visitor's OS; light/dark force it (Flutter reads the same value)
             'theme' => fn ($v) => in_array($v, ['auto', 'light', 'dark'], true) ? $v : 'auto',
         ];

@@ -4,6 +4,57 @@ Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
 ## Unreleased
+- **The widget can live on a different domain than Banimark.** When Banimark
+  runs on its own server (support.acme.com) and the chat sits on your website
+  (www.acme.com), list that site under Widget -> Behaviour -> "Other websites
+  allowed to carry the chat", one origin per line. The browser's cross-origin
+  checks then pass for those sites and nobody else; listed sites may also
+  show the chat link inside a frame. Installs that never list a site behave
+  exactly as before. Standalone: the embed script switches to an absolute
+  endpoint once a site is listed, so it posts back to Banimark and not to the
+  page it sits on.
+- **A standard HS256 JWT is accepted as a visitor token.** Sign it with the
+  same secret and the same claims plus an `exp`, with whatever JWT library
+  your stack already has. Only HS256 is accepted (never "none", RSA or EC), a
+  token without an expiry is refused, `nbf` is honoured, and the timing
+  claims never reach your tools. The two-part Banimark token is unchanged.
+- **The signing secret is yours to generate - on the Widget page, shown once.**
+  The key your server signs visitor tokens with used to be written at install
+  and never shown, so anyone not on the same PHP app (a Node or Python
+  backend, a separate server) had no way to get it. An owner now generates it
+  under Widget -> "Put it on your website": the new value appears once, on
+  that page only, and is never rendered again - a GET of the panel never
+  carries it. Generating a new one invalidates every token signed with the
+  old one, and the button says so. Staff who may edit the widget but are not
+  owners cannot generate it.
+- **Laravel: the secret lives in Banimark's settings, not `.env`.** Existing
+  installs keep working unchanged: `BANIMARK_IDENTITY_SECRET` stays the
+  fallback until the owner generates one. Mint with
+  `\Banimark\Laravel\IdentitySecret::current()` (the snippet on the page) rather
+  than `config('banimark.identity_secret')` - after a generate, `config()`
+  would sign with the retired value. `banimark:doctor` reports where the
+  active secret comes from and warns when `.env` differs. `banimark:install`
+  no longer writes `.env`.
+- **A Node snippet and the token format** sit beside the PHP one on the Widget
+  page: two base64url parts, the claims as JSON (with `exp`), then HMAC-SHA256
+  of that first part with the secret.
+- **Replies arrive the way a person types them.** A long answer now comes as
+  two to four short messages, each after a typing pause that matches its
+  length, instead of one block of text. Lists, code and links are never
+  split. On the website, the chat link and in the app.
+- **An interruption is never ignored.** If the visitor writes again before
+  the last message shows, the assistant stops there, keeps what they did and
+  did not see in mind, acknowledges the new message, finishes its point if
+  it still applies, and answers the new one. Your team sees the parts that
+  never went out, marked, in the conversation.
+- **Setting:** AI settings page, "Reply in short messages of about", default
+  320 characters, 0 = one message.
+- **Fixed: a follow-up sent while the assistant was already answering could
+  hand the chat to your team with a provider error.** Seen live on
+  banimark.com: the second message was answered against a history that
+  ended on the assistant's own reply, which newer Gemini models reject
+  ("Requests ending with a model turn"). Unanswered messages are now always
+  put last, and the assistant never sends a request that ends on its own turn.
 - **The assistant lets a visitor finish typing.** When someone sends a message
   and keeps typing, the assistant now waits until they pause, then answers
   everything they wrote in one reply instead of answering the first half

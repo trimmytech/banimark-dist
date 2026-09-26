@@ -35,7 +35,9 @@ final class TranscriptView
         }
         return ['id' => (int) $m['id'], 'role' => $role, 'text' => $parsed['text'], 'at' => (int) ($m['created_at'] ?? 0), 'files' => $files,
             // who replied, for agent rows (team page + "Ada · 14:02" on the bubble)
-            'by' => $role === 'agent' ? (string) ($m['agent_name'] ?? '') : ''];
+            'by' => $role === 'agent' ? (string) ($m['agent_name'] ?? '') : '',
+            // a part of a split reply the visitor never saw - they wrote again first
+            'withheld' => (int) ($m['withheld_at'] ?? 0) > 0];
     }
 
     /** @return array<int, array{id:int, role:string, text:string, at:int, files:array}> */

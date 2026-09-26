@@ -270,7 +270,7 @@ class Panel
             $route === '/providers', $route === '/providers/activate' => $this->providers($flash),
             str_starts_with($route, '/agents') => $this->agentsPage($flash),
             str_starts_with($route, '/escalation') => $this->escalationPage($flash),
-            $route === '/widget' => $this->widget($flash),
+            $route === '/widget', $route === '/widget/secret' => $this->widget($flash),
             str_starts_with($route, '/license') => $this->licensePage($flash),
             $route === '/changelog' => $this->changelogPage($flash),
             default => Html::page('Not found', '<div class="bm-card"><h2>Not found</h2></div>', $this->nav()),
@@ -729,6 +729,20 @@ class Panel
                 ? '<div class="flash-ok">Test email sent to '.Html::e($to).'.</div>'
                 : '<div class="flash-err">Could not send: '.Html::e($mailer->lastError() ?: 'unknown error').'</div>';
         }
+        if ($route === '/widget/secret') {
+            // Permissions::forPath already makes this owner-only; the check
+            // stays here too, so a remapped route can never reach the key
+            if (!$this->auth->isOwner()) {
+                return '<div class="flash-err">Only an owner can generate the signing secret.</div>';
+            }
+            $secret = bin2hex(random_bytes(32));
+            $this->settings->set('identity_secret', $secret);
+            $this->settings->set('identity_secret_generated_at', gmdate('c'));
+            // shown ONCE on the page after the redirect - never in a URL (access logs)
+            $this->auth->stash('fresh_secret', $secret);
+            $this->go($this->url('/widget?bm_ok='.rawurlencode('New signing secret generated - copy it now, it is shown only once.')));
+            return null;
+        }
         if ($route === '/widget') {
             $this->settings->set('color', preg_match('/^#[0-9a-fA-F]{6}$/', (string) ($p['color'] ?? '')) ? $p['color'] : '#6F04D9');
             $this->settings->set('position', ($p['position'] ?? '') === 'left' ? 'left' : 'right');
@@ -740,6 +754,7 @@ class Panel
             $this->settings->set('online_minutes', (string) \Banimark\Storage\PdoStore::onlineMinutes(['online_minutes' => $p['online_minutes'] ?? '']));
             $this->settings->set('guest_mode', in_array($p['guest_mode'] ?? '', ['off', 'optional', 'required'], true) ? $p['guest_mode'] : 'off');
             $this->settings->set('offline_note', mb_substr(trim((string) ($p['offline_note'] ?? '')), 0, 200));
+            $this->settings->set(\Banimark\Http\Cors::KEY, \Banimark\Http\Cors::sanitize((string) ($p['widget_origins'] ?? '')));
             // whitelabel is a plan feature; when it is not covered the stored
             // value is LEFT ALONE, so saving a colour cannot put our name back
             // on a site that had already removed it
@@ -1389,7 +1404,17 @@ class Panel
             'widget_js' => $this->base.'/widget.js',
             'chat_page_url' => Master::siteUrlFromServer($_SERVER).$this->base.'/chat-page',
             'try_url' => $this->url('/widget/try'),
-            'token_snippet' => "\$token = \\Banimark\\Identity\\VisitorToken::mint(\n    ['user_id' => \$userId],\n    \$identitySecret // identity_secret from Banimark's settings\n);",
+            'token_snippet' => "\$token = \\Banimark\\Identity\\VisitorToken::mint(\n    ['user_id' => \$userId],\n    \$signingSecret // generated below, kept on your server\n);",
+            // the secret itself is never on this page - only the value the
+            // owner just generated, pulled from the session once
+            'is_owner' => $this->auth->isOwner(),
+            'secret_url' => $this->url('/widget/secret'),
+            'fresh_secret' => $this->auth->isOwner() ? (string) ($this->auth->pull('fresh_secret') ?? '') : '',
+            'secret_state' => [
+                'set' => trim((string) $s->get('identity_secret', '')) !== '',
+                'source' => 'settings',
+                'generated_at' => (string) $s->get('identity_secret_generated_at', ''),
+            ],
             'flutter' => $this->updates()['sdks']['flutter'] ?? null,
             'flutter_lock' => \Banimark\Licensing\Entitlements::locked($this->entitlements(), 'flutter'),
             'whitelabel_lock' => \Banimark\Licensing\Entitlements::locked($this->entitlements(), 'whitelabel'),

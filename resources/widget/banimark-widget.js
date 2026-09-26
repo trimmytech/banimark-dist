@@ -847,11 +847,53 @@
         msgs.scrollTop = msgs.scrollHeight;
     }
 
+    /* ---- a reply in parts, the way a person types ----
+     * The desk splits a long answer server-side (Delivery\ReplySplitter) and
+     * sends the parts with their pauses; here each one gets typing dots for
+     * that long, then shows. If the visitor writes again before the last
+     * part shows, playback stops and the send says how far they got
+     * (seen_through): the desk withholds the rest, and its next answer knows
+     * what was and was not said. The app plays the same plan. */
+    var playing = null;
+    function playParts(parts, shownId) {
+        stopPlayback();
+        var st = { parts: parts, i: 0, shownId: shownId, timer: null, dots: null };
+        playing = st;
+        function next() {
+            if (st.i >= st.parts.length) { playing = null; return; }
+            var p = st.parts[st.i];
+            st.dots = document.createElement('div');
+            st.dots.className = 'typ';
+            st.dots.innerHTML = '<i></i><i></i><i></i>';
+            msgs.appendChild(st.dots);
+            msgs.scrollTop = msgs.scrollHeight;
+            st.timer = setTimeout(function () {
+                st.dots.remove(); st.dots = null;
+                bubble('bot', p.text);
+                st.shownId = p.id;
+                st.i++;
+                if (!wrap.classList.contains('open') || document.hidden) { addUnread(1); }
+                next();
+            }, Math.max(300, Math.min(4000, parseInt(p.delay_ms, 10) || 0)));
+        }
+        next();
+    }
+    /* @return the id of the last part the visitor saw, or null when nothing was playing */
+    function stopPlayback() {
+        if (!playing) { return null; }
+        var st = playing;
+        if (st.timer) { clearTimeout(st.timer); }
+        if (st.dots) { st.dots.remove(); }
+        playing = null;
+        return st.shownId;
+    }
+
     /* a brand-new chat has no id until its first answer arrives: a follow-up
      * sent before then waits here, or it would open a SECOND conversation */
     var queued = [];
     function postMessage(text, files, bub) {
         if (!session && inflight > 0) { queued.push([text, files, bub]); return; }
+        var seenThrough = stopPlayback(); // writing again mid-reply: tell the desk how far they got
         inflight++;
         busy = true;
         typingAt = 0; // the first keystroke after a send reports typing at once - the desk is listening for it
@@ -910,7 +952,10 @@
                 });
             }
             if (res && res.ok) {
-                if (res.reply) { bubble('bot', res.reply); }
+                if (res.parts && res.parts.length > 1) {
+                    bubble('bot', res.parts[0].text);
+                    playParts(res.parts.slice(1), res.parts[0].id);
+                } else if (res.reply) { bubble('bot', res.reply); }
                 if (res.mode === 'agent' && !agentMode) { enterAgentMode(); }
                 startPolling(false);
             } else {
@@ -920,13 +965,15 @@
             }
             input.focus();
         }
-        xhr.send(JSON.stringify({
+        var body = {
             message: text,
             session_id: session,
             token: cfg.token,
             visitor: { name: visitor.name, email: visitor.email, phone: visitor.phone || '' },
             attachments: sendingIds
-        }));
+        };
+        if (seenThrough !== null) { body.seen_through = seenThrough; }
+        xhr.send(JSON.stringify(body));
     }
 
     form.addEventListener('submit', function (e) {
@@ -1156,6 +1203,7 @@
     });
     function startOver() {
         stopPolling();
+        stopPlayback();
         showAgentTyping(false);
         session = '';
         lastAgentId = 0; oldestId = 0; agentMode = false;

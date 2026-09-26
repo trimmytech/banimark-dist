@@ -51,7 +51,7 @@ class BanimarkServiceProvider extends ServiceProvider
         $this->app->bind(\Banimark\Http\HistoryEndpoint::class, function ($app) {
             return new \Banimark\Http\HistoryEndpoint(
                 $app->make(\Banimark\Storage\PdoStore::class),
-                (string) config('banimark.identity_secret', ''),
+                \Banimark\Laravel\IdentitySecret::current(),
                 15,
                 $app->make(\Banimark\Storage\Attachments::class),
             );
@@ -73,7 +73,7 @@ class BanimarkServiceProvider extends ServiceProvider
                 $app->make(\Banimark\Storage\Attachments::class),
                 $app->make(\Banimark\Files\FileStore::class),
                 \Banimark\Files\UploadPolicy::fromSettings($settings),
-                (string) config('banimark.identity_secret', ''),
+                \Banimark\Laravel\IdentitySecret::current(),
                 \Banimark\Files\FileStoreFactory::enabled($settings),
             );
         });
@@ -92,7 +92,7 @@ class BanimarkServiceProvider extends ServiceProvider
             return new \Banimark\Http\ChatEndpoint(
                 \Banimark\Laravel\EngineFactory::make(),
                 $app->make(\Banimark\Storage\PdoStore::class),
-                (string) config('banimark.identity_secret', ''),
+                \Banimark\Laravel\IdentitySecret::current(),
                 2000, \Banimark\Ai\Behaviour::historyWindow(self::settings()),
                 // (the notifier follows; attachments are appended after it)
                 // escalation alert: Banimark's OWN mailer (panel SMTP settings),
@@ -118,6 +118,7 @@ class BanimarkServiceProvider extends ServiceProvider
                 \Banimark\Ai\Behaviour::dailyCap(self::settings()),
                 $app->make(\Banimark\Http\RateLimiter::class),
                 \Banimark\Ai\Behaviour::typingGrace(self::settings()),
+                \Banimark\Ai\Behaviour::splitChars(self::settings()),
             );
         });
         $this->app->singleton(\Banimark\Http\RateLimiter::class, function () {
@@ -126,7 +127,7 @@ class BanimarkServiceProvider extends ServiceProvider
         $this->app->bind(\Banimark\Http\PollEndpoint::class, function ($app) {
             return new \Banimark\Http\PollEndpoint(
                 $app->make(\Banimark\Storage\PdoStore::class),
-                (string) config('banimark.identity_secret', ''),
+                \Banimark\Laravel\IdentitySecret::current(),
                 $app->make(\Banimark\Storage\Attachments::class),
             );
         });

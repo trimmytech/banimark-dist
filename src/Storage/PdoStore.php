@@ -33,7 +33,16 @@ class PdoStore implements StateStore
 
     /* ---------------- StateStore (the engine's view) ---------------- */
 
-    public function load(string $sessionId): ?array
+    /**
+     * @param int $pendingAfter typing-aware turns: user rows with an id above
+     *   this (the conversation's answered_through) were saved while an earlier
+     *   turn was already answering, so they sit BEFORE that turn's rows in the
+     *   record although nobody has answered them. The model must see them
+     *   LAST, as the question being asked - a history ending on our own answer
+     *   is a 400 on Gemini 3.6+ ("Requests ending with a model turn"), caught
+     *   live on banimark.com. -1 = the record as it is (every other caller).
+     */
+    public function load(string $sessionId, int $pendingAfter = -1): ?array
     {
         $conv = $this->conversation($sessionId);
         // a conversation the visitor deleted is gone for EVERY visitor path
@@ -46,9 +55,14 @@ class PdoStore implements StateStore
         // a chat handed back to the AI must not have a hole where a colleague
         // answered. Only staff-only system notes stay out of the prompt.
         $rows = $this->query(
-            "SELECT role, content, payload FROM {$this->prefix}messages WHERE conversation_id = ? AND role IN ('user', 'assistant', 'agent', 'tool') ORDER BY id",
+            "SELECT id, role, content, payload, withheld_at FROM {$this->prefix}messages WHERE conversation_id = ? AND role IN ('user', 'assistant', 'agent', 'tool') ORDER BY id",
             [$conv['id']],
         );
+        $rows = self::mergeParts($rows);
+        if ($pendingAfter >= 0) {
+            $pending = array_filter($rows, fn ($r) => $r['role'] === 'user' && (int) $r['id'] > $pendingAfter);
+            $rows = array_merge(array_diff_key($rows, $pending), array_values($pending));
+        }
         $stateRows = [];
         foreach ($rows as $r) {
             $payload = $r['payload'] ? (json_decode($r['payload'], true) ?: []) : [];
@@ -62,6 +76,26 @@ class PdoStore implements StateStore
     }
 
     public function save(string $sessionId, ConversationState $state, string $identityHash): void
+    {
+        $this->write($sessionId, $state, $identityHash, null);
+    }
+
+    /**
+     * save(), with the turn's final answer written as one row PER PART (the
+     * ReplySplitter's plan in each payload: reply token, part n of N, delay),
+     * so every channel delivers the parts in order and the desk can later tell
+     * which of them the visitor saw. Returns the part rows' ids, in order.
+     *
+     * @param list<array{text: string, delay_ms: int}> $parts
+     * @return int[]
+     */
+    public function saveSplit(string $sessionId, ConversationState $state, string $identityHash, array $parts): array
+    {
+        return $this->write($sessionId, $state, $identityHash, count($parts) > 1 ? $parts : null);
+    }
+
+    /** @return int[] ids of the split parts written (empty when the answer was one message) */
+    private function write(string $sessionId, ConversationState $state, string $identityHash, ?array $parts): array
     {
         $conv = $this->conversation($sessionId);
         if (!$conv) {
@@ -78,9 +112,22 @@ class PdoStore implements StateStore
         // older than the AI's memory window. The table is the record; the state
         // is only the model's window over it.
         $unstored = $state->unstored();
-        foreach ($unstored as $m) {
+        $ids = [];
+        $last = $unstored === [] ? null : array_key_last($unstored);
+        foreach ($unstored as $k => $m) {
             if ($m->role === \Banimark\Ai\Message::AGENT) {
                 continue; // written when the agent sent it; it is already a row
+            }
+            if ($parts !== null && $k === $last && $m->role === \Banimark\Ai\Message::ASSISTANT && $m->toolCalls === []) {
+                $token = bin2hex(random_bytes(4));
+                foreach ($parts as $i => $part) {
+                    $this->exec(
+                        "INSERT INTO {$this->prefix}messages (conversation_id, role, content, payload, created_at) VALUES (?, 'assistant', ?, ?, ?)",
+                        [$conv['id'], (string) $part['text'], json_encode(['reply' => $token, 'part' => $i + 1, 'of' => count($parts), 'delay_ms' => (int) $part['delay_ms']]), time()],
+                    );
+                    $ids[] = (int) $this->pdo->lastInsertId();
+                }
+                continue;
             }
             $row = $this->stateRow($m);
             $payload = $row;
@@ -93,6 +140,80 @@ class PdoStore implements StateStore
         }
         $state->markStored();
         $this->exec("UPDATE {$this->prefix}conversations SET last_message_at = ? WHERE id = ?", [time(), $conv['id']]);
+        return $ids;
+    }
+
+    /* ---- split replies: what the visitor saw ----
+     * A reply delivered in parts can be interrupted: the visitor writes again
+     * before the last part shows. The client says how far it got
+     * (seen_through = the last message id it displayed); the parts after it
+     * are marked withheld - never shown to the visitor from then on, kept for
+     * staff, and folded into the model's window as "not yet sent" so the next
+     * answer knows what was and was not said. */
+
+    /** @return int how many parts of the latest reply were withheld */
+    public function withholdUnseen(string $sessionId, int $seenThrough): int
+    {
+        $conv = $this->conversation($sessionId);
+        if (!$conv) {
+            return 0;
+        }
+        $last = $this->query("SELECT id, payload FROM {$this->prefix}messages WHERE conversation_id = ? AND role = 'assistant' ORDER BY id DESC LIMIT 1", [$conv['id']])[0] ?? null;
+        $payload = $last && $last['payload'] ? (json_decode((string) $last['payload'], true) ?: []) : [];
+        $token = (string) ($payload['reply'] ?? '');
+        if ($token === '' || (int) $last['id'] <= $seenThrough) {
+            return 0; // not a split reply, or the visitor saw all of it
+        }
+        $rows = $this->query("SELECT id, payload FROM {$this->prefix}messages WHERE conversation_id = ? AND role = 'assistant' AND id > ? AND withheld_at = 0 ORDER BY id", [$conv['id'], $seenThrough]);
+        $n = 0;
+        foreach ($rows as $r) {
+            $p = $r['payload'] ? (json_decode((string) $r['payload'], true) ?: []) : [];
+            if (($p['reply'] ?? '') === $token) {
+                $this->exec("UPDATE {$this->prefix}messages SET withheld_at = ? WHERE id = ?", [time(), (int) $r['id']]);
+                $n++;
+            }
+        }
+        return $n;
+    }
+
+    /**
+     * The parts of one split reply, back into ONE assistant turn for the
+     * model: the parts the visitor saw as what was said, the withheld ones
+     * (they wrote again first) marked as never sent - so the next answer can
+     * acknowledge, finish the thought if it still applies, and not repeat
+     * what the visitor already read.
+     */
+    private static function mergeParts(array $rows): array
+    {
+        $out = [];
+        $i = 0;
+        $n = count($rows);
+        while ($i < $n) {
+            $r = $rows[$i];
+            $p = $r['payload'] ? (json_decode((string) $r['payload'], true) ?: []) : [];
+            $token = $r['role'] === 'assistant' ? (string) ($p['reply'] ?? '') : '';
+            if ($token === '') {
+                $out[] = $r;
+                $i++;
+                continue;
+            }
+            $said = [];
+            $held = [];
+            while ($i < $n && $rows[$i]['role'] === 'assistant') {
+                $q = $rows[$i]['payload'] ? (json_decode((string) $rows[$i]['payload'], true) ?: []) : [];
+                if (($q['reply'] ?? '') !== $token) {
+                    break;
+                }
+                if ((int) ($rows[$i]['withheld_at'] ?? 0) > 0) { $held[] = $rows[$i]['content']; } else { $said[] = $rows[$i]['content']; }
+                $i++;
+            }
+            $content = implode("\n\n", $said);
+            if ($held !== []) {
+                $content .= ($content === '' ? '' : "\n\n").'[Not yet sent when the customer wrote again - they did NOT see this: '.implode(' ', $held).']';
+            }
+            $out[] = ['id' => $r['id'], 'role' => 'assistant', 'content' => $content, 'payload' => null, 'withheld_at' => 0];
+        }
+        return $out;
     }
 
     /** One message in the shape the messages table stores. */
@@ -319,7 +440,7 @@ class PdoStore implements StateStore
             return [];
         }
         return $this->query(
-            "SELECT m.id, m.role, m.content, m.payload, m.created_at, m.agent_id, (SELECT name FROM {$this->prefix}agents a WHERE a.id = m.agent_id) AS agent_name FROM {$this->prefix}messages m WHERE m.conversation_id = ? AND m.id > ? ORDER BY m.id",
+            "SELECT m.id, m.role, m.content, m.payload, m.created_at, m.agent_id, m.withheld_at, (SELECT name FROM {$this->prefix}agents a WHERE a.id = m.agent_id) AS agent_name FROM {$this->prefix}messages m WHERE m.conversation_id = ? AND m.id > ? ORDER BY m.id",
             [$conv['id'], $afterId],
         );
     }
@@ -478,7 +599,7 @@ class PdoStore implements StateStore
         // one extra row answers "is there more?" without a second query
         $rows = $this->query(
             "SELECT id, role, content FROM {$this->prefix}messages
-             WHERE conversation_id = ? AND role IN ('user', 'assistant', 'agent') AND content <> ''{$older}
+             WHERE conversation_id = ? AND role IN ('user', 'assistant', 'agent') AND content <> '' AND withheld_at = 0{$older}
              ORDER BY id DESC LIMIT ".($limit + 1),
             $args,
         );
@@ -600,7 +721,7 @@ class PdoStore implements StateStore
             return [];
         }
         return $this->query(
-            "SELECT m.id, m.role, m.content, m.payload, m.created_at, m.agent_id, (SELECT name FROM {$this->prefix}agents a WHERE a.id = m.agent_id) AS agent_name FROM {$this->prefix}messages m WHERE m.conversation_id = ? ORDER BY m.id",
+            "SELECT m.id, m.role, m.content, m.payload, m.created_at, m.agent_id, m.withheld_at, (SELECT name FROM {$this->prefix}agents a WHERE a.id = m.agent_id) AS agent_name FROM {$this->prefix}messages m WHERE m.conversation_id = ? ORDER BY m.id",
             [$conv['id']],
         );
     }

@@ -387,7 +387,10 @@ final class Pages
             .'<label class="check" style="margin-top:12px"><span class="switch"><input type="checkbox" name="sound" value="1"'.($g('sound', '1') !== '0' ? ' checked' : '').'><span class="sl"></span></span> Play a soft chime when your team replies</label>'
             .'<div class="hint">Browsers only allow it after the visitor has clicked in the chat.</div>'
             .'<label>Note shown when nobody is around <span class="muted">(optional)</span></label>'
-            .'<input type="text" name="offline_note" value="'.$e($g('offline_note')).'" placeholder="We usually reply within a few hours.">';
+            .'<input type="text" name="offline_note" value="'.$e($g('offline_note')).'" placeholder="We usually reply within a few hours.">'
+            .'<label>Other websites allowed to carry the chat <span class="muted">(optional)</span></label>'
+            .'<textarea name="widget_origins" rows="2" placeholder="https://www.example.com">'.$e($g('widget_origins')).'</textarea>'
+            .'<div class="hint">Only when Banimark runs on a different domain than the site showing the widget. One per line - scheme and host, no path. Leave it empty when the chat is on the same site. <code>*</code> allows any site. Listed sites may also show the chat link inside a frame.</div>';
 
         $chips = '';
         foreach ($starters as $st) {
@@ -447,6 +450,10 @@ final class Pages
                 .'<label>Signed-in customers - mint a token on your server</label>'
                 .'<textarea readonly rows="4" data-select-all class="code">'.$e($o['token_snippet']).'</textarea>'
                 .'<div class="hint">Pass it as <code>data-token</code> on the script tag. The AI can never set these values itself.</div>'
+                .self::signingSecret($o)
+                .'<label>Not on PHP? The token is two base64url parts joined by a dot: the claims as JSON (with <code>exp</code>), then HMAC-SHA256 of that first part with the secret. A standard <b>HS256 JWT</b> with the same claims, an <code>exp</code> and the same secret is accepted as well - <code>jwt.sign(claims, secret, { expiresIn: \'24h\' })</code></label>'
+                .'<textarea readonly rows="9" data-select-all class="code" data-node-snippet>'.$e(self::NODE_SNIPPET).'</textarea>'
+                .'<div class="hint">Every claim becomes a <code>:_claim</code> binding in a scoped tool - the visitor\'s own account, order or booking - so a lookup can only ever return their rows. Keep the secret on your server: never in a browser, an app build or a repository.</div>'
                 .'<label>Or pass known details - to label the chat and follow up by email, never to scope a lookup</label>'
                 .'<textarea readonly rows="3" data-select-all class="code">window.__BANIMARK_CFG = Object.assign(window.__BANIMARK_CFG || {}, {
   user: { name: "Ada Lovelace", email: "ada@example.com" }
@@ -455,6 +462,66 @@ final class Pages
                 '<textarea readonly rows="1" data-select-all class="code">'.$e($o['chat_page_url']).'</textarea>'
                 .'<div class="hint">Signed-in users: append <code>?t=</code> and a <code>VisitorToken</code> minted server-side (24 h) so their lookups are scoped. Never put a long-lived token in an email.</div>')
             .Layout::section('Mobile apps (Flutter)', 'The same chat, native in your iOS and Android app - human handover with live replies, resumes where the visitor left off, guest mode.', $flutterBody);
+    }
+
+    /** Mint a visitor token from any stack - the widget page shows it beside the PHP one. */
+    public const NODE_SNIPPET = "const crypto = require('crypto');\n"
+        ."function banimarkToken(claims, secret, ttlSeconds = 86400) {\n"
+        ."  const payload = Buffer.from(JSON.stringify({\n"
+        ."    ...claims, exp: Math.floor(Date.now() / 1000) + ttlSeconds\n"
+        ."  })).toString('base64url');\n"
+        ."  const sig = crypto.createHmac('sha256', secret).update(payload).digest('base64url');\n"
+        ."  return `\${payload}.\${sig}`;\n"
+        ."}\n"
+        ."// banimarkToken({ user_id: 42 }, process.env.BANIMARK_SIGNING_SECRET)";
+
+    /**
+     * The signing secret block of the widget page. Owner-only, and the secret
+     * itself appears ONLY as `fresh_secret`: the value the owner just
+     * generated, shown once on the page they were redirected to and never
+     * rendered again. A GET of this page never carries the stored secret - a
+     * hijacked session or a panel XSS must not be able to read the key that
+     * forges every visitor's identity.
+     *
+     * @param array{is_owner?: bool, secret_url?: string, csrf?: string, fresh_secret?: ?string,
+     *   secret_state?: array{set?: bool, source?: string, generated_at?: string, note?: string}} $o
+     */
+    public static function signingSecret(array $o): string
+    {
+        $e = [self::class, 'e'];
+        $state = (array) ($o['secret_state'] ?? []);
+        $fresh = (string) ($o['fresh_secret'] ?? '');
+        $out = '<label>Signing secret - the key your server signs the token with</label>';
+        if ($fresh !== '') {
+            $out .= '<div class="flash-ok" style="display:block" data-fresh-secret-box>'
+                .'<div style="font-weight:600;margin-bottom:8px">Your new signing secret. Copy it now - it is shown this once and never again.</div>'
+                .'<div class="bm-secret" data-fresh-secret>'.$e($fresh).'</div>'
+                .'<div class="hint" style="margin-top:8px">Put it on your token server and nowhere else. Lost it? Generate another - the old one stops working at that moment.</div>'
+                .'</div>';
+        }
+        $set = !empty($state['set']);
+        $source = (string) ($state['source'] ?? '');
+        $status = !$set
+            ? 'No signing secret is set yet, so signed-in visitors are treated as anonymous.'
+            : ($source === 'env'
+                ? 'Set as BANIMARK_IDENTITY_SECRET in your .env - your app reads it from there today.'
+                : (!empty($state['generated_at'])
+                    ? 'Set, generated on '.$e(substr((string) $state['generated_at'], 0, 10)).'. It is never shown again after generating.'
+                    : 'Set when Banimark was installed, and never shown. Generate one here to get a copy for your server.'));
+        $out .= '<div class="hint">'.$status.'</div>';
+        if (!empty($o['is_owner']) && (string) ($o['secret_url'] ?? '') !== '') {
+            $confirm = $set
+                ? 'Generate a new signing secret? Every token signed with the current one stops working immediately - signed-in visitors become anonymous until your server uses the new secret.'
+                : 'Generate a signing secret? You will see it once.';
+            $out .= '<form method="post" action="'.$e((string) $o['secret_url']).'" style="margin-top:8px">'.($o['csrf'] ?? '')
+                .'<button class="btn2 btn-sm" data-confirm="'.$e($confirm).'">'.Icons::get('shield', 14).' '.($set ? 'Generate a new signing secret' : 'Generate a signing secret').'</button></form>';
+            if (!empty($state['note'])) {
+                $out .= '<div class="hint">'.$e((string) $state['note']).'</div>';
+            }
+        } elseif (empty($o['is_owner'])) {
+            $out .= '<div class="hint">Only an owner can generate the signing secret.</div>';
+        }
+        return $out;
     }
 
     /**
@@ -829,8 +896,9 @@ final class Pages
                         .($f['size'] > 1048576 ? round($f['size'] / 1048576, 1).' MB' : round($f['size'] / 1024).' KB').'</span></a>';
             }
             $who = $m['role'] === 'agent' ? (($m['by'] ?? '') !== '' ? $m['by'] : 'human agent').' · ' : ($m['role'] === 'assistant' ? 'AI · ' : '');
-            $msgs .= '<div class="msg '.$e($m['role']).'" data-id="'.(int) $m['id'].'">'.Markdown::toHtml((string) $m['text']).$atts
-                .'<div class="msg-meta">'.$e($who).($m['at'] ? date('H:i', (int) $m['at']) : '').'</div></div>';
+            $held = !empty($m['withheld']); // a part the visitor never saw - they wrote again first
+            $msgs .= '<div class="msg '.$e($m['role']).($held ? ' withheld' : '').'" data-id="'.(int) $m['id'].'"'.($held ? ' title="Not sent - the visitor wrote again before this part showed"' : '').'>'.Markdown::toHtml((string) $m['text']).$atts
+                .'<div class="msg-meta">'.$e($who).($m['at'] ? date('H:i', (int) $m['at']) : '').($held ? ' · not sent, the visitor wrote first' : '').'</div></div>';
         }
         if ($msgs === '') {
             $msgs = Chart::empty('No messages yet', 'The visitor opened the chat but has not written anything.');
@@ -1260,6 +1328,8 @@ final class Pages
                 .'<div class="hint">Past this, visitors go straight to your team for the rest of the day and the thread says why. A safety net against a runaway bill.</div></div>'
                 .'<div><label>Let a visitor finish typing <span class="muted">(seconds of pause, 0 = off)</span></label><input type="number" name="ai_typing_grace" min="0" max="10" value="'.(int) Behaviour::typingGrace($s).'">'
                 .'<div class="hint">When a visitor sends a message and keeps typing, the assistant waits until they have paused this long (3 to 10 seconds, 12 at most in total), then answers everything they wrote in one reply. 0 = every message is answered at once.</div></div>'
+                .'<div><label>Reply in short messages of about <span class="muted">(characters, 0 = one message)</span></label><input type="number" name="ai_split_chars" min="0" max="1200" value="'.(int) Behaviour::splitChars($s).'">'
+                .'<div class="hint">A long answer arrives as up to four messages, each after a typing pause, the way a person writes. Lists, code and links are never split. If the visitor writes again before the last message shows, the assistant knows what they saw, and carries on from there.</div></div>'
                 .'</div>')
             .Layout::saveBar('Save changes', '', true).'</form>';
     }
@@ -1276,6 +1346,7 @@ final class Pages
         $set('ai_max_tokens', (string) max(256, min(8192, (int) ($p['ai_max_tokens'] ?? Behaviour::DEFAULT_MAX_TOKENS))));
         $set('ai_daily_cap', (string) max(0, min(1000000, (int) ($p['ai_daily_cap'] ?? 0))));
         $set('ai_typing_grace', (string) Behaviour::typingGrace(['ai_typing_grace' => $p['ai_typing_grace'] ?? Behaviour::DEFAULT_TYPING_GRACE]));
+        $set('ai_split_chars', (string) Behaviour::splitChars(['ai_split_chars' => $p['ai_split_chars'] ?? Behaviour::DEFAULT_SPLIT_CHARS]));
     }
 
     /* ---------------------------------------------------------------- inbox */

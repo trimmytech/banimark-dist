@@ -634,6 +634,8 @@ button.is-busy { opacity: .7; cursor: progress; }
 .bm-chip.on span { background: color-mix(in srgb, var(--brand) 18%, transparent); }
 .bm-chip.urgent span { background: var(--critical-soft); color: var(--critical); }
 .bm-chip.live span { background: var(--good-soft); color: var(--good); }
+/* a part of a split AI reply the visitor never saw (they wrote again first) */
+.msg.withheld { opacity: .55; border-style: dashed; }
 .bm-chip.clear { border-style: dashed; color: var(--muted); }
 
 .bm-thread { border-left: 3px solid transparent; }

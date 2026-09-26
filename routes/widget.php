@@ -6,7 +6,13 @@ use Illuminate\Support\Facades\Route;
 // every visitor-facing address lives under ONE prefix the owner may change
 // (BANIMARK_WIDGET_PATH, default "banimark"): widget.js, the chat API, the
 // chat link and file links. Route NAMES never change - use route('banimark.chat').
-Route::prefix(\Banimark\Laravel\Urls::widget())->group(function () {
+// WidgetCors: another website embedding the widget (Banimark on its own box)
+// gets the browser's CORS grant for the origins the owner listed; same-origin
+// traffic is untouched. Laravel answers OPTIONS itself WITHOUT route middleware,
+// so the preflight has an explicit route.
+Route::prefix(\Banimark\Laravel\Urls::widget())->middleware(\Banimark\Laravel\Http\WidgetCors::class)->group(function () {
+
+Route::options('/{any}', fn () => response('', 204))->where('any', '.*')->name('banimark.widget.preflight');
 
 Route::get('/widget.js', [WidgetController::class, 'script'])->name('banimark.widget');
 Route::get('/chat-page', [WidgetController::class, 'page'])->name('banimark.chat.page');

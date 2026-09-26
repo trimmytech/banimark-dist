@@ -85,7 +85,11 @@ class DoctorCommand extends Command
         }
 
         // identity secret
-        $check('identity secret set', (string) config('banimark.identity_secret', '') !== '', 'php artisan banimark:install (generates it)');
+        $source = \Banimark\Laravel\IdentitySecret::source();
+        $check('identity secret set'.($source !== '' ? ' (from '.($source === 'env' ? '.env' : 'Banimark settings').')' : ''), $source !== '', 'generate it on the panel\'s Widget page');
+        if (\Banimark\Laravel\IdentitySecret::envDiffers()) {
+            $this->warn('  ! BANIMARK_IDENTITY_SECRET in .env differs from the active secret (Banimark settings) and is ignored. Mint with \\Banimark\\Laravel\\IdentitySecret::current(), not config().');
+        }
 
         // licensing: on an ENCODED build the master file needs the ionCube (or
         // SourceGuardian) loader to run. We only flag it when the shipped file
