@@ -202,6 +202,10 @@
       since = d.now; try { localStorage.setItem(KEY_SINCE, String(since)); } catch (e) {}
       setBadge(d.waiting);
       document.title = (d.waiting > 0 ? '(' + d.waiting + ') ' : '') + baseTitle;
+      // visitors online now (dashboard pill, inbox chip) - the same poll keeps them current
+      if (typeof d.online === 'number') {
+        Array.prototype.forEach.call(document.querySelectorAll('[data-online]'), function (el) { el.textContent = String(d.online); });
+      }
       if (fresh > 0) {
         chime();
         // the live conversation page shows its own messages - only toast others

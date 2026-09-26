@@ -1000,12 +1000,12 @@ class PanelController
         // the daily HQ re-check now lives in EnsureBanimarkAccess (before the verdict)
         $pdo = DB::connection()->getPdo();
         $days = (int) $request->query('days', 30);
-        $insights = \Banimark\Insights\ConversationInsights::stored(
-            DB::table('banimark_settings')->where('key', \Banimark\Insights\ConversationInsights::SETTING)->pluck('value', 'key')->all());
+        $settings = DB::table('banimark_settings')->whereIn('key', [\Banimark\Insights\ConversationInsights::SETTING, 'online_minutes'])->pluck('value', 'key')->all();
+        $insights = \Banimark\Insights\ConversationInsights::stored($settings);
         $hasProvider = \Banimark\Laravel\EngineFactory::driver()[0] !== null;
         return view('banimark::admin.dashboard', [
             'name' => $auth->name(),
-            'body' => \Banimark\Ui\Pages::dashboard((new Analytics($pdo))->period($days), $store->listConversations(6), [
+            'body' => \Banimark\Ui\Pages::dashboard((new Analytics($pdo))->period($days, null, PdoStore::onlineMinutes($settings)), $store->listConversations(6), [
                 'period_url' => fn (int $d) => route('banimark.admin.dashboard', ['days' => $d]),
                 'conversation_url' => fn (string $sid) => route('banimark.admin.conversation', $sid),
                 'inbox' => route('banimark.admin.inbox'),
@@ -1031,8 +1031,8 @@ class PanelController
     public function inbox(Request $request, PdoStore $store, AgentAuth $auth)
     {
         if ($r = $this->gate($auth)) { return $r; }
-        $filters = self::inboxFilters($request->all());
-        $counts = $store->inboxCounts();
+        $filters = self::inboxFilters($request->all()) + ['online_minutes' => $this->onlineMinutes()];
+        $counts = $store->inboxCounts($filters['online_minutes']);
         return view('banimark::admin.inbox', [
             'counts' => $counts,
             'subtitle' => \Banimark\Ui\Pages::inboxSubtitle($counts),
@@ -1057,8 +1057,15 @@ class PanelController
             'waiting' => empty($input['waiting']) ? 0 : 1,
             'files' => empty($input['files']) ? 0 : 1,
             'known' => empty($input['known']) ? 0 : 1,
+            'online' => empty($input['online']) ? 0 : 1,
             'sort' => ($input['sort'] ?? '') === 'waiting' ? 'waiting' : '',
         ];
+    }
+
+    /** The owner's "online" window (Widget page), for the dashboard, inbox and events poll. */
+    private function onlineMinutes(): int
+    {
+        return PdoStore::onlineMinutes(DB::table('banimark_settings')->where('key', 'online_minutes')->pluck('value', 'key')->all());
     }
 
     public function conversation(string $sessionId, PdoStore $store, AgentAuth $auth, \Banimark\Storage\Attachments $attachments)
@@ -1149,7 +1156,7 @@ class PanelController
     public function events(Request $request, PdoStore $store, AgentAuth $auth)
     {
         if ($r = $this->gate($auth)) { return $r; }
-        return response()->json($store->staffEvents((int) $request->query('since', 0)));
+        return response()->json($store->staffEvents((int) $request->query('since', 0), null, $this->onlineMinutes()));
     }
 
     public function saveQuickReplies(Request $request, AgentAuth $auth)
@@ -1736,6 +1743,7 @@ class PanelController
             'poll_seconds' => fn ($v) => (string) max(3, min(600, (int) $v ?: 10)),
             'poll_idle_seconds' => fn ($v) => (string) max(10, min(600, (int) $v ?: 30)),
             'launcher_reappear_minutes' => fn ($v) => (string) max(0, min(1440, $v === '' ? 10 : (int) $v)),
+            'online_minutes' => fn ($v) => (string) PdoStore::onlineMinutes(['online_minutes' => $v]),
             'guest_mode' => fn ($v) => in_array($v, ['off', 'optional', 'required'], true) ? $v : 'off',
             'offline_note' => fn ($v) => mb_substr(trim($v), 0, 200),
             // auto follows the visitor's OS; light/dark force it (Flutter reads the same value)

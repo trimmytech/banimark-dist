@@ -117,6 +117,7 @@ class BanimarkServiceProvider extends ServiceProvider
                 $app->make(\Banimark\Storage\Attachments::class),
                 \Banimark\Ai\Behaviour::dailyCap(self::settings()),
                 $app->make(\Banimark\Http\RateLimiter::class),
+                \Banimark\Ai\Behaviour::typingGrace(self::settings()),
             );
         });
         $this->app->singleton(\Banimark\Http\RateLimiter::class, function () {

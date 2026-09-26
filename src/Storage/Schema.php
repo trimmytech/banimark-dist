@@ -40,6 +40,8 @@ class Schema
             staff_seen_at INTEGER NOT NULL DEFAULT 0,
             visitor_deleted_at INTEGER NOT NULL DEFAULT 0,
             kept INTEGER NOT NULL DEFAULT 0,
+            answered_through INTEGER NOT NULL DEFAULT 0,
+            turn_lock_until INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL DEFAULT 0
         ){$tail}");
         self::index($pdo, "{$prefix}conv_session", "{$prefix}conversations", 'session_id', true);
@@ -240,6 +242,10 @@ class Schema
         // erased for good after visitor_delete_days unless staff keep it)
         self::addColumn($pdo, "{$prefix}conversations", 'visitor_deleted_at', 'INTEGER NOT NULL DEFAULT 0');
         self::addColumn($pdo, "{$prefix}conversations", 'kept', 'INTEGER NOT NULL DEFAULT 0');
+        // typing-aware turns: the last visitor message an AI turn covered, and a
+        // per-conversation lock so two requests never run two turns at once
+        self::addColumn($pdo, "{$prefix}conversations", 'answered_through', 'INTEGER NOT NULL DEFAULT 0');
+        self::addColumn($pdo, "{$prefix}conversations", 'turn_lock_until', 'INTEGER NOT NULL DEFAULT 0');
         // the tool/rule library: which template a tool came from (templates may
         // use at most half the plan's tools) and which pack a rule came from
         self::addColumn($pdo, "{$prefix}tools", 'template', "VARCHAR(40) NOT NULL DEFAULT ''");

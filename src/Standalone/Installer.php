@@ -114,10 +114,10 @@ class Installer
             if ($slug !== '' && $slug !== 'skip' && $key !== '') {
                 $presets = [
                     'gemini' => ['gemini', \Banimark\Ai\ProviderPresets::DEFAULT_MODEL['gemini'], null],
-                    // Gemini only for now (ProviderPresets::OFFERED_DRIVERS) - kept for when they come back:
+                    'anthropic' => ['anthropic', \Banimark\Ai\ProviderPresets::DEFAULT_MODEL['anthropic'], null],
+                    // not offered yet (ProviderPresets::OFFERED_DRIVERS) - kept for when they come back:
                     // 'deepseek' => ['openai-compat', 'deepseek-chat', 'https://api.deepseek.com'],
                     // 'openai' => ['openai-compat', 'gpt-4o-mini', 'https://api.openai.com/v1'],
-                    // 'anthropic' => ['anthropic', 'claude-sonnet-5', null],
                 ];
                 if (isset($presets[$slug])) {
                     [$driver, $defModel, $baseUrl] = $presets[$slug];

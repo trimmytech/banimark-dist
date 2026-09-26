@@ -124,7 +124,7 @@
     var side = cfg.position === 'left' ? 'left' : 'right';
     var session = '';
     try { session = localStorage.getItem(SS_KEY) || ''; } catch (e) {}
-    var agentMode = false, lastAgentId = 0, pollTimer = null, busy = false, greeted = false;
+    var agentMode = false, lastAgentId = 0, pollTimer = null, busy = false, inflight = 0, greeted = false;
 
     /* a readable ink colour for the accent, so a light brand still reads */
     function ink(hex) {
@@ -807,7 +807,9 @@
         refreshSend();
     });
     function refreshSend() {
-        send.disabled = busy || (input.value.trim() === '' && !pending.some(function (p) { return p.id; }));
+        // a reply on its way never blocks the next message: the desk folds a
+        // follow-up into the answer it is writing (typing-aware turns)
+        send.disabled = input.value.trim() === '' && !pending.some(function (p) { return p.id; });
     }
     input.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -845,9 +847,14 @@
         msgs.scrollTop = msgs.scrollHeight;
     }
 
+    /* a brand-new chat has no id until its first answer arrives: a follow-up
+     * sent before then waits here, or it would open a SECOND conversation */
+    var queued = [];
     function postMessage(text, files, bub) {
+        if (!session && inflight > 0) { queued.push([text, files, bub]); return; }
+        inflight++;
         busy = true;
-        send.disabled = true;
+        typingAt = 0; // the first keystroke after a send reports typing at once - the desk is listening for it
         var sendingIds = files.map(function (p) { return p.id; });
 
         /* The dots appear after a short, slightly random pause - as if the
@@ -886,7 +893,8 @@
             settle(function () { onAnswer(); });
         };
         function onAnswer() {
-            busy = false;
+            inflight = Math.max(0, inflight - 1);
+            busy = inflight > 0;
             refreshSend();
             var res = null;
             try { res = JSON.parse(xhr.responseText); } catch (err) {}
@@ -894,6 +902,13 @@
             // exists on the server and a human may pick it up - losing the id here
             // is what used to turn a reload into a brand-new chat
             if (res && res.session_id) { adoptSession(res.session_id); }
+            if (queued.length && (session || !inflight)) {
+                var q = queued; queued = [];
+                q.forEach(function (m) {
+                    if (session) { postMessage(m[0], m[1], m[2]); }
+                    else { markFailed(m[2], 'Not sent', function () { postMessage(m[0], m[1], m[2]); }); }
+                });
+            }
             if (res && res.ok) {
                 if (res.reply) { bubble('bot', res.reply); }
                 if (res.mode === 'agent' && !agentMode) { enterAgentMode(); }
@@ -918,7 +933,7 @@
         e.preventDefault();
         var text = input.value.trim();
         var ready = pending.filter(function (p) { return p.id; });
-        if ((!text && !ready.length) || busy) { return; }
+        if (!text && !ready.length) { return; }
         input.value = '';
         resize();
         dropStarters();
@@ -1049,7 +1064,9 @@
         }
     }
     input.addEventListener('input', function () {
-        if (!session || !agentMode) { return; }
+        // to a human always; to the AI only while a reply is on its way - that is
+        // when the desk waits for the visitor to finish before it answers
+        if (!session || !(agentMode || busy)) { return; }
         var now = Date.now();
         if (now - typingAt > 2500) { typingAt = now; pollAgent(true); }
     });

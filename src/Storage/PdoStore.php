@@ -212,9 +212,62 @@ class PdoStore implements StateStore
      */
     public function visitorDelete(string $sessionId, ?int $now = null): bool
     {
-        $st = $this->pdo->prepare("UPDATE {$this->prefix}conversations SET visitor_deleted_at = ?, visitor_typing_at = 0 WHERE session_id = ? AND visitor_deleted_at = 0");
+        // A chat that was with a PERSON goes back to the AI as it is deleted:
+        // the visitor's next message starts a fresh thread the AI answers, and
+        // nobody on the team keeps a dead handover in "Needs a person". A
+        // closed chat stays closed; escalated_at is kept for the statistics.
+        $wasAgent = $this->mode($sessionId) === 'agent';
+        $st = $this->pdo->prepare("UPDATE {$this->prefix}conversations SET visitor_deleted_at = ?, visitor_typing_at = 0,
+            mode = CASE WHEN mode = 'agent' THEN 'ai' ELSE mode END WHERE session_id = ? AND visitor_deleted_at = 0");
         $st->execute([$now ?? time(), $sessionId]);
+        $done = $st->rowCount() > 0;
+        if ($done && $wasAgent) {
+            $this->appendSystemNote($sessionId, 'The visitor deleted this conversation while it was with your team, so it was handed back to the AI - nobody is waiting on it. Their next message starts a new conversation.');
+        }
+        return $done;
+    }
+
+    /* ---- typing-aware turns (ChatEndpoint) ----
+     * The record is the queue: every request saves its message first, then one
+     * turn at a time answers everything on the record and stamps how far it
+     * got. A request whose message id is <= answered_through was covered by a
+     * turn that ran while it waited, so it returns without a second reply. */
+
+    public function lastUserMessageId(string $sessionId): int
+    {
+        $conv = $this->conversation($sessionId);
+        return $conv ? (int) ($this->query("SELECT MAX(id) AS n FROM {$this->prefix}messages WHERE conversation_id = ? AND role = 'user'", [$conv['id']])[0]['n'] ?? 0) : 0;
+    }
+
+    public function answeredThrough(string $sessionId): int
+    {
+        $conv = $this->conversation($sessionId);
+        return (int) ($conv['answered_through'] ?? 0);
+    }
+
+    public function markAnsweredThrough(string $sessionId, int $messageId): void
+    {
+        $this->exec("UPDATE {$this->prefix}conversations SET answered_through = ? WHERE session_id = ? AND answered_through < ?", [$messageId, $sessionId, $messageId]);
+    }
+
+    public function visitorTypingAt(string $sessionId): int
+    {
+        $conv = $this->conversation($sessionId);
+        return (int) ($conv['visitor_typing_at'] ?? 0);
+    }
+
+    /** One AI turn per conversation at a time. The lease expires by itself ($ttl), so a crashed worker never wedges a chat. */
+    public function lockTurn(string $sessionId, int $ttl = 90, ?int $now = null): bool
+    {
+        $now ??= time();
+        $st = $this->pdo->prepare("UPDATE {$this->prefix}conversations SET turn_lock_until = ? WHERE session_id = ? AND turn_lock_until < ?");
+        $st->execute([$now + $ttl, $sessionId, $now]);
         return $st->rowCount() > 0;
+    }
+
+    public function unlockTurn(string $sessionId): void
+    {
+        $this->exec("UPDATE {$this->prefix}conversations SET turn_lock_until = 0 WHERE session_id = ?", [$sessionId]);
     }
 
     /** Staff keep a visitor-deleted conversation (it is then never erased automatically), or let it go again. */
@@ -276,7 +329,7 @@ class PdoStore implements StateStore
      * fresh handovers. Feeds the panel's sound + badge. Bounded lists, newest
      * first; the caller stores 'now' and passes it back next time.
      */
-    public function staffEvents(int $since, ?int $now = null): array
+    public function staffEvents(int $since, ?int $now = null, int $onlineMinutes = self::ONLINE_MINUTES): array
     {
         $now = $now ?? time();
         $since = max(0, min($since, $now));
@@ -302,7 +355,8 @@ class PdoStore implements StateStore
         }
         usort($items, fn ($a, $b) => $b['at'] <=> $a['at']);
         $waiting = (int) ($this->query("SELECT COUNT(*) AS n FROM {$this->prefix}conversations WHERE mode = 'agent'", [])[0]['n'] ?? 0);
-        return ['now' => $now, 'messages' => count($msgs), 'escalations' => count($esc), 'waiting' => $waiting, 'items' => $items];
+        return ['now' => $now, 'messages' => count($msgs), 'escalations' => count($esc), 'waiting' => $waiting,
+            'online' => $this->onlineVisitors($onlineMinutes, $now), 'items' => $items];
     }
 
     /* ---------------- visitor identity & presence ---------------- */
@@ -336,6 +390,28 @@ class PdoStore implements StateStore
     }
 
     /** The visitor is on the page right now - refreshed by the widget's poll. */
+    /**
+     * "Online" for the desk = a visitor whose chat checked in during the last
+     * N minutes - open OR closed, because a closed widget and the app still
+     * poll (poll_idle_seconds) and every poll touches last_seen_at. Distinct
+     * from Triage::isOnline (45 s = the chat is OPEN right now). The window
+     * is the owner's (setting online_minutes); 1..1440.
+     */
+    public const ONLINE_MINUTES = 5;
+
+    public static function onlineMinutes(array $settings): int
+    {
+        $v = (int) ($settings['online_minutes'] ?? self::ONLINE_MINUTES);
+        return $v < 1 ? self::ONLINE_MINUTES : min(1440, $v);
+    }
+
+    public function onlineVisitors(int $minutes = self::ONLINE_MINUTES, ?int $now = null): int
+    {
+        return (int) ($this->query(
+            "SELECT COUNT(*) AS n FROM {$this->prefix}conversations WHERE last_seen_at > ? AND visitor_deleted_at = 0",
+            [($now ?? time()) - max(1, $minutes) * 60])[0]['n'] ?? 0);
+    }
+
     public function touch(string $sessionId, ?int $now = null): void
     {
         $this->exec("UPDATE {$this->prefix}conversations SET last_seen_at = ? WHERE session_id = ?", [$now ?? time(), $sessionId]);
@@ -421,7 +497,8 @@ class PdoStore implements StateStore
      */
     private function waitingSql(): string
     {
-        return "c.mode <> 'closed' AND EXISTS (SELECT 1 FROM {$this->prefix}messages mw
+        // a visitor who deleted the chat is not waiting for anyone
+        return "c.mode <> 'closed' AND c.visitor_deleted_at = 0 AND EXISTS (SELECT 1 FROM {$this->prefix}messages mw
                 WHERE mw.conversation_id = c.id AND mw.role = 'user'
                   AND mw.id > COALESCE((SELECT MAX(mx.id) FROM {$this->prefix}messages mx WHERE mx.conversation_id = c.id AND mx.role IN ('agent', 'assistant')), 0))";
     }
@@ -468,6 +545,10 @@ class PdoStore implements StateStore
         if (!empty($filters['known'])) {
             $where[] = "c.identity_hash <> 'anon'";
         }
+        if (!empty($filters['online'])) {
+            $where[] = 'c.last_seen_at > ? AND c.visitor_deleted_at = 0';
+            $args[] = ($filters['now'] ?? time()) - max(1, (int) ($filters['online_minutes'] ?? self::ONLINE_MINUTES)) * 60;
+        }
         $search = trim($search);
         if ($search !== '') {
             $where[] = "(c.visitor_label LIKE ? OR c.visitor_email LIKE ? OR EXISTS (SELECT 1 FROM {$this->prefix}messages ms WHERE ms.conversation_id = c.id AND ms.content LIKE ?))";
@@ -495,10 +576,11 @@ class PdoStore implements StateStore
      *
      * @return array{all:int, agent:int, ai:int, closed:int, unread:int, waiting:int}
      */
-    public function inboxCounts(): array
+    public function inboxCounts(int $onlineMinutes = self::ONLINE_MINUTES, ?int $now = null): array
     {
         $rows = $this->query("SELECT mode, COUNT(*) AS n FROM {$this->prefix}conversations GROUP BY mode", []);
-        $out = ['all' => 0, 'agent' => 0, 'ai' => 0, 'closed' => 0, 'unread' => 0, 'waiting' => 0];
+        $out = ['all' => 0, 'agent' => 0, 'ai' => 0, 'closed' => 0, 'unread' => 0, 'waiting' => 0,
+            'online' => $this->onlineVisitors($onlineMinutes, $now), 'online_minutes' => $onlineMinutes];
         foreach ($rows as $r) {
             $out[(string) $r['mode']] = (int) $r['n'];
             $out['all'] += (int) $r['n'];

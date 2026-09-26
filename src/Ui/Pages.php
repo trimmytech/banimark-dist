@@ -375,6 +375,8 @@ final class Pages
             .'<div class="hint">Only while the chat is open. This is also the visitor\'s heartbeat.</div></div>'
             .'<div><label>While the chat is closed, check every</label><div class="row"><input type="number" name="poll_idle_seconds" min="10" max="600" value="'.$e($g('poll_idle_seconds', '30')).'" style="max-width:120px"><span class="muted">seconds</span></div>'
             .'<div class="hint">A reply from your team shows as an unread count on the launcher (9+ past nine) on the website and in the app. Slower is kinder to your server.</div></div>'
+            .'<div><label>Count a visitor as online for</label><div class="row"><input type="number" name="online_minutes" min="1" max="1440" value="'.$e($g('online_minutes', '5')).'" style="max-width:120px"><span class="muted">minutes</span></div>'
+            .'<div class="hint">"Online now" on the dashboard and in the inbox counts visitors whose chat checked in within this long - chat open or closed, website or app. Keep it longer than the closed-chat check above, or people drop out between checks.</div></div>'
             .'<div><label>Bring a dismissed launcher back after</label><div class="row"><input type="number" name="launcher_reappear_minutes" min="0" max="1440" value="'.$e($g('launcher_reappear_minutes', '10')).'" style="max-width:120px"><span class="muted">minutes</span></div>'
             .'<div class="hint">On the website and in the app a visitor can drag the chat bubble anywhere (it stays where they put it) and close it with its small ×; it returns after this long. 0 = not until they open the app again. A reply from your team always brings it back.</div></div>'
             .'<div><label>Ask guests who they are</label><select name="guest_mode">'
@@ -586,8 +588,8 @@ final class Pages
         $form = '<form method="post" action="'.$e($u['save']).'" data-provider-form>'.$csrf
             .'<div class="grid2">'
             .'<div><label>Name <span class="muted">(how it is listed here)</span></label><input type="text" name="slug" required placeholder="gemini" value="'.$e($ed['slug'] ?? '').'"'.($ed ? ' readonly' : '').'></div>'
-            // Gemini only for now - the offer lives in ProviderPresets (OFFERED_DRIVERS / MODELS).
-            // The old hand-written menu, kept for when the others come back:
+            // Gemini and Claude - the offer lives in ProviderPresets (OFFERED_DRIVERS / MODELS).
+            // The old hand-written menu, kept for when OpenAI-compatible comes back:
             // <div><label>Driver</label><select name="driver">
             //   <option value="gemini">Google Gemini</option>
             //   <option value="anthropic">Anthropic Claude</option>
@@ -600,7 +602,7 @@ final class Pages
             .'<div><label>API key '.($ed ? '<span class="muted">('.(!empty($ed['has_key']) ? 'a key is stored - blank keeps it' : 'none stored yet').')</span>' : '')
             .' <a class="muted" data-key-link href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" style="text-decoration:underline;margin-left:6px">Where do I get one?</a></label>'
             .'<input type="password" name="api_key" autocomplete="new-password" placeholder="'.($ed && !empty($ed['has_key']) ? '•••••••• (unchanged)' : 'paste your API key').'"></div>'
-            .'<div><label>Temperature <span class="muted">(0 = precise, 1 = creative)</span></label><input type="number" name="temperature" step="0.05" min="0" max="2" value="'.$e($ed['temperature'] ?? '0.4').'"></div>'
+            .'<div><label>Temperature <span class="muted">(0 = precise, 1 = creative)</span></label><input type="number" name="temperature" step="0.05" min="0" max="2" value="'.$e($ed['temperature'] ?? '0.4').'"><div class="hint">Claude Opus 5.5, Sonnet 5 and Fable 5.1 set their own, so this applies to Gemini and Claude Haiku.</div></div>'
             .'</div>'
             .'<label class="check"><input type="checkbox" name="enabled" value="1"'.(($ed ? !empty($ed['enabled']) : true) ? ' checked' : '').'> This provider answers the chat <span class="muted">(switches the others off)</span></label>'
             .'<div class="row" style="margin-top:18px;gap:10px;justify-content:flex-end">'
@@ -608,7 +610,7 @@ final class Pages
             .'<button type="submit">'.Icons::get('check', 15).' '.($ed ? 'Save changes' : 'Add provider').'</button></div></form>';
 
         return Layout::section('Answering your chat', 'Only one provider answers at a time. Keys are stored on this server and never shown again - not even to you.', $list)
-            .Layout::section($ed ? 'Edit '.$ed['slug'] : 'Add a provider', $ed ? 'Leave the key blank to keep the stored one.' : 'Paste a Gemini key and pick a model. Every model in the list has been tested with Banimark.', $form, 'edit');
+            .Layout::section($ed ? 'Edit '.$ed['slug'] : 'Add a provider', $ed ? 'Leave the key blank to keep the stored one.' : 'Pick Google Gemini or Anthropic Claude, paste its key and pick a model. Every model in the list has been tested with Banimark.', $form, 'edit');
     }
 
     /**
@@ -930,7 +932,9 @@ final class Pages
 
         $head = '<div class="page-head"><div><h2>Your desk at a glance</h2>'
             .'<p>Last '.$days.' days, each figure compared with the '.$days.' days before.</p></div>'
-            .'<div class="row" style="gap:10px"><span class="live-dot">Live</span>'
+            .'<div class="row" style="gap:10px">'
+            // the live pill IS the online count: refreshed by panel.js from the staff events poll (data-online)
+            .'<span class="live-dot" title="Visitors whose chat checked in during the last '.(int) ($p['online_minutes'] ?? 5).' minutes, open or closed. Change the window under Widget."><b data-online>'.(int) ($p['online'] ?? 0).'</b>&nbsp;online now</span>'
             .Layout::periodSwitch(\Banimark\Storage\Analytics::PERIODS, $days, $o['period_url']).'</div></div>';
 
         $kpis = '<div class="bm-kpis">'
@@ -1254,6 +1258,8 @@ final class Pages
                 .'<div class="hint">A hard stop on reply length. Short answers are cheaper and read better in a chat bubble.</div></div>'
                 .'<div><label>Daily limit on AI answers <span class="muted">(0 = no limit)</span></label><input type="number" name="ai_daily_cap" min="0" max="1000000" value="'.(int) Behaviour::dailyCap($s).'">'
                 .'<div class="hint">Past this, visitors go straight to your team for the rest of the day and the thread says why. A safety net against a runaway bill.</div></div>'
+                .'<div><label>Let a visitor finish typing <span class="muted">(seconds of pause, 0 = off)</span></label><input type="number" name="ai_typing_grace" min="0" max="10" value="'.(int) Behaviour::typingGrace($s).'">'
+                .'<div class="hint">When a visitor sends a message and keeps typing, the assistant waits until they have paused this long (3 to 10 seconds, 12 at most in total), then answers everything they wrote in one reply. 0 = every message is answered at once.</div></div>'
                 .'</div>')
             .Layout::saveBar('Save changes', '', true).'</form>';
     }
@@ -1269,6 +1275,7 @@ final class Pages
         $set('ai_history_messages', (string) max(6, min(200, (int) ($p['ai_history_messages'] ?? Behaviour::DEFAULT_HISTORY))));
         $set('ai_max_tokens', (string) max(256, min(8192, (int) ($p['ai_max_tokens'] ?? Behaviour::DEFAULT_MAX_TOKENS))));
         $set('ai_daily_cap', (string) max(0, min(1000000, (int) ($p['ai_daily_cap'] ?? 0))));
+        $set('ai_typing_grace', (string) Behaviour::typingGrace(['ai_typing_grace' => $p['ai_typing_grace'] ?? Behaviour::DEFAULT_TYPING_GRACE]));
     }
 
     /* ---------------------------------------------------------------- inbox */
@@ -1308,19 +1315,21 @@ final class Pages
             ['key' => 'unread', 'label' => 'New to you', 'count' => (int) ($counts['unread'] ?? 0), 'tone' => '', 'title' => 'Something was said since you last opened it.'],
             ['key' => 'files', 'label' => 'Has files', 'count' => null, 'tone' => '', 'title' => 'A file was shared in the chat.'],
             ['key' => 'known', 'label' => 'Signed in', 'count' => null, 'tone' => '', 'title' => 'The visitor is signed in to your app, so lookups can be scoped to their account.'],
+            ['key' => 'online', 'label' => 'Online now', 'count' => (int) ($counts['online'] ?? 0), 'tone' => 'live', 'live' => true,
+                'title' => 'Their chat checked in during the last '.(int) ($counts['online_minutes'] ?? 5).' minutes, open or closed. Change the window under Widget.'],
         ];
         $chips = '';
         foreach ($toggles as $t) {
             $on = !empty($f[$t['key']]);
             $chips .= '<a class="bm-chip'.($on ? ' on' : '').($t['tone'] !== '' && $t['count'] ? ' '.$t['tone'] : '').'" title="'.$e($t['title']).'"'
                 .' href="'.$e($link([$t['key'] => $on ? 0 : 1])).'">'.$e($t['label'])
-                .($t['count'] !== null ? '<span>'.$t['count'].'</span>' : '').'</a>';
+                .($t['count'] !== null ? '<span'.(!empty($t['live']) ? ' data-online' : '').'>'.$t['count'].'</span>' : '').'</a>';
         }
         $sorted = ($f['sort'] ?? '') === 'waiting';
         $chips .= '<span class="spacer"></span><a class="bm-chip'.($sorted ? ' on' : '').'" href="'.$e($link(['sort' => $sorted ? '' : 'waiting'])).'"'
             .' title="Put the person who has waited longest at the top.">'.Icons::get('clock', 13).' Longest waiting</a>';
 
-        $anyFilter = !empty($f['unread']) || !empty($f['waiting']) || !empty($f['files']) || !empty($f['known']);
+        $anyFilter = !empty($f['unread']) || !empty($f['waiting']) || !empty($f['files']) || !empty($f['known']) || !empty($f['online']);
         if ($anyFilter || ($f['q'] ?? '') !== '') {
             $chips .= '<a class="bm-chip clear" href="'.$e($self.(($f['mode'] ?? null) ? '?mode='.$f['mode'] : '')).'">Clear filters</a>';
         }

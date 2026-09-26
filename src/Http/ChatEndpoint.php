@@ -41,7 +41,48 @@ class ChatEndpoint
         /** the owner's daily AI cap (0 = none) and the counter it is kept in */
         private int $aiDailyCap = 0,
         private ?RateLimiter $limiter = null,
+        private int $typingGrace = 0,
     ) {
+    }
+
+    /* typing-aware turns: how long to listen for typing after a message
+     * before answering (the widget's own "reading" pause hides most of it),
+     * the hard cap on waiting, the poll tick, and the turn lease */
+    private const LISTEN_MS = 1500;
+    private const WAIT_CAP_S = 12;
+    private const TICK_MS = 250;
+    private const LOCK_WAIT_S = 60;
+    private const LOCK_TTL_S = 90;
+
+    /** @return bool whether this request holds the conversation's turn (false = gave up waiting; answer anyway) */
+    private function waitForTurn(PdoStore $store, string $sessionId): bool
+    {
+        $until = microtime(true) + self::LOCK_WAIT_S;
+        do {
+            if ($store->lockTurn($sessionId, self::LOCK_TTL_S)) {
+                return true;
+            }
+            usleep(self::TICK_MS * 1000);
+        } while (microtime(true) < $until);
+        return false; // never leave a visitor hanging on a lease nobody released
+    }
+
+    /**
+     * Wait while the visitor is still typing (a typing ping newer than their
+     * message, within the grace), for at most WAIT_CAP. The first LISTEN_MS
+     * always pass, because the first ping cannot arrive before the message.
+     */
+    private function waitOutTyping(PdoStore $store, string $sessionId, int $sentAt): void
+    {
+        $start = microtime(true);
+        while (microtime(true) - $start < self::WAIT_CAP_S) {
+            $t = $store->visitorTypingAt($sessionId);
+            $typing = $t >= $sentAt && time() - $t < $this->typingGrace;
+            if (!$typing && microtime(true) - $start >= self::LISTEN_MS / 1000) {
+                return;
+            }
+            usleep(self::TICK_MS * 1000);
+        }
     }
 
     /**
@@ -214,6 +255,43 @@ class ChatEndpoint
         $state->push(Message::user($message));
         $state->truncateTo($this->historyWindow);
 
+        // TYPING-AWARE TURN (owner's "let a visitor finish typing"; 0 = off).
+        // The record is the queue: this message is saved NOW, so a turn already
+        // running for this conversation answers it too; one turn runs at a
+        // time; a message a turn covered while we waited needs no second reply
+        // (merged); and while the visitor keeps typing we wait - bounded - then
+        // answer EVERYTHING on the record in one reply.
+        $paced = $this->typingGrace > 0 && $this->store instanceof PdoStore;
+        $held = false;
+        $answered = 0;
+        if ($paced) {
+            $this->store->save($sessionId, $state, $identityHash);
+            $this->recordVisitor($sessionId, $claims, (array) ($input['visitor'] ?? []));
+            $sentAt = time();
+            $mine = $this->store->lastUserMessageId($sessionId);
+            $held = $this->waitForTurn($this->store, $sessionId);
+            if ($this->store->answeredThrough($sessionId) >= $mine) {
+                if ($held) { $this->store->unlockTurn($sessionId); }
+                return ['ok' => true, 'session_id' => $sessionId, 'reply' => '', 'mode' => $this->store->mode($sessionId), 'merged' => true, 'error' => null];
+            }
+            $this->waitOutTyping($this->store, $sessionId, $sentAt);
+            if ($this->store->mode($sessionId) === 'agent') { // a person took over while we waited
+                if ($held) { $this->store->unlockTurn($sessionId); }
+                return ['ok' => true, 'session_id' => $sessionId, 'reply' => '', 'mode' => 'agent', 'error' => null];
+            }
+            $fresh = $this->store->load($sessionId);
+            if ($fresh !== null) {
+                $state = $fresh['state'];
+                $state->truncateTo($this->historyWindow);
+            }
+            $answered = $this->store->lastUserMessageId($sessionId);
+        }
+        $release = function () use ($paced, $held, $sessionId, $answered): void {
+            if (!$paced) { return; }
+            $this->store->markAnsweredThrough($sessionId, $answered);
+            if ($held) { $this->store->unlockTurn($sessionId); }
+        };
+
         // the owner's daily budget: past it, the visitor goes to a human instead
         // of the model, and the thread says why (staff only). Counted BEFORE the
         // call so a burst cannot overshoot by a whole queue of requests.
@@ -221,13 +299,19 @@ class ChatEndpoint
             && $this->limiter->hit('ai:day', 86400) > $this->aiDailyCap) {
             $result = new EngineResult(false, '', 'Daily AI limit reached ('.$this->aiDailyCap.' answers per day, set on the AI settings page). No provider was called.', 0);
         } else {
-            $result = $this->engine->reply($state, $claims);
+            try {
+                $result = $this->engine->reply($state, $claims);
+            } catch (\Throwable $e) {
+                $release();
+                throw $e;
+            }
         }
         if (!$result->ok) {
             // The assistant failed (bad key, provider down, quota...). The visitor
             // must not be left with an apology: hand them to a human right away,
             // and put the REAL error in the thread where only staff can see it.
             $this->store->save($sessionId, $state, $identityHash);
+            $release();
             $this->recordVisitor($sessionId, $claims, (array) ($input['visitor'] ?? []));
             $label = self::visitorLabel($claims, (array) ($input['visitor'] ?? []));
             if ($this->store instanceof PdoStore) {
@@ -247,6 +331,7 @@ class ChatEndpoint
         }
 
         $this->store->save($sessionId, $state, $identityHash);
+        $release();
         $this->recordVisitor($sessionId, $claims, (array) ($input['visitor'] ?? []));
         $this->noteToolProblems($sessionId, $result);
 

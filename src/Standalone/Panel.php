@@ -225,7 +225,7 @@ class Panel
         }
         if ($route === '/events') {
             header('Content-Type: application/json');
-            echo json_encode($this->store->staffEvents((int) ($_GET['since'] ?? 0)));
+            echo json_encode($this->store->staffEvents((int) ($_GET['since'] ?? 0), null, $this->onlineMinutes()));
             return;
         }
         if (preg_match('#^/conversation/([a-f0-9]{32})/messages$#', $route, $m)) {
@@ -737,6 +737,7 @@ class Panel
             $this->settings->set('poll_seconds', (string) max(3, min(600, (int) ($p['poll_seconds'] ?? 10) ?: 10)));
             $this->settings->set('poll_idle_seconds', (string) max(10, min(600, (int) ($p['poll_idle_seconds'] ?? 30) ?: 30)));
             $this->settings->set('launcher_reappear_minutes', (string) max(0, min(1440, ($p['launcher_reappear_minutes'] ?? '') === '' ? 10 : (int) $p['launcher_reappear_minutes'])));
+            $this->settings->set('online_minutes', (string) \Banimark\Storage\PdoStore::onlineMinutes(['online_minutes' => $p['online_minutes'] ?? '']));
             $this->settings->set('guest_mode', in_array($p['guest_mode'] ?? '', ['off', 'optional', 'required'], true) ? $p['guest_mode'] : 'off');
             $this->settings->set('offline_note', mb_substr(trim((string) ($p['offline_note'] ?? '')), 0, 200));
             // whitelabel is a plan feature; when it is not covered the stored
@@ -1020,7 +1021,7 @@ class Panel
         $insights = \Banimark\Insights\ConversationInsights::stored($this->settings->all());
         $hasProvider = \Banimark\Standalone\EngineBuilder::driver($this->pdo)[0] !== null;
         // ONE body for both runtimes: Ui\Pages::dashboard
-        $body = $flash.\Banimark\Ui\Pages::dashboard((new Analytics($this->pdo))->period($days), $this->store->listConversations(6), [
+        $body = $flash.\Banimark\Ui\Pages::dashboard((new Analytics($this->pdo))->period($days, null, $this->onlineMinutes()), $this->store->listConversations(6), [
             'period_url' => fn (int $d) => $this->url('/').'?days='.$d,
             'conversation_url' => fn (string $sid) => $this->url('/conversation/'.$sid),
             'inbox' => $this->url('/inbox'),
@@ -1042,6 +1043,12 @@ class Panel
         return Html::page('Dashboard', $body, $this->nav('/'), 'How your AI desk is performing');
     }
 
+    /** The owner's "online" window (Widget page), for the dashboard, inbox and events poll. */
+    private function onlineMinutes(): int
+    {
+        return \Banimark\Storage\PdoStore::onlineMinutes($this->settings->all());
+    }
+
     private function login(string $error = '', string $notice = ''): string
     {
         return Html::auth($this->url('/login'), $error, $notice);
@@ -1056,9 +1063,11 @@ class Panel
             'waiting' => empty($_GET['waiting']) ? 0 : 1,
             'files' => empty($_GET['files']) ? 0 : 1,
             'known' => empty($_GET['known']) ? 0 : 1,
+            'online' => empty($_GET['online']) ? 0 : 1,
             'sort' => ($_GET['sort'] ?? '') === 'waiting' ? 'waiting' : '',
+            'online_minutes' => $this->onlineMinutes(),
         ];
-        $counts = $this->store->inboxCounts();
+        $counts = $this->store->inboxCounts($filters['online_minutes']);
         return Html::page('Inbox', $flash.\Banimark\Ui\Pages::inbox(
             $this->store->listConversations(100, $filters['mode'], $filters['q'], $filters),
             $counts, $filters, $this->url('/inbox'),

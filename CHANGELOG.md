@@ -4,6 +4,42 @@ Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
 ## Unreleased
+- **The assistant lets a visitor finish typing.** When someone sends a message
+  and keeps typing, the assistant now waits until they pause, then answers
+  everything they wrote in one reply instead of answering the first half
+  while they are still typing the second. Follow-up messages can be sent
+  while a reply is on its way, on the website and in the app, and they are
+  folded into that reply. If a colleague takes over the chat during the
+  pause, the assistant stays silent. Set the pause on the AI settings page
+  ("Let a visitor finish typing", 3 to 10 seconds, default 4, 0 = off).
+- **A deleted chat goes back to the AI.** When a visitor deletes a
+  conversation that was with your team, it leaves "Needs a person" and the
+  waiting counts at once, your team sees a note saying why, and the visitor's
+  next message starts a fresh conversation that the AI answers. Closed
+  conversations stay closed.
+- **See how many visitors are online right now.** The dashboard's live pill
+  and a new "Online now" filter in the inbox count visitors whose chat
+  checked in recently - chat open or closed, on your website or in your app -
+  and the number updates on its own while the page is open. You set how
+  recent counts as online under Widget ("Count a visitor as online for",
+  default 5 minutes). A conversation the visitor deleted is never counted.
+- **Anthropic Claude can now answer your chat.** Pick "Anthropic Claude" on
+  the AI providers page, paste your Anthropic key and choose a model: Claude
+  Opus 5.5 (recommended), Claude Sonnet 5 (faster, lower cost), Claude Haiku
+  4.5 (fastest, lowest cost) or Claude Fable 5.1 (most capable, highest
+  cost). Every one was tested with Banimark end to end - looking things up,
+  remembering the conversation, and reading the images, PDFs and text files
+  your visitors attach. A damaged attachment no longer stops the reply: the
+  assistant says it could not open the file and asks for a clearer copy.
+  Claude is also offered when you first install Banimark.
+- **Banimark HQ (our website):** banimark.com's assistant is now a sales and
+  onboarding assistant: it asks about the visitor's business (what they do,
+  how many chats, how many staff, their hours, their stack), shows how
+  Banimark helps using their own numbers - fewer repetitive chats, answers
+  overnight, answers straight from their database - handles common doubts,
+  guides the installation, and always offers a next step: the free trial,
+  the install guide, our paid setup, or a person. New manual sections: use
+  cases by industry, why businesses choose Banimark, and getting started.
 - **Banimark HQ (our website):** the assistant on banimark.com finds the right
   part of the manual far more often - it now searches for several words at
   once and understands everyday wording such as "features", "what can it do"

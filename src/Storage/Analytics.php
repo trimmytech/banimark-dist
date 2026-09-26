@@ -64,7 +64,7 @@ class Analytics
      *   ai_rate_delta: ?int, handed_over: int, handed_over_delta: ?int, lookups: int, lookups_delta: ?int,
      *   waiting: int, modes: array, series: array, tools: array, total: int}
      */
-    public function period(int $days, ?int $now = null): array
+    public function period(int $days, ?int $now = null, int $onlineMinutes = PdoStore::ONLINE_MINUTES): array
     {
         $days = isset(self::PERIODS[$days]) ? $days : 30;
         $now = $now ?? time();
@@ -109,6 +109,9 @@ class Analytics
             'lookups_delta' => self::delta($looksNow, $looks($before, $since)),
             // with a person right now, and the visitor spoke last
             'waiting' => $this->count("SELECT COUNT(*) FROM {$c} WHERE mode = 'agent' AND last_message_at > staff_seen_at"),
+            // visitors whose chat (open or closed) checked in during the owner's window
+            'online' => $this->count("SELECT COUNT(*) FROM {$c} WHERE last_seen_at > ? AND visitor_deleted_at = 0", [$now - max(1, $onlineMinutes) * 60]),
+            'online_minutes' => max(1, $onlineMinutes),
             'modes' => $modes,
             'series' => $this->daily($days, $now),
             'tools' => $this->topTools(),

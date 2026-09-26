@@ -633,6 +633,7 @@ button.is-busy { opacity: .7; cursor: progress; }
 .bm-chip.on { background: var(--brand-soft); border-color: color-mix(in srgb, var(--brand) 35%, transparent); color: var(--brand); font-weight: 600; }
 .bm-chip.on span { background: color-mix(in srgb, var(--brand) 18%, transparent); }
 .bm-chip.urgent span { background: var(--critical-soft); color: var(--critical); }
+.bm-chip.live span { background: var(--good-soft); color: var(--good); }
 .bm-chip.clear { border-style: dashed; color: var(--muted); }
 
 .bm-thread { border-left: 3px solid transparent; }
