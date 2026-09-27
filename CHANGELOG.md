@@ -4,6 +4,15 @@ Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
 ## Unreleased
+- **Fixed: the assistant could answer with its own lookup notes.** Seen live:
+  after three documentation lookups the model answered with the literal text
+  "(I looked up: banimark_docs({...}))" - a copy of the history it was shown,
+  not an answer - and that reached the visitor as the reply. An echo of the
+  lookup history, or an empty reply, no longer counts as an answer: the
+  assistant is asked once more for words, and if it still has none the chat
+  goes to your team with the reason in the thread, never a blank or
+  internal-looking bubble. The history the final pass sees also no longer
+  contains anything tool-shaped in the assistant's own turns.
 - **The widget can live on a different domain than Banimark.** When Banimark
   runs on its own server (support.acme.com) and the chat sits on your website
   (www.acme.com), list that site under Widget -> Behaviour -> "Other websites
