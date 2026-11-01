@@ -259,18 +259,23 @@
   });
 })();
 
-/* Folded sections (<details data-remember>) - closed by default; an open one
-   stays open across the reload that follows adding something from it, for
-   this browser tab only (sessionStorage), so a fresh visit starts closed. */
+/* Folded sections (<details data-remember>) - closed by default, every visit.
+   The one exception: adding something from inside the fold reloads the page,
+   and the owner should land back in the fold they were using - so a submit
+   from inside it marks the NEXT load only (sessionStorage, consumed on
+   arrival). Merely opening it is not remembered. */
 (function () {
   'use strict';
   var folds = document.querySelectorAll('details[data-remember]');
   if (!folds.length) return;
   function key(d) { return 'bm-fold-' + d.getAttribute('data-remember'); }
   Array.prototype.forEach.call(folds, function (d) {
-    try { if (sessionStorage.getItem(key(d)) === '1') d.open = true; } catch (e) {}
-    d.addEventListener('toggle', function () {
-      try { if (d.open) { sessionStorage.setItem(key(d), '1'); } else { sessionStorage.removeItem(key(d)); } } catch (e) {}
+    try {
+      if (sessionStorage.getItem(key(d)) === '1') { d.open = true; }
+      sessionStorage.removeItem(key(d));
+    } catch (e) {}
+    d.addEventListener('submit', function () {
+      try { sessionStorage.setItem(key(d), '1'); } catch (e) {}
     });
   });
 })();

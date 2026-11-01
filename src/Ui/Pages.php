@@ -321,8 +321,23 @@ final class Pages
      * a shareable link, a Flutter app. ONE body for both runtimes.
      *
      * @param array{csrf: string, save_url: string, widget_js: string, chat_page_url: string, token_snippet: string,
-     *   flutter: ?array, flutter_lock: ?string, whitelabel_lock: ?string, upgrade_url: string, support_email: string, flutter_config: string} $o
+     *   flutter: ?array, flutter_lock: ?string, whitelabel_lock: ?string, upgrade_url: string, support_email: string, flutter_config: string,
+     *   domains?: array{limit: int, used: int}} $o
      */
+    /** "Your plan covers N websites (M listed)" under the websites box; nothing when the plan is unlimited or unknown. */
+    public static function domainsAllowance(?array $d, string $upgradeUrl): string
+    {
+        $limit = (int) ($d['limit'] ?? 0);
+        if ($d === null || $limit === 0) {
+            return '';
+        }
+        $used = (int) ($d['used'] ?? 0);
+        $e = [self::class, 'e'];
+        return '<div class="hint" data-domains-allowance>Your plan covers <b>'.$limit.' website'.($limit === 1 ? '' : 's').'</b> for the widget'
+            .($used > 0 ? ' - '.$used.' listed' : '').'.'
+            .($upgradeUrl !== '' ? ' Need more? <a href="'.$e($upgradeUrl).'" target="_blank" rel="noopener">Talk to us</a>.' : '').'</div>';
+    }
+
     public static function widget(array $cfg, array $o): string
     {
         $e = [self::class, 'e'];
@@ -403,7 +418,8 @@ final class Pages
             .'<input type="text" name="offline_note" value="'.$e($g('offline_note')).'" placeholder="We usually reply within a few hours.">'
             .'<label>Other websites allowed to carry the chat <span class="muted">(optional)</span></label>'
             .'<textarea name="widget_origins" rows="2" placeholder="https://www.example.com">'.$e($g('widget_origins')).'</textarea>'
-            .'<div class="hint">Only when Banimark runs on a different domain than the site showing the widget. One per line - scheme and host, no path. Leave it empty when the chat is on the same site. <code>*</code> allows any site. Listed sites may also show the chat link inside a frame.</div>';
+            .'<div class="hint">Only when Banimark runs on a different domain than the site showing the widget. One per line - scheme and host, no path. Leave it empty when the chat is on the same site. <code>*</code> allows any site. Listed sites may also show the chat link inside a frame. The widget only loads on these sites and on this one.</div>'
+            .self::domainsAllowance($o['domains'] ?? null, (string) ($o['upgrade_url'] ?? ''));
 
         $chips = '';
         foreach ($starters as $st) {
@@ -724,12 +740,13 @@ final class Pages
                 .'<div class="hint">Default: '.$e(implode(', ', array_keys(\Banimark\Files\UploadPolicy::TYPES))).'. Programs and scripts are never accepted, whatever you type here.</div>')
             .Layout::section('Where they are stored', 'Files are never put in a public folder. Visitors fetch them back through short-lived signed links.',
                 '<div class="choices two">'
-                .Layout::choice('files_driver', 'local', $driver === 'local', 'This server', 'Simplest. Files sit in a folder only Banimark reads - never in a public directory.')
+                .Layout::choice('files_driver', 'local', $driver === 'local', !empty($o['hosted']) ? 'With your desk' : 'This server', 'Simplest. Files sit in a folder only Banimark reads - never in a public directory.')
                 .str_replace('<input type="radio"', '<input type="radio"'.($lock ? ' disabled' : ''), Layout::choice('files_driver', 's3', $driver === 's3', 'S3-compatible storage', 'AWS S3, Cloudflare R2, DigitalOcean Spaces, Backblaze B2, MinIO.'))
                 .'</div>'
                 .Layout::lockedNote($lock, $o['upgrade_url'])
-                .'<label>Folder on this server <span class="muted">(blank = '.$e($o['default_dir']).')</span></label>'
-                .'<input type="text" name="files_local_path" value="'.$g('files_local_path').'" placeholder="'.$e($o['default_dir']).'">'
+                // a hosted desk's folder is chosen by Banimark: no path to show, none to type
+                .(!empty($o['hosted']) ? '' : '<label>Folder on this server <span class="muted">(blank = '.$e($o['default_dir']).')</span></label>'
+                .'<input type="text" name="files_local_path" value="'.$g('files_local_path').'" placeholder="'.$e($o['default_dir']).'">')
                 // shown but switched off when the plan does not cover it: the owner sees
                 // what S3 storage is instead of meeting it first in a refusal at the save
                 .'<fieldset class="bare subpanel '.($lock ? 'is-locked' : '').'"'.($lock ? ' disabled' : '').'><legend>S3 settings</legend><div class="grid2">'
@@ -910,7 +927,7 @@ final class Pages
             }
             $who = $m['role'] === 'agent' ? (($m['by'] ?? '') !== '' ? $m['by'] : 'human agent').' · ' : ($m['role'] === 'assistant' ? 'AI · ' : '');
             $held = !empty($m['withheld']); // a part the visitor never saw - they wrote again first
-            $msgs .= '<div class="msg '.$e($m['role']).($held ? ' withheld' : '').'" data-id="'.(int) $m['id'].'"'.($held ? ' title="Not sent - the visitor wrote again before this part showed"' : '').'>'.Markdown::toHtml((string) $m['text']).$atts
+            $msgs .= '<div class="msg '.$e($m['role']).($held ? ' withheld' : '').'" data-id="'.(int) $m['id'].'"'.($held ? ' title="Not sent - the visitor wrote again before this part showed"' : '').'>'.Markdown::toHtml((string) $m['text'], ($m['role'] ?? '') !== 'user').$atts
                 .'<div class="msg-meta">'.$e($who).($m['at'] ? date('H:i', (int) $m['at']) : '').($held ? ' · not sent, the visitor wrote first' : '').'</div></div>';
         }
         if ($msgs === '') {

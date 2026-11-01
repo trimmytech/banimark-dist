@@ -12,7 +12,7 @@ namespace Banimark\Ui;
  */
 final class Markdown
 {
-    public static function toHtml(string $text): string
+    public static function toHtml(string $text, bool $images = false): string
     {
         $text = str_replace(["\r\n", "\r"], "\n", trim($text));
         if ($text === '') {
@@ -37,14 +37,14 @@ final class Markdown
                     $out[] = "<{$kind}>";
                     $list = $kind;
                 }
-                $out[] = '<li>'.self::inline($lm[1]).'</li>';
+                $out[] = '<li>'.self::inline($lm[1], $images).'</li>';
                 continue;
             }
             if ($list !== null) {
                 $out[] = "</{$list}>";
                 $list = null;
             }
-            $out[] = $line === '' ? '' : self::inline($line);
+            $out[] = $line === '' ? '' : self::inline($line, $images);
         }
         if ($list !== null) {
             $out[] = "</{$list}>";
@@ -64,8 +64,8 @@ final class Markdown
         return (string) preg_replace_callback('/\x00B(\d+)\x00/', fn ($m) => $blocks[(int) $m[1]], $html);
     }
 
-    /** Inline rules on ONE escaped line. */
-    private static function inline(string $line): string
+    /** Inline rules on ONE escaped line. $images: may ![alt](https://...) become a picture (a reply) or only a link (a visitor's text). */
+    private static function inline(string $line, bool $images = false): string
     {
         $s = self::esc($line);
         // inline code first: its contents are literal
@@ -74,6 +74,8 @@ final class Markdown
             $codes[] = '<code>'.$m[1].'</code>';
             return "\x00C".(count($codes) - 1)."\x00";
         }, $s);
+        // ![alt](https://...) - a picture in a reply; https only, so it never breaks a secure page
+        $s = preg_replace_callback('/!\[([^\]\n]*)\]\((https:\/\/[^\s)]+)\)/i', fn ($m) => $images ? self::image($m[2], $m[1]) : self::link($m[2], $m[1] !== '' ? $m[1] : $m[2]), $s);
         // [text](url) - only safe schemes; the text was escaped above
         $s = preg_replace_callback('/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)/i', fn ($m) => self::link($m[2], $m[1]), $s);
         // bare URLs (not already inside an href)
@@ -82,6 +84,11 @@ final class Markdown
         $s = preg_replace('/(?<![\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?!\w)/', '<em>$1</em>', $s);
         $s = preg_replace('/(?<![\w_])_(?=\S)([^_\n]+?)(?<=\S)_(?!\w)/', '<em>$1</em>', $s);
         return (string) preg_replace_callback('/\x00C(\d+)\x00/', fn ($m) => $codes[(int) $m[1]], $s);
+    }
+
+    private static function image(string $url, string $alt): string
+    {
+        return '<a href="'.$url.'" target="_blank" rel="noopener noreferrer"><img src="'.$url.'" alt="'.$alt.'" loading="lazy" referrerpolicy="no-referrer"></a>';
     }
 
     private static function link(string $url, string $label): string

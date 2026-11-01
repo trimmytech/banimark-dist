@@ -240,8 +240,12 @@
     }).join('') + '<div class="hint">Leave a box empty to see what happens for a visitor who is NOT signed in.</div>'
       : '<span class="muted">This query needs no identity values - it works for anonymous visitors too.</span>';
   }
-  form.addEventListener('input', refresh);
-  form.addEventListener('change', refresh);
+  // rebuild the sample boxes when the DEFINITION changes - not when the owner
+  // types into one of them: that rebuilt the box under the cursor and dropped
+  // the focus after every character
+  function onEdit(e) { if (box.contains(e.target)) return; refresh(); }
+  form.addEventListener('input', onEdit);
+  form.addEventListener('change', onEdit);
   refresh();
 
   runBtn.addEventListener('click', function () {

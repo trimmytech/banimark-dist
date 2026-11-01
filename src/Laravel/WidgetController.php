@@ -204,6 +204,15 @@ class WidgetController
     {
         // one source, incl. the env/config licence fallback (see settings())
         $settings = $this->settings();
+        // only this site and the websites the owner listed get the widget:
+        // elsewhere it could never chat (CORS), so say so instead
+        if (!\Banimark\Http\Cors::embedAllowed($settings, request()->server->all())) {
+            return response(\Banimark\Http\Cors::refusedScript(), 403, [
+                'Content-Type' => 'application/javascript; charset=utf-8',
+                'Cache-Control' => 'no-store',
+                'Vary' => 'Origin, Referer',
+            ]);
+        }
         // allow-list: this script is public, and the settings table holds secrets
         $cfg = WidgetConfig::build($settings, route('banimark.chat'));
         $js = 'window.__BANIMARK_CFG = '.json_encode($cfg, JSON_UNESCAPED_SLASHES).";\n"
@@ -213,6 +222,7 @@ class WidgetController
         return response($js, 200, [
             'Content-Type' => 'application/javascript; charset=utf-8',
             'Cache-Control' => 'public, max-age=300',
+            'Vary' => 'Origin, Referer',
         ]);
     }
 }

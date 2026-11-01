@@ -1738,6 +1738,7 @@ class PanelController
                 'flutter' => $updates['sdks']['flutter'] ?? null, // advertised by HQ; null = not published yet
                 'flutter_lock' => $locks['flutter'],
                 'whitelabel_lock' => $locks['whitelabel'],
+                'domains' => ['limit' => \Banimark\Licensing\Master::limit($this->entitlements(), 'domains'), 'used' => count(\Banimark\Http\Cors::origins($settings))],
                 'upgrade_url' => (string) ($settings['support_url'] ?? ''),
                 'support_email' => (string) ($settings['support_email'] ?? ''),
                 'flutter_config' => "BanimarkChat(\n  config: BanimarkConfig.laravel('".url('/')."', token: userToken), // token: mint it server-side like the widget's data-token; null = guest\n  theme: BanimarkTheme.fromScheme(Theme.of(context).colorScheme)\n      .copyWith(title: '".str_replace("'", "\\'", (string) ($cfg['title'] ?? 'Support'))."'),\n)",
@@ -1778,6 +1779,12 @@ class PanelController
             // auto follows the visitor's OS; light/dark force it (Flutter reads the same value)
             'theme' => fn ($v) => in_array($v, ['auto', 'light', 'dark'], true) ? $v : 'auto',
         ];
+        // the websites the widget may be on are a plan limit: refuse the whole
+        // save rather than silently drop the ones over the line
+        $why = \Banimark\Licensing\Entitlements::refuseDomains($this->entitlements(), \Banimark\Http\Cors::origins([\Banimark\Http\Cors::KEY => (string) $request->input(\Banimark\Http\Cors::KEY, '')]));
+        if ($why !== null) {
+            return back()->withInput()->with('bm_error', 'Nothing was saved. '.$why);
+        }
         foreach ($allowed as $key => $clean) {
             DB::table('banimark_settings')->updateOrInsert(['key' => $key], ['value' => $clean((string) $request->input($key, ''))]);
         }

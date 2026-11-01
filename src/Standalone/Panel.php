@@ -479,7 +479,9 @@ class Panel
                 }
             }
             $set('files_driver', $wantsS3 ? 's3' : 'local');
-            $set('files_local_path', trim((string) ($p['files_local_path'] ?? '')));
+            // a hosted desk's folder is ours to choose (the tenant's own, set in
+            // its config); a path typed here must never point it elsewhere
+            $set('files_local_path', \Banimark\Standalone\Hosted::on() ? '' : trim((string) ($p['files_local_path'] ?? '')));
             foreach (['files_s3_bucket', 'files_s3_region', 'files_s3_endpoint', 'files_s3_prefix', 'files_s3_key'] as $k) {
                 $set($k, trim((string) ($p[$k] ?? '')));
             }
@@ -762,6 +764,12 @@ class Panel
             return null;
         }
         if ($route === '/widget') {
+            // the websites the widget may be on are a plan limit: refuse the
+            // whole save rather than silently drop the ones over the line
+            $why = \Banimark\Licensing\Entitlements::refuseDomains($this->entitlements(), \Banimark\Http\Cors::origins([\Banimark\Http\Cors::KEY => (string) ($p['widget_origins'] ?? '')]));
+            if ($why !== null) {
+                return '<div class="flash-err">Nothing was saved. '.Html::e($why).'</div>';
+            }
             $this->settings->set('color', preg_match('/^#[0-9a-fA-F]{6}$/', (string) ($p['color'] ?? '')) ? $p['color'] : '#6F04D9');
             $this->settings->set('position', ($p['position'] ?? '') === 'left' ? 'left' : 'right');
             $this->settings->set('title', mb_substr(trim((string) ($p['title'] ?? '')), 0, 60) ?: 'Support');
@@ -1154,7 +1162,9 @@ class Panel
         // ONE body for both runtimes: Ui\Pages::files
         return Html::page('Files', $flash.\Banimark\Ui\Pages::files($all, [
             'problem' => \Banimark\Files\FileStoreFactory::misconfigured($all),
-            'default_dir' => dirname($_SERVER['SCRIPT_FILENAME'] ?? __FILE__).'/banimark-files',
+            'hosted' => \Banimark\Standalone\Hosted::on(),
+            // a hosted desk never sees a path on our server
+            'default_dir' => \Banimark\Standalone\Hosted::on() ? '' : dirname((string) ($_SERVER['SCRIPT_FILENAME'] ?? '') ?: (string) getcwd()).'/banimark-files',
             'stats' => ['count' => (int) $row['c'], 'size' => (int) $row['s']],
             's3_lock' => \Banimark\Licensing\Entitlements::locked($this->entitlements(), 's3'),
             'upgrade_url' => (string) $this->settings->get('support_url', ''),
@@ -1441,6 +1451,7 @@ class Panel
             'flutter' => $this->updates()['sdks']['flutter'] ?? null,
             'flutter_lock' => \Banimark\Licensing\Entitlements::locked($this->entitlements(), 'flutter'),
             'whitelabel_lock' => \Banimark\Licensing\Entitlements::locked($this->entitlements(), 'whitelabel'),
+            'domains' => ['limit' => \Banimark\Licensing\Master::limit($this->entitlements(), 'domains'), 'used' => count(\Banimark\Http\Cors::origins($s->all()))],
             'upgrade_url' => (string) $s->get('support_url', ''),
             'support_email' => (string) $s->get('support_email', ''),
             'flutter_config' => "BanimarkChat(\n  config: BanimarkConfig.standalone('".$entry."', token: userToken), // token: mint it server-side like the widget's data-token; null = guest\n  theme: BanimarkTheme.fromScheme(Theme.of(context).colorScheme)\n      .copyWith(title: '".str_replace("'", "\\'", (string) $s->get('title', 'Support'))."'),\n)",

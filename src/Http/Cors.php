@@ -139,6 +139,44 @@ final class Cors
         return self::origins($settings) !== [];
     }
 
+    /**
+     * The website a request for the widget SCRIPT came from: the Origin
+     * header, else the Referer's origin (a <script> load sends one under the
+     * browsers' default policy). '' when the request carries neither (a
+     * strict no-referrer page, curl, a crawler) - unknowable, not refused.
+     */
+    public static function embedOrigin(array $server): string
+    {
+        $origin = self::normalize((string) ($server['HTTP_ORIGIN'] ?? ''));
+        if ($origin !== '') {
+            return $origin;
+        }
+        $p = parse_url((string) ($server['HTTP_REFERER'] ?? ''));
+        if (!is_array($p) || empty($p['scheme']) || empty($p['host'])) {
+            return '';
+        }
+        return self::normalize($p['scheme'].'://'.$p['host'].(isset($p['port']) ? ':'.(int) $p['port'] : ''));
+    }
+
+    /**
+     * May this request have the widget script at all? Its own origin, a listed
+     * site, or one it cannot name (no Origin, no Referer). An unlisted site
+     * gets a refusal instead of a widget that could never chat anyway.
+     */
+    public static function embedAllowed(array $settings, array $server): bool
+    {
+        $origin = self::embedOrigin($server);
+        return $origin === '' || self::allowed($settings, $origin, self::selfOrigin($server));
+    }
+
+    /** What an unlisted site is served in place of the widget: a comment the owner can read in the console. */
+    public static function refusedScript(): string
+    {
+        return "/* Banimark: this website is not on the list of sites allowed to show the chat.\n"
+            ."   Add its address (https://www.example.com) under Widget -> \"Other websites allowed to carry the chat\" in the Banimark panel. */\n"
+            ."console.warn('Banimark: the chat is not enabled for ' + location.origin + ' - add it under Widget in the Banimark panel.');\n";
+    }
+
     /** The install's own origin from the request, '' when unknown. */
     public static function selfOrigin(array $server): string
     {

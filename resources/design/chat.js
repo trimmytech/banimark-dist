@@ -48,7 +48,7 @@
     el.setAttribute('data-id', m.id);
     if (m.role === 'tool') { el.innerHTML = '⚡ ' + esc(m.text); return el; }
     if (m.role === 'system') { el.textContent = m.text; return el; }
-    var body = m.text ? (window.BanimarkMarkdown ? window.BanimarkMarkdown.render(m.text) : esc(m.text)) : '';
+    var body = m.text ? (window.BanimarkMarkdown ? window.BanimarkMarkdown.render(m.text, { images: m.role !== 'user' }) : esc(m.text)) : '';
     var who = m.role === 'agent' ? esc(m.by || 'human agent') + ' · ' : m.role === 'assistant' ? 'AI · ' : '';
     el.innerHTML = body + filesHtml(m.files) + '<div class="msg-meta">' + who + fmtTime(m.at) + '</div>';
     return el;

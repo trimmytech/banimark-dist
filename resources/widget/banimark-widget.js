@@ -291,6 +291,7 @@
         '.m.user code{background:rgba(255,255,255,.2)}',
         '.m pre{margin:6px 0 0;padding:8px 10px;border-radius:9px;background:rgba(0,0,0,.08);overflow-x:auto;font-size:12px;line-height:1.45}',
         '.m pre code{background:none;padding:0}',
+        '.m img{display:block;max-width:100%;max-height:260px;border-radius:9px;margin:6px 0 2px;object-fit:cover;background:rgba(0,0,0,.06)}',
         /* attachments */
         '.m .att{display:block;margin-top:6px}',
         '.m .att img{max-width:210px;max-height:210px;border-radius:12px;display:block;cursor:zoom-in}',
@@ -427,7 +428,8 @@
         b.className = 'm ' + cls;
         // messages carry light formatting (bold, lists, links...); the renderer
         // escapes first, so nothing a model or a visitor types becomes markup
-        if (text) { if (MD) { b.innerHTML = MD.render(text); } else { b.textContent = text; } }
+        // pictures only in replies: a visitor's ![..](..) stays a link, so no stranger's server is loaded
+        if (text) { if (MD) { b.innerHTML = MD.render(text, { images: cls !== 'user' }); } else { b.textContent = text; } }
         (files || []).forEach(function (f) {
             var url = FILE_URL + f.token;
             var wrapEl = document.createElement('span');

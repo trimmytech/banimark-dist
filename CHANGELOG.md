@@ -3,6 +3,29 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.35.0
+- **The widget only loads on the websites you listed.** A page on any other
+  site gets a short refusal in its console instead of a chat that could never
+  send a message. Your own site, and the chat link, always work. **How many
+  websites you may list is now part of your plan**: 1 by default, 0 for any
+  number, shown under the websites box on the Widget page. Nothing already
+  listed is removed by a smaller plan; you just cannot add past the limit.
+- **Fixed: the "Try it" boxes on the Tools page lost focus after every
+  character.** Typing a sample value rebuilt the box under the cursor.
+- **The templates fold on the Tools page (and the library on Rules) now
+  starts closed on every visit.** It only reopens for the one reload right
+  after you add something from inside it.
+- **Hosted desks: the Files page no longer shows or accepts a folder path.**
+  Files stay in the desk's own folder, which Banimark chooses; a path typed
+  into the box is ignored.
+- **Pictures in the chat.** When a tool hands the assistant a picture URL
+  (https), it may show it in its reply - on the website widget, the chat
+  link page, the Flutter SDK and the staff inbox. Only the assistant's and
+  your team's messages render pictures; a picture a visitor pastes stays a
+  link, so nothing a stranger sends loads on your screens. API tool answers
+  are read one level deeper, so a field like `resources.pictures.items.0.url`
+  can be listed.
+
 ## 0.34.1
 - **API tools: a blank value no longer breaks a JSON body.** When the
   assistant leaves an optional question unanswered, a bare `{placeholder}`

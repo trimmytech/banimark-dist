@@ -11,7 +11,9 @@ final class FileStoreFactory
     /** @param array<string,string> $settings the settings table */
     public static function make(array $settings, string $defaultLocalDir): FileStore
     {
-        $dir = trim((string) ($settings['files_local_path'] ?? ''));
+        // a hosted desk's folder is the tenant's own, set by the host in its
+        // config: a path in the settings table must never point it elsewhere
+        $dir = \Banimark\Standalone\Hosted::on() ? '' : trim((string) ($settings['files_local_path'] ?? ''));
         $local = new LocalFileStore($dir !== '' ? $dir : $defaultLocalDir);
         if (($settings['files_driver'] ?? 'local') === 's3') {
             $s3 = new S3FileStore([

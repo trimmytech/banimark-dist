@@ -666,6 +666,7 @@ button.is-busy { opacity: .7; cursor: progress; }
 .msg code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: color-mix(in srgb, currentColor 10%, transparent); padding: 1px 5px; border-radius: 5px; }
 .msg pre { margin: 6px 0 0; padding: 8px 10px; border-radius: 9px; background: color-mix(in srgb, currentColor 8%, transparent); overflow-x: auto; font-size: 12px; line-height: 1.45; }
 .msg pre code { background: none; padding: 0; }
+.msg img { display: block; max-width: min(100%, 320px); max-height: 260px; border-radius: 9px; margin: 6px 0 2px; object-fit: cover; background: color-mix(in srgb, currentColor 6%, transparent); }
 
 /* ---- Tool Builder: the AI assistant ---- */
 .bm-assist-log { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; max-height: 300px; overflow-y: auto; }
