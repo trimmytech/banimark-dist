@@ -3,6 +3,16 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.34.0
+- **API tools: a POST body no longer has to be JSON.** Under "Body type" pick
+  JSON (still the default when you choose nothing), **Form** - one
+  `name={placeholder}` per line, sent URL-encoded with each value encoded on
+  its own - **Multipart form-data** (the same lines, sent as parts), **XML**
+  (values escaped so a customer's text cannot break the document, checked
+  for well-formedness when you save), or **Text**, sent exactly as typed.
+  XML and text bodies carry your own `Content-Type` from extra headers when
+  you add one. The assistant that drafts tools knows all five.
+
 ## 0.33.4
 - **API tools: a `{placeholder}` outside quotes in the JSON body now counts as a
   number.** `"max": {price_max}` validates and is sent as `"max": 800000`;

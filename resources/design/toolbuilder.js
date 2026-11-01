@@ -326,6 +326,7 @@
     if (kind === 'http' && tool.config) {
       setField('http_method', tool.config.method || 'GET');
       setField('http_url', tool.config.url || '');
+      setField('http_body_type', tool.config.body_type || 'json');
       setField('http_body', tool.config.body || '');
       setField('http_path', tool.config.path || '');
       setField('http_fields', (tool.config.fields || []).join(', '));
@@ -461,6 +462,22 @@
     Array.prototype.forEach.call(blocks, function (b) {
       b.hidden = b.getAttribute('data-auth-block') !== select.value;
     });
+  }
+  select.addEventListener('change', apply);
+  apply();
+})();
+
+/* ---- the body type of a POST: JSON by default, a form, or text as typed.
+ * The hint under "Body" and the example in the box follow the choice. */
+(function () {
+  'use strict';
+  var select = document.querySelector('[data-body-type]');
+  if (!select) return;
+  var hints = document.querySelectorAll('[data-body-hint]');
+  var box = select.closest('form') ? select.closest('form').querySelector('[name="http_body"]') : null;
+  function apply() {
+    Array.prototype.forEach.call(hints, function (h) { h.hidden = h.getAttribute('data-body-hint') !== select.value; });
+    if (box) box.placeholder = box.getAttribute('data-ph-' + select.value) || '';
   }
   select.addEventListener('change', apply);
   apply();

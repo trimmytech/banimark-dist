@@ -887,6 +887,7 @@ class Panel
                 'url' => trim((string) ($p['http_url'] ?? '')),
                 'headers' => \Banimark\Tools\ToolFactory::parseHeaders((string) ($p['http_headers'] ?? '')),
                 'body' => trim((string) ($p['http_body'] ?? '')),
+                'body_type' => \Banimark\Tools\HttpTool::bodyType(['body_type' => $p['http_body_type'] ?? 'json']),
                 'path' => trim((string) ($p['http_path'] ?? '')),
                 'fields' => array_values(array_filter(array_map('trim', explode(',', (string) ($p['http_fields'] ?? ''))))),
                 // a blank secret box means "keep what is stored"
@@ -1267,6 +1268,7 @@ class Panel
                     'http_url' => (string) ($config['url'] ?? ''),
                     'http_headers' => \Banimark\Tools\ToolFactory::headerLines((array) ($config['headers'] ?? [])),
                     'http_body' => (string) ($config['body'] ?? ''),
+                    'http_body_type' => \Banimark\Tools\HttpTool::bodyType($config),
                     'http_path' => (string) ($config['path'] ?? ''),
                     'http_fields' => implode(', ', (array) ($config['fields'] ?? [])),
                     // everything about the auth EXCEPT the secret itself

@@ -198,7 +198,7 @@ class Layout
             .'<div class="grid2">'
             .'<div><label>Request</label><select name="http_method">'
             .'<option value="GET"'.($method === 'GET' ? ' selected' : '').'>GET - fetch something</option>'
-            .'<option value="POST"'.($method === 'POST' ? ' selected' : '').'>POST - fetch something, with a JSON body</option></select></div>'
+            .'<option value="POST"'.($method === 'POST' ? ' selected' : '').'>POST - fetch something, with a body</option></select></div>'
             .'<div><label>Who is chatting is identified by <span class="muted">(identity keys)</span></label>'
             .'<input type="text" name="context_http" value="'.$v('context_csv', 'user_id').'" placeholder="user_id" data-mirror="context"></div>'
             .'</div>'
@@ -209,8 +209,7 @@ class Layout
             .'<summary class="muted" style="cursor:pointer">Advanced: extra headers</summary>'
             .'<label>One per line, e.g. <code>X-Tenant: acme</code> <span class="muted">(kept secret from the AI)</span></label>'
             .'<textarea name="http_headers" rows="2" placeholder="X-Tenant: acme">'.$q($e['http_headers'] ?? '').'</textarea></details>'
-            .'<label>Body <span class="muted">(POST only, JSON, same <code>{placeholders}</code>)</span></label>'
-            .'<textarea name="http_body" rows="2" placeholder=\'{"user": "{_user_id}", "query": "{reference}"}\'>'.$q($e['http_body'] ?? '').'</textarea>'
+            .self::bodyFields($e)
             .'<div class="grid2">'
             .'<div><label>Where the list is in the answer <span class="muted">(blank = the answer itself)</span></label>'
             .'<input type="text" name="http_path" placeholder="data.orders" value="'.$v('http_path').'"></div>'
@@ -403,6 +402,47 @@ class Layout
         return '<div class="bm-lock">'.Icons::get('lock', 15).'<span>'.$e($reason)
             .($upgradeUrl !== '' ? ' <a href="'.$e($upgradeUrl).'" target="_blank" rel="noopener">See the plans</a>.' : '')
             .'</span></div>';
+    }
+
+    /**
+     * The body of a POST: what format it is written in, then the text. JSON
+     * unless the owner picks otherwise - a form (one name=value per line,
+     * URL-encoded or multipart), XML (values escaped), or text as typed.
+     */
+    public static function bodyFields(array $e): string
+    {
+        $q = fn ($s) => htmlspecialchars((string) $s, ENT_QUOTES);
+        $type = (string) ($e['http_body_type'] ?? 'json');
+        $type = in_array($type, \Banimark\Tools\HttpTool::BODY_TYPES, true) ? $type : 'json';
+        $opt = fn (string $v, string $label) => '<option value="'.$v.'"'.($type === $v ? ' selected' : '').'>'.$label.'</option>';
+        $hint = fn (string $v, string $text) => '<span class="muted" data-body-hint="'.$v.'"'.($type === $v ? '' : ' hidden').'>'.$text.'</span>';
+        $placeholders = [
+            'json' => '{"user": "{_user_id}", "query": "{reference}"}',
+            'form' => "user={_user_id}\nquery={reference}",
+            'multipart' => "user={_user_id}\nquery={reference}",
+            'xml' => '<lookup><user>{_user_id}</user><query>{reference}</query></lookup>',
+            'text' => 'user={_user_id} query={reference}',
+        ];
+        return '<div class="grid2">'
+            .'<div><label>Body type <span class="muted">(POST only)</span></label>'
+            .'<select name="http_body_type" data-body-type>'
+            .$opt('json', 'JSON (default)')
+            .$opt('form', 'Form - one name=value per line, URL-encoded')
+            .$opt('multipart', 'Multipart form-data - one name=value per line')
+            .$opt('xml', 'XML')
+            .$opt('text', 'Text - sent exactly as typed')
+            .'</select></div></div>'
+            .'<label>Body '
+            .$hint('json', 'JSON, same <code>{placeholders}</code>; a placeholder outside quotes is sent as a number')
+            .$hint('form', 'one <code>name={placeholder}</code> per line, sent as application/x-www-form-urlencoded')
+            .$hint('multipart', 'one <code>name={placeholder}</code> per line, sent as multipart/form-data')
+            .$hint('xml', 'XML, same <code>{placeholders}</code>; values are escaped for XML. Sent as application/xml unless you add a Content-Type under extra headers')
+            .$hint('text', 'sent as typed, as text/plain - or add your own Content-Type under extra headers')
+            .'</label>'
+            .'<textarea name="http_body" rows="2" placeholder="'.$q($placeholders[$type]).'"'
+            .' data-ph-json="'.$q($placeholders['json']).'" data-ph-form="'.$q($placeholders['form']).'" data-ph-multipart="'.$q($placeholders['multipart']).'"'
+            .' data-ph-xml="'.$q($placeholders['xml']).'" data-ph-text="'.$q($placeholders['text']).'">'
+            .$q($e['http_body'] ?? '').'</textarea>';
     }
 
     /**

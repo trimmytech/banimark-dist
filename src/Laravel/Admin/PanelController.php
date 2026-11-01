@@ -1430,6 +1430,7 @@ class PanelController
                     'http_url' => (string) ($config['url'] ?? ''),
                     'http_headers' => \Banimark\Tools\ToolFactory::headerLines((array) ($config['headers'] ?? [])),
                     'http_body' => (string) ($config['body'] ?? ''),
+                    'http_body_type' => \Banimark\Tools\HttpTool::bodyType($config),
                     'http_path' => (string) ($config['path'] ?? ''),
                     'http_fields' => implode(', ', (array) ($config['fields'] ?? [])),
                     // everything about the auth EXCEPT the secret itself
@@ -1450,7 +1451,7 @@ class PanelController
         // form values: what was just submitted (a refused save comes back filled
         // in), else the tool being edited, else a blank new tool
         $e = $editing ?? [];
-        $keys = ['name', 'max_rows', 'description', 'kind', 'sql', 'http_method', 'http_url', 'http_headers', 'http_body', 'http_path', 'http_fields',
+        $keys = ['name', 'max_rows', 'description', 'kind', 'sql', 'http_method', 'http_url', 'http_headers', 'http_body', 'http_body_type', 'http_path', 'http_fields',
             'http_auth', 'http_auth_header', 'http_auth_user', 'http_auth_issuer', 'http_auth_audience', 'http_auth_ttl'];
         $form = ['params' => $e['params'] ?? [], 'http_auth_has_secret' => $e['http_auth_has_secret'] ?? false,
             'enabled' => old('enabled', $e ? $e['enabled'] : true),
@@ -1643,6 +1644,7 @@ class PanelController
                 // never renders a stored secret back into the page
                 'auth' => \Banimark\Tools\HttpAuth::fromForm($request->all(), self::storedAuth($request)),
                 'body' => trim((string) $request->input('http_body')),
+                'body_type' => \Banimark\Tools\HttpTool::bodyType(['body_type' => $request->input('http_body_type', 'json')]),
                 'path' => trim((string) $request->input('http_path')),
                 'fields' => array_values(array_filter(array_map('trim', explode(',', (string) $request->input('http_fields'))))),
             ],
