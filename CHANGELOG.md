@@ -3,6 +3,12 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.33.2
+- **Fixed: `widget.js` on a hosted desk answered 500**, so the chat link and
+  the widget on your site never loaded. The released core looked for the
+  widget script one folder too high. The same release serves the standalone
+  widget correctly on a self-hosted install too.
+
 ## 0.33.1
 - **Fixed: the Tools page of a hosted desk stopped with a script error** before
   the form could be used, and an API tool saved there would have lost its

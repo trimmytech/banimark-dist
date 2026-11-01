@@ -30,6 +30,17 @@ final class Assets
 
     private static ?string $version = null;
 
+    /**
+     * The package root. This file is never bundled into the core, so a path
+     * from here holds in the dev tree and in a release alike - the bundled
+     * sources (build/bundle.php) live one level higher than in the tree and
+     * must not resolve anything from their own __DIR__ (BundleLayoutTest).
+     */
+    public static function root(): string
+    {
+        return dirname(__DIR__, 2);
+    }
+
     public static function exists(string $name): bool
     {
         return isset(self::FILES[$name]) && is_file(self::path($name));
