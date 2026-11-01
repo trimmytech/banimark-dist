@@ -3,6 +3,14 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.34.1
+- **API tools: a blank value no longer breaks a JSON body.** When the
+  assistant leaves an optional question unanswered, a bare `{placeholder}`
+  where a value goes is now sent as `null` ("no filter") instead of nothing,
+  which made the body unreadable. A bare placeholder is sent as a number
+  when the value is one, as true/false/null when it is one of those, and as
+  a string otherwise; `"{placeholder}"` in quotes is always a string.
+
 ## 0.34.0
 - **API tools: a POST body no longer has to be JSON.** Under "Body type" pick
   JSON (still the default when you choose nothing), **Form** - one
