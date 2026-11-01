@@ -3,6 +3,12 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.33.4
+- **API tools: a `{placeholder}` outside quotes in the JSON body now counts as a
+  number.** `"max": {price_max}` validates and is sent as `"max": 800000`;
+  `"{name}"` in quotes is still sent as text. Before, the form refused any
+  body with an unquoted placeholder.
+
 ## 0.33.3
 - **Fixed: on a hosted desk's Tools page, "Add another" under "What should the
   assistant ask the customer for?" did nothing**, and an API tool opened for
