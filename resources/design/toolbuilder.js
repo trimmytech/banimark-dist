@@ -7,15 +7,19 @@
    around it. Parameters are unlimited and can be added/removed freely. */
 (function () {
   'use strict';
-  var root = document.querySelector('[data-toolbuilder]');
-  if (!root) return;
+  // The parameter rows are on EVERY tools form; the visual SQL builder (root)
+  // only on a desk with a database - a hosted desk has none, and this script
+  // must still add, remove and prefill parameters there.
+  var paramsWrap = document.querySelector('[data-params]');
+  if (!paramsWrap) return;
+  var form = paramsWrap.closest('form');
+  var root = form.querySelector('[data-toolbuilder]');   // null on a hosted desk
+  var q = function (sel) { return root ? root.querySelector(sel) : null; };
 
-  var schemaUrl = root.getAttribute('data-schema-url');
-  var form = root.closest('form');
+  var schemaUrl = root ? root.getAttribute('data-schema-url') : '';
   var sqlBox = form.querySelector('[name=sql]');
   var colsBox = form.querySelector('[name=columns]');
   var ctxBox = form.querySelector('[name=context]');
-  var paramsWrap = form.querySelector('[data-params]');
   var addParamBtn = form.querySelector('[data-add-param]');
   var schema = {};
 
@@ -47,7 +51,7 @@
     });
     refreshParamOptions();
   }
-  addParamBtn.addEventListener('click', function () { paramsWrap.appendChild(paramRow()); reindexParams(); });
+  if (addParamBtn) addParamBtn.addEventListener('click', function () { paramsWrap.appendChild(paramRow()); reindexParams(); });
   paramsWrap.addEventListener('click', function (e) {
     if (e.target.closest('[data-remove-param]')) { e.target.closest('.bm-param').remove(); reindexParams(); }
   });
@@ -57,13 +61,13 @@
   // and killed the whole script before the schema was ever requested ("Loading…").
 
   /* ---------- visual builder ---------- */
-  var tableSel = root.querySelector('[data-table]');
-  var colsWrap = root.querySelector('[data-columns]');
-  var condWrap = root.querySelector('[data-conditions]');
-  var addCondBtn = root.querySelector('[data-add-condition]');
-  var preview = root.querySelector('[data-preview]');
-  var applyBtn = root.querySelector('[data-apply]');
-  var status = root.querySelector('[data-status]');
+  var tableSel = q('[data-table]');
+  var colsWrap = q('[data-columns]');
+  var condWrap = q('[data-conditions]');
+  var addCondBtn = q('[data-add-condition]');
+  var preview = q('[data-preview]');
+  var applyBtn = q('[data-apply]');
+  var status = q('[data-status]');
 
   function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
 
@@ -102,9 +106,10 @@
       .filter(function (v) { return /^[a-z][a-z0-9_]*$/i.test(v); });
   }
   function identityKeys() {
-    return (ctxBox.value || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    return ((ctxBox && ctxBox.value) || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
   }
   function refreshParamOptions() {
+    if (!root) return;   // nothing to refresh without the builder
     Array.prototype.forEach.call(condWrap.querySelectorAll('[data-source]'), fillSource);
     build();
   }
@@ -132,15 +137,17 @@
     fillSource(row.querySelector('[data-source]'));
     return row;
   }
-  addCondBtn.addEventListener('click', function () {
-    if (!tableSel.value) { status.textContent = 'Pick a table first.'; return; }
-    condWrap.appendChild(condRow()); build();
-  });
-  condWrap.addEventListener('click', function (e) { if (e.target.closest('[data-remove-cond]')) { e.target.closest('.bm-cond').remove(); build(); } });
-  condWrap.addEventListener('change', build);
-  colsWrap.addEventListener('change', build);
-  tableSel.addEventListener('change', renderColumns);
-  ctxBox.addEventListener('input', refreshParamOptions);
+  if (root) {
+    addCondBtn.addEventListener('click', function () {
+      if (!tableSel.value) { status.textContent = 'Pick a table first.'; return; }
+      condWrap.appendChild(condRow()); build();
+    });
+    condWrap.addEventListener('click', function (e) { if (e.target.closest('[data-remove-cond]')) { e.target.closest('.bm-cond').remove(); build(); } });
+    condWrap.addEventListener('change', build);
+    colsWrap.addEventListener('change', build);
+    tableSel.addEventListener('change', renderColumns);
+    if (ctxBox) ctxBox.addEventListener('input', refreshParamOptions);
+  }
 
   function build() {
     var table = tableSel.value;
@@ -158,7 +165,7 @@
     root.__built = { sql: sql, cols: cols };
   }
 
-  applyBtn.addEventListener('click', function () {
+  if (root) applyBtn.addEventListener('click', function () {
     if (!root.__built) return;
     sqlBox.value = root.__built.sql;
     colsBox.value = root.__built.cols.join(', ');
@@ -183,7 +190,7 @@
     if (Array.isArray(pre) && pre.length) { pre.forEach(function (p) { paramsWrap.appendChild(paramRow(p)); }); }
     if (!paramsWrap.children.length) { paramsWrap.appendChild(paramRow()); }
     reindexParams();
-    loadSchema();
+    if (root) loadSchema();
   }
   init();
 })();

@@ -3,6 +3,12 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.33.3
+- **Fixed: on a hosted desk's Tools page, "Add another" under "What should the
+  assistant ask the customer for?" did nothing**, and an API tool opened for
+  editing showed no parameters. The parameter rows no longer depend on the
+  database builder, which a hosted desk does not have.
+
 ## 0.33.2
 - **Fixed: `widget.js` on a hosted desk answered 500**, so the chat link and
   the widget on your site never loaded. The released core looked for the
