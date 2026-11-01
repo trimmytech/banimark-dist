@@ -212,9 +212,10 @@ class Panel
         if (isset($_GET['bm_err']) && trim((string) $_GET['bm_err']) !== '') {
             $flash .= '<div class="flash-err" data-flash>'.Html::e(mb_substr((string) $_GET['bm_err'], 0, 200)).'</div>';
         }
-        $flash = \Banimark\Licensing\HqNotice::html($this->settings->all(), (string) ($_SERVER['HTTP_HOST'] ?? ''))
-            .\Banimark\Update\Notice::html($this->settings->all(), $this->auth->isOwner(),
-                $this->url('/changelog'), $route === '/changelog')
+        $flash = \Banimark\Licensing\HqNotice::html($this->settings->all(), Hosted::hostFor($_SERVER))
+            // a hosted desk is updated by Banimark - there is never a button to press
+            .(Hosted::on() ? '' : \Banimark\Update\Notice::html($this->settings->all(), $this->auth->isOwner(),
+                $this->url('/changelog'), $route === '/changelog'))
             .$flash;
 
         if ($route === '/widget/try') {
@@ -244,6 +245,10 @@ class Panel
         }
         if ($route === '/tools/schema') {
             header('Content-Type: application/json');
+            if (Hosted::on()) {
+                echo json_encode(['tables' => [], 'error' => Hosted::NO_SQL]);
+                return;
+            }
             try {
                 $tables = (new \Banimark\Tools\SchemaInspector($this->dataPdo()))->all();
             } catch (\Throwable $e) {
@@ -352,6 +357,10 @@ class Panel
         $p = $_POST;
 
         /* ---- one-click updates (owner only, same as the page) ---- */
+        if (in_array($route, ['/changelog/update', '/changelog/update/fetch', '/changelog/update/apply',
+                              '/changelog/database', '/changelog/rollback', '/changelog/check', '/changelog/switch'], true) && Hosted::on()) {
+            return '<div class="flash-err">Banimark updates a hosted desk for you - there is nothing to run here.</div>';
+        }
         if (in_array($route, ['/changelog/update', '/changelog/update/fetch', '/changelog/update/apply',
                               '/changelog/database', '/changelog/rollback', '/changelog/check', '/changelog/switch'], true)) {
             if (!$this->auth->isOwner()) {
@@ -521,6 +530,9 @@ class Panel
             $this->go($this->url('/conversation/'.$m[1]));
             return null;
         }
+        if (($route === '/tools/data' || $route === '/tools/data/test') && Hosted::on()) {
+            return '<div class="flash-err">'.Html::e(Hosted::NO_SQL).'</div>';
+        }
         if ($route === '/tools/data') {
             \Banimark\Storage\DataSource::save($p, fn (string $k, string $v) => $this->settings->set($k, $v));
             return '<div class="flash-ok">Saved. Test the connection to be sure it works.</div>';
@@ -567,7 +579,8 @@ class Panel
                 return null;
             }
             try {
-                $schema = (new \Banimark\Tools\SchemaInspector($this->dataPdo()))->all();
+                // a hosted desk has no schema to show the draftsman: it drafts API tools only
+                $schema = Hosted::on() ? [] : (new \Banimark\Tools\SchemaInspector($this->dataPdo()))->all();
             } catch (\Throwable $e) {
                 http_response_code(422);
                 echo json_encode(['ok' => false, 'error' => 'Your data connection is not working: '.$e->getMessage()]);
@@ -589,7 +602,7 @@ class Panel
                 }
             }
             $out = (new \Banimark\Tools\ToolDraftsman($driver))->draft($turns, $schema, array_keys($known), $existing,
-                \Banimark\Storage\Dialect::of($this->dataPdo()));
+                Hosted::on() ? 'mysql' : \Banimark\Storage\Dialect::of($this->dataPdo()));
             if (!$out['ok']) {
                 error_log('Banimark tool assistant: '.$out['error']);
                 http_response_code(422);
@@ -602,8 +615,13 @@ class Panel
         if ($route === '/tools/try') {
             header('Content-Type: application/json');
             $context = array_filter((array) ($p['context_values'] ?? []), fn ($v) => $v !== '' && $v !== null);
+            if (Hosted::on() && ($p['kind'] ?? '') !== 'http') {
+                echo json_encode(['ok' => false, 'error' => Hosted::NO_SQL, 'diagnostic' => '', 'rows' => [], 'count' => 0, 'needs' => [], 'sql' => '']);
+                return null;
+            }
             try {
-                $runner = \Banimark\Storage\DataSource::runner($this->dataPdo());
+                // hosted: nothing runs SQL, so no data connection is opened
+                $runner = Hosted::on() ? fn () => [] : \Banimark\Storage\DataSource::runner($this->dataPdo());
             } catch (\Throwable $e) {
                 echo json_encode(['ok' => false, 'error' => 'Your data connection is not working: '.$e->getMessage(), 'diagnostic' => '', 'rows' => [], 'count' => 0, 'needs' => [], 'sql' => '']);
                 return null;
@@ -779,14 +797,14 @@ class Panel
             $set = fn (string $k, string $v) => $this->settings->set($k, $v);
             $forget = fn (string $k) => $this->settings->set($k, '');
             if ($route === '/license/trial') {
-                $r = \Banimark\Licensing\PhoneHome::startTrial($this->settings->all(), Master::siteUrlFromServer($_SERVER), $set, $forget);
+                $r = \Banimark\Licensing\PhoneHome::startTrial($this->settings->all(), Hosted::siteUrlFor($_SERVER), $set, $forget);
                 if (!empty($r['ok'])) {
                     $this->go($this->url()); // straight into the desk
                     return null;
                 }
                 return '<div class="flash-err">'.Html::e(($r['message'] ?? '') !== '' ? $r['message'] : 'Could not reach Banimark HQ to start the trial. Try again in a moment, or enter a purchased key.').'</div>';
             }
-            $r = \Banimark\Licensing\PhoneHome::run($this->settings->all(), Master::siteUrlFromServer($_SERVER), $set, $forget, force: true, pdo: $this->pdo);
+            $r = \Banimark\Licensing\PhoneHome::run($this->settings->all(), Hosted::siteUrlFor($_SERVER), $set, $forget, force: true, pdo: $this->pdo);
             return ($r === null || empty($r['ok']))
                 ? '<div class="flash-err">'.Html::e(\Banimark\Licensing\PhoneHome::unreachableMessage($this->settings->all())).'</div>'
                 : '<div class="flash-ok">Checked with HQ just now - status: <b>'.Html::e($r['license']).'</b>.</div>';
@@ -814,7 +832,7 @@ class Panel
             // pressing the button during an HQ outage can never lock an active licence
             $result = \Banimark\Licensing\PhoneHome::run(
                 $this->settings->all(),
-                Master::siteUrlFromServer($_SERVER),
+                Hosted::siteUrlFor($_SERVER),
                 fn (string $k, string $v) => $this->settings->set($k, $v),
                 fn (string $k) => $this->settings->set($k, ''),
                 force: true,
@@ -998,7 +1016,7 @@ class Panel
         $items[] = ['/security', 'shield', 'Security'];
         if ($this->auth->isOwner()) {
             $items[] = ['/license', 'license', 'License'];
-            $items[] = ['/changelog', 'bolt', 'Changelog'];
+            $items[] = ['/changelog', 'bolt', Hosted::on() ? 'What\'s new' : 'Changelog'];
         }
 
         $out = '';
@@ -1266,7 +1284,8 @@ class Panel
             $rows[] = ['name' => (string) $r['name'], 'description' => (string) $r['description'], 'sql' => (string) $r['sql'],
                 'params' => array_keys(json_decode((string) $r['parameters'], true) ?: []), 'max_rows' => (int) $r['max_rows'], 'enabled' => (bool) $r['enabled']];
         }
-        $form = $ed !== null ? $ed + ['enabled' => !empty($ed['enabled'])] : ['enabled' => true, 'context_csv' => 'user_id', 'max_rows' => 10];
+        // a hosted desk builds API tools only - the form opens on that kind
+        $form = $ed !== null ? $ed + ['enabled' => !empty($ed['enabled'])] : ['enabled' => true, 'context_csv' => 'user_id', 'max_rows' => 10] + (Hosted::on() ? ['kind' => 'http'] : []);
         [$assistDriver] = \Banimark\Standalone\EngineBuilder::driver($this->pdo);
         // ONE body for both runtimes: Ui\Pages::tools
         return Html::page('Tools', $flash.\Banimark\Ui\Pages::tools($rows, $form, [
@@ -1277,7 +1296,8 @@ class Panel
             'library' => $this->toolLibrary(),
             'upgrade_url' => $upgradeUrl,
             'assist_ready' => $assistDriver !== null,
-            'data_card' => Layout::dataConnection($this->settings->all(), $this->url('/tools/data'), $this->url('/tools/data/test'),
+            'hosted' => Hosted::on(),
+            'data_card' => Hosted::on() ? \Banimark\Ui\Pages::hostedToolsNote() : Layout::dataConnection($this->settings->all(), $this->url('/tools/data'), $this->url('/tools/data/test'),
                 $this->csrfField(), 'Banimark reads the tables next to its own.'),
             'urls' => [
                 'save' => $this->url('/tools'),
@@ -1401,7 +1421,8 @@ class Panel
         return Html::page('Widget', $flash.\Banimark\Ui\Pages::widget($s->all(), [
             'csrf' => $this->csrfField(),
             'save_url' => $this->url('/widget'),
-            'widget_js' => $this->base.'/widget.js',
+            // a hosted desk's script is pasted into SOMEONE ELSE'S site: absolute
+            'widget_js' => (Hosted::on() ? $entry : $this->base).'/widget.js',
             'chat_page_url' => Master::siteUrlFromServer($_SERVER).$this->base.'/chat-page',
             'try_url' => $this->url('/widget/try'),
             'token_snippet' => "\$token = \\Banimark\\Identity\\VisitorToken::mint(\n    ['user_id' => \$userId],\n    \$signingSecret // generated below, kept on your server\n);",
@@ -1481,7 +1502,7 @@ class Panel
     {
         $cache = json_decode((string) $this->settings->get('updates_cache', ''), true);
         $cache = is_array($cache) ? $cache : null;
-        if (\Banimark\Update\UpdateCheck::due($this->settings->get('updates_checked_at', '0'))) {
+        if (!Hosted::on() && \Banimark\Update\UpdateCheck::due($this->settings->get('updates_checked_at', '0'))) {
             try {
                 $fresh = (new \Banimark\Update\UpdateCheck(\Banimark\Update\UpdateCheck::endpointFrom(
                     (string) ($this->settings->get('hq_url', '') ?: Master::DEFAULT_ENDPOINT)
@@ -1510,7 +1531,7 @@ class Panel
     /** The signed verdict for this install - what the plan actually allows. */
     private function entitlements(): array
     {
-        return \Banimark\Licensing\Entitlements::verdict($this->settings->all(), (string) ($_SERVER['HTTP_HOST'] ?? ''));
+        return \Banimark\Licensing\Entitlements::verdict($this->settings->all(), Hosted::hostFor($_SERVER));
     }
 
     /** @return string|null the flash to render, or null when the answer was JSON */
@@ -1674,6 +1695,13 @@ class Panel
                 .'<div>Only an owner can see release information.</div></div></div>', $this->nav('/changelog'));
         }
         $u = $this->updates();
+        if (Hosted::on()) {
+            // hosted: Banimark updates the runtime; the owner only reads what changed
+            return Html::page('What\'s new', $flash
+                .'<div class="bm-card"><div class="bm-sec-h"><div><h2>You are on Banimark '.Html::e(ltrim(Master::PACKAGE_VERSION, 'vV')).'</h2>'
+                .'<div class="muted">This desk is hosted by Banimark, so updates arrive on their own - there is nothing for you to run.</div></div></div></div>'
+                .\Banimark\Ui\Pages::releaseNotes((array) $u['releases'], Master::PACKAGE_VERSION), $this->nav('/changelog'), 'What is new in Banimark');
+        }
 
         // the same card the Laravel panel renders - one implementation, so an
         // owner is never told two different stories about the same update
@@ -1714,7 +1742,7 @@ class Panel
         $status = (string) $this->settings->get('license_status', '');
         $last = (int) $this->settings->get('license_last_ping', '0');
         $lock = $this->auth->lockReason();
-        $verdict = Master::verify($key, (string) $this->settings->get('license_token', ''), null, (string) ($_SERVER['HTTP_HOST'] ?? ''));
+        $verdict = Master::verify($key, (string) $this->settings->get('license_token', ''), null, Hosted::hostFor($_SERVER));
         $details = json_decode((string) $this->settings->get('license_details', ''), true) ?: [];
         $plan = \Banimark\Licensing\Entitlements::summary($verdict, $details, [
             'staff' => count($this->agents->all()),

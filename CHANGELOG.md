@@ -4,6 +4,15 @@ Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
 ## Unreleased
+- **Banimark can host your desk for you.** For anyone who could not install:
+  register at banimark.com, get your desk at `banimark.com/c/your-name`, paste
+  one line into your website - the same widget, chat link and Flutter SDK, the
+  same panel, the same licence and free trial. A hosted desk cannot connect to
+  your database (it is not where Banimark is), so lookups are built as API
+  tools against your own app, with a signed JWT on every call; it can only
+  call public addresses, never ours; and Banimark updates it for you. A
+  self-hosted install is untouched by any of this - nothing switches on
+  without `'hosted' => true` in the config file only our own provisioner writes.
 - **Fixed: the assistant could answer with its own lookup notes.** Seen live:
   after three documentation lookups the model answered with the literal text
   "(I looked up: banimark_docs({...}))" - a copy of the history it was shown,

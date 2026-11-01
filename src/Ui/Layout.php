@@ -148,15 +148,19 @@ class Layout
      *
      * @param array $e the tool being edited, or [] for a new one
      */
-    public static function toolSourceFields(array $e, string $schemaUrl): string
+    public static function toolSourceFields(array $e, string $schemaUrl, bool $hosted = false): string
     {
         $q = fn ($v) => htmlspecialchars((string) $v, ENT_QUOTES);
         $v = fn (string $k, string $d = '') => $q($e[$k] ?? $d);
-        $http = ($e['kind'] ?? 'sql') === 'http';
+        // a hosted desk has one kind of tool: the owner's own API. No chooser,
+        // no database block - the form IS the API form
+        $http = $hosted || ($e['kind'] ?? 'sql') === 'http';
         $method = strtoupper((string) ($e['http_method'] ?? 'GET'));
 
-        return '<h3 class="bm-step">Where should it look?</h3>'
-            .'<div class="row" style="gap:10px;margin-bottom:12px">'
+        return '<h3 class="bm-step">'.($hosted ? 'Which address in your app should it call?' : 'Where should it look?').'</h3>'
+            .($hosted ? '<input type="hidden" name="kind" value="http" data-kind="http">'
+                .'<div class="hint" style="margin-bottom:12px">'.$q(\Banimark\Standalone\Hosted::NO_SQL).'</div>' : '')
+            .'<div class="row" style="gap:10px;margin-bottom:12px"'.($hosted ? ' hidden' : '').'>'
             .'<label style="display:flex;gap:9px;align-items:flex-start;padding:12px;border:1px solid var(--border-2);border-radius:var(--r);flex:1;cursor:pointer">'
             .'<input type="radio" name="kind" value="sql"'.($http ? '' : ' checked').' style="margin-top:2px" data-kind="sql">'
             .'<span><b>In my database</b><div class="muted">Point at a table and the builder writes the query.</div></span></label>'
@@ -166,7 +170,7 @@ class Layout
             .'</div>'
 
             // ---- database ----
-            .'<div data-kind-block="sql"'.($http ? ' hidden' : '').'>'
+            .($hosted ? '' : '<div data-kind-block="sql"'.($http ? ' hidden' : '').'>'
             .'<div data-toolbuilder data-schema-url="'.$q($schemaUrl).'" style="background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:14px 16px">'
             .'<div class="row" style="justify-content:space-between"><b>Visual builder</b><span class="muted" data-status>…</span></div>'
             .'<div class="grid2" style="margin-top:8px">'
@@ -184,7 +188,7 @@ class Layout
             .'<label>SQL - SELECT only. <code>:param</code> for values the AI asks for, <code>:_key</code> for identity values</label>'
             .'<textarea name="sql" placeholder="SELECT reference, status, total FROM orders WHERE reference = :reference AND user_id = :_user_id">'.$q($e['sql'] ?? '').'</textarea>'
             .'<label>Columns the AI may see</label><input type="text" name="columns" placeholder="reference, status, total" value="'.$v('columns_csv').'">'
-            .'</details></div>'
+            .'</details></div>')
 
             // ---- the owner's own API ----
             .'<div data-kind-block="http"'.($http ? '' : ' hidden').' style="background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:14px 16px">'

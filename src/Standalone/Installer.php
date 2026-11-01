@@ -61,7 +61,12 @@ class Installer
      *                     sqlite_path, admin_password, provider_slug,
      *                     provider_key, provider_model, site_title
      */
-    public static function install(array $input, string $configPath): array
+    /**
+     * @param array $configExtra keys written into banimark.config.php beside the
+     *        database ones - a HOSTED desk's provisioner passes `hosted`,
+     *        `site_url`, `public_path`, `files_dir` (Standalone\Hosted::CONFIG_KEYS)
+     */
+    public static function install(array $input, string $configPath, array $configExtra = []): array
     {
         if (!self::requirementsMet(dirname($configPath))) {
             return ['ok' => false, 'error' => 'Server requirements are not met.'];
@@ -157,7 +162,7 @@ class Installer
             'db_user' => $user,
             'db_pass' => $pass,
             'prefix' => 'banimark_',
-        ], true).";\n"
+        ] + array_intersect_key($configExtra, array_flip(array_merge(\Banimark\Standalone\Hosted::CONFIG_KEYS, ['admin_path']))), true).";\n"
             ."\n// Optional - where things live (see the install guide):\n"
             ."//   'admin_path'  => 'control',   // the panel at .../control instead of .../admin\n"
             ."//   'public_path' => '/support',  // only if links come out wrong behind a rewrite\n";

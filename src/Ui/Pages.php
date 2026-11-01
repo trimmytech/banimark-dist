@@ -106,7 +106,7 @@ final class Pages
                 'http_path' => $v('http_path'), 'http_fields' => $v('http_fields'), 'http_auth' => $v('http_auth', 'none'), 'http_auth_header' => $v('http_auth_header'),
                 'http_auth_user' => $v('http_auth_user'), 'http_auth_issuer' => $v('http_auth_issuer', 'banimark'), 'http_auth_audience' => $v('http_auth_audience'),
                 'http_auth_ttl' => $v('http_auth_ttl', \Banimark\Tools\HttpAuth::JWT_TTL), 'http_auth_has_secret' => $v('http_auth_has_secret', false),
-            ], $u['schema'])
+            ], $u['schema'], !empty($o['hosted']))
             .Layout::tryItCard($u['try'])
             .'<div class="row" style="margin-top:18px;justify-content:flex-end"><button type="submit">'.Icons::get('check', 15).' '.($editing ? 'Check and save changes' : 'Check and save tool').'</button></div></fieldset></form></div>';
 
@@ -120,6 +120,19 @@ final class Pages
             .Layout::toolAssistant($u['assist'], (bool) $o['assist_ready'], $u['providers'])
             .$builder
             .Layout::toolBuilderScript();
+    }
+
+    /**
+     * What a hosted desk shows where the self-hosted panel offers the data
+     * connection: why there is none, and what to build instead.
+     */
+    public static function hostedToolsNote(): string
+    {
+        $e = [self::class, 'e'];
+        return '<div class="bm-card"><div class="bm-sec-h"><div class="row" style="gap:10px"><span class="avatar">'.Icons::get('shield', 16).'</span><div>'
+            .'<h2>Your data stays with you</h2>'
+            .'<div class="muted">'.$e(\Banimark\Standalone\Hosted::NO_SQL).'</div></div></div></div>'
+            .'<div class="hint">Every API tool can carry a short-lived JWT signed for each call, with the visitor\'s identity inside - so your API decides what each customer may see, and Banimark never holds a database password.</div></div>';
     }
 
     /**
