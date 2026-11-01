@@ -3,7 +3,13 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
-## Unreleased
+## 0.33.1
+- **Fixed: the Tools page of a hosted desk stopped with a script error** before
+  the form could be used, and an API tool saved there would have lost its
+  identity keys. "Try it" on an API tool now lists the `{_key}` values the
+  address and body need, on every desk.
+
+## 0.33.0
 - **Banimark can host your desk for you.** For anyone who could not install:
   register at banimark.com, get your desk at `banimark.com/c/your-name`, paste
   one line into your website - the same widget, chat link and Flutter SDK, the

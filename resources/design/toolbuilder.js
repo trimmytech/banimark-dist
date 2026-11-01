@@ -199,14 +199,27 @@
   if (!box || !form) return;
   var argsWrap = box.querySelector('[data-try-args]'), ctxWrap = box.querySelector('[data-try-ctx]');
   var runBtn = box.querySelector('[data-try-run]'), status = box.querySelector('[data-try-status]'), out = box.querySelector('[data-try-out]');
-  var sqlBox = form.querySelector('[name=sql]');
+  var sqlBox = form.querySelector('[name=sql]');   // absent on a hosted desk (API tools only)
   function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
   function paramNames() {
     return Array.prototype.map.call(form.querySelectorAll('[name="param_name[]"]'), function (i) { return i.value.trim(); }).filter(Boolean);
   }
+  function kind() {
+    var k = 'sql';
+    Array.prototype.forEach.call(form.querySelectorAll('[data-kind]'), function (r) { if (r.type === 'hidden' || r.checked) k = r.getAttribute('data-kind'); });
+    return k;
+  }
+  function val(name) { var el = form.querySelector('[name=' + name + ']'); return el ? (el.value || '') : ''; }
+  /* the identity values the lookup needs: :_key in SQL, {_key} in an API address or body */
   function identityKeys() {
-    var m = (sqlBox.value || '').match(/:_([a-zA-Z_][a-zA-Z0-9_]*)/g) || [];
-    var seen = {}; return m.map(function (x) { return x.slice(2); }).filter(function (k) { if (seen[k]) return false; seen[k] = true; return true; });
+    var names = [];
+    if (kind() === 'http') {
+      names = (val('http_url') + ' ' + val('http_body')).match(/\{_([a-zA-Z_][a-zA-Z0-9_]*)\}/g) || [];
+      names = names.map(function (x) { return x.slice(2, -1); });
+    } else if (sqlBox) {
+      names = ((sqlBox.value || '').match(/:_([a-zA-Z_][a-zA-Z0-9_]*)/g) || []).map(function (x) { return x.slice(2); });
+    }
+    var seen = {}; return names.filter(function (k) { if (seen[k]) return false; seen[k] = true; return true; });
   }
   function keep(wrap, sel) { var v = {}; Array.prototype.forEach.call(wrap.querySelectorAll(sel), function (i) { v[i.getAttribute('data-k')] = i.value; }); return v; }
   function refresh() {
@@ -406,7 +419,8 @@
 
   function apply() {
     var kind = 'sql';
-    Array.prototype.forEach.call(radios, function (r) { if (r.checked) kind = r.getAttribute('data-kind'); });
+    // a hosted desk has no chooser: one hidden input says "http" for good
+    Array.prototype.forEach.call(radios, function (r) { if (r.type === 'hidden' || r.checked) kind = r.getAttribute('data-kind'); });
     Array.prototype.forEach.call(blocks, function (b) { b.hidden = b.getAttribute('data-kind-block') !== kind; });
     // only one of the two identity inputs is on screen; keep the server's copy right
     if (canonical && mirror) {

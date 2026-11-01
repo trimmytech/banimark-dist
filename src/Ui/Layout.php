@@ -158,16 +158,19 @@ class Layout
         $method = strtoupper((string) ($e['http_method'] ?? 'GET'));
 
         return '<h3 class="bm-step">'.($hosted ? 'Which address in your app should it call?' : 'Where should it look?').'</h3>'
+            // hosted: the kind is fixed, and the identity keys the server reads
+            // ("context") still need a home - the API block's box mirrors into it
             .($hosted ? '<input type="hidden" name="kind" value="http" data-kind="http">'
+                .'<input type="hidden" name="context" value="'.$v('context_csv', 'user_id').'">'
                 .'<div class="hint" style="margin-bottom:12px">'.$q(\Banimark\Standalone\Hosted::NO_SQL).'</div>' : '')
-            .'<div class="row" style="gap:10px;margin-bottom:12px"'.($hosted ? ' hidden' : '').'>'
+            .($hosted ? '' : '<div class="row" style="gap:10px;margin-bottom:12px">'
             .'<label style="display:flex;gap:9px;align-items:flex-start;padding:12px;border:1px solid var(--border-2);border-radius:var(--r);flex:1;cursor:pointer">'
             .'<input type="radio" name="kind" value="sql"'.($http ? '' : ' checked').' style="margin-top:2px" data-kind="sql">'
             .'<span><b>In my database</b><div class="muted">Point at a table and the builder writes the query.</div></span></label>'
             .'<label style="display:flex;gap:9px;align-items:flex-start;padding:12px;border:1px solid var(--border-2);border-radius:var(--r);flex:1;cursor:pointer">'
             .'<input type="radio" name="kind" value="http"'.($http ? ' checked' : '').' style="margin-top:2px" data-kind="http">'
             .'<span><b>From my own API</b><div class="muted">Call an address in your app - for data Banimark cannot reach directly.</div></span></label>'
-            .'</div>'
+            .'</div>')
 
             // ---- database ----
             .($hosted ? '' : '<div data-kind-block="sql"'.($http ? ' hidden' : '').'>'
