@@ -31,24 +31,39 @@ final class HqLogin
         self::$trusted = $publicKey;
     }
 
-    /** What HQ signs: built here so HQ and the desk cannot disagree on the shape. */
-    public static function payload(string $slug, string $by, ?int $now = null): string
+    /**
+     * What HQ signs: built here so HQ and the desk cannot disagree on the shape.
+     * $to is where the admin lands inside the panel ('/inbox'); anything but a
+     * plain panel path is dropped.
+     */
+    public static function payload(string $slug, string $by, ?int $now = null, string $to = ''): string
     {
         $now = $now ?? time();
-        return (string) json_encode([
+        $claims = [
             't' => self::PURPOSE,
             'slug' => strtolower(trim($slug)),
             'by' => mb_substr(trim($by), 0, 80),
             'iat' => $now,
             'exp' => $now + self::TTL,
             'jti' => bin2hex(random_bytes(8)),
-        ], JSON_UNESCAPED_SLASHES);
+        ];
+        if (self::path($to) !== '') {
+            $claims['to'] = self::path($to);
+        }
+        return (string) json_encode($claims, JSON_UNESCAPED_SLASHES);
+    }
+
+    /** A panel path the link may land on: "/inbox", "/tools" - never a scheme, a host or a query. */
+    public static function path(string $to): string
+    {
+        $to = trim($to);
+        return preg_match('#^/[a-z0-9][a-z0-9/_-]{0,60}$#', $to) && !str_contains($to, '//') ? $to : '';
     }
 
     /** The token, given HQ's raw Ed25519 secret key (HQ's Signer holds it). */
-    public static function sign(string $secretKey, string $slug, string $by, ?int $now = null): string
+    public static function sign(string $secretKey, string $slug, string $by, ?int $now = null, string $to = ''): string
     {
-        $payload = self::payload($slug, $by, $now);
+        $payload = self::payload($slug, $by, $now, $to);
         return self::b64($payload).'.'.self::b64(sodium_crypto_sign_detached($payload, $secretKey));
     }
 
@@ -90,7 +105,7 @@ final class HqLogin
         if ((int) ($data['exp'] ?? 0) < $now || (int) ($data['iat'] ?? 0) > $now + 60) {
             return ['ok' => false, 'error' => 'That sign-in link has expired - open the desk from HQ again.'];
         }
-        return ['ok' => true, 'by' => (string) ($data['by'] ?? 'Banimark HQ'), 'jti' => (string) ($data['jti'] ?? ''), 'exp' => (int) $data['exp']];
+        return ['ok' => true, 'by' => (string) ($data['by'] ?? 'Banimark HQ'), 'jti' => (string) ($data['jti'] ?? ''), 'exp' => (int) $data['exp'], 'to' => self::path((string) ($data['to'] ?? ''))];
     }
 
     /** This desk's slug, from the address its config welded it to. */

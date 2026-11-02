@@ -4,6 +4,7 @@ Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
 ## Unreleased
+- HQ's sign-in link into a hosted desk can land on a chosen page (its inbox).
 - **Hosted desks send email through Banimark.** Invitations, password links
   and follow-ups from a hosted desk that has not set up its own SMTP now go
   through Banimark's mail service instead of the server's local mail, which

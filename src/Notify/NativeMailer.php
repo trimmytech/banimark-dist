@@ -24,9 +24,15 @@ class NativeMailer implements Mailer
         if ($this->fromEmail !== '') {
             $headers .= 'From: '.Message::header($this->fromName, $this->fromEmail)."\r\n";
         }
+        // the ENVELOPE sender too (-f): without it the local mailer uses the
+        // system user at the box's hostname, which Gmail refuses as unauthenticated
+        $envelope = $this->envelope();
         $ok = true;
         foreach ($to as $addr) {
-            $ok = @mail($addr, $subject, $body, $headers) && $ok;
+            $sent = $envelope !== ''
+                ? @mail($addr, $subject, $body, $headers, '-f'.$envelope)
+                : @mail($addr, $subject, $body, $headers);
+            $ok = $sent && $ok;
         }
         $this->error = $ok ? '' : 'PHP mail() returned false - this host probably has no local mail transport. Configure SMTP.';
         return $ok;
@@ -35,5 +41,19 @@ class NativeMailer implements Mailer
     public function lastError(): string
     {
         return $this->error;
+    }
+
+    /**
+     * The envelope sender passed to mail() as -f, or '' when the address is
+     * not one that may safely go on a command line: only the plain characters
+     * of an email address, nothing a shell or sendmail could read as an option.
+     */
+    public function envelope(): string
+    {
+        $from = trim($this->fromEmail);
+        if ($from === '' || !filter_var($from, FILTER_VALIDATE_EMAIL) || !preg_match('/^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+$/', $from)) {
+            return '';
+        }
+        return $from;
     }
 }

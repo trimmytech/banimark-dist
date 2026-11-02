@@ -1341,7 +1341,7 @@ class Panel
         $this->auth->loginAs($owner, $v['by'].' (Banimark HQ)');
         $this->settings->set('hq_login_last', (string) json_encode(['by' => $v['by'], 'at' => date('Y-m-d H:i:s'), 'as' => (string) $owner['email']]));
         error_log('Banimark: HQ ('.$v['by'].') signed in to hosted desk "'.$slug.'" as '.$owner['email']);
-        $this->go($this->url().'?bm_ok='.rawurlencode('Signed in as '.$owner['name'].' (owner), through Banimark HQ.'));
+        $this->go($this->url($v['to'] !== '' ? $v['to'] : '').'?bm_ok='.rawurlencode('Signed in as '.$owner['name'].' (owner), through Banimark HQ.'));
     }
 
     private function inbox(string $flash): string
