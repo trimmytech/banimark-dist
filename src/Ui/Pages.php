@@ -900,7 +900,7 @@ final class Pages
                 .'<span class="muted">seconds without a heartbeat</span></div>'
                 .'<div class="hint">One email per absence - they will not be mailed again until they come back.</div>')
             .Layout::section('Outgoing email', 'Banimark sends with its own SMTP settings, so it never depends on the host app\'s mail configuration.',
-                $switch('smtp_enabled', ($s['smtp_enabled'] ?? '') === '1', 'Use SMTP <span class="muted">(otherwise PHP mail(), which most cloud hosts silently drop)</span>')
+                $switch('smtp_enabled', ($s['smtp_enabled'] ?? '') === '1', 'Use SMTP <span class="muted">('.\Banimark\Notify\MailerFactory::fallbackLabel().')</span>')
                 .'<div class="grid2" style="margin-top:6px">'
                 .'<div><label>Host</label><input type="text" name="smtp_host" value="'.$g('smtp_host').'" placeholder="smtp.mailgun.org"></div>'
                 .'<div><label>Port</label><input type="number" name="smtp_port" value="'.$g('smtp_port', '587').'"></div>'

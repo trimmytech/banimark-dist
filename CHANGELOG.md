@@ -4,6 +4,11 @@ Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
 ## Unreleased
+- **Hosted desks send email through Banimark.** Invitations, password links
+  and follow-ups from a hosted desk that has not set up its own SMTP now go
+  through Banimark's mail service instead of the server's local mail, which
+  delivered nothing. A desk that sets its own SMTP under Notifications →
+  Email still uses that.
 - **Forgot your password.** A link under the sign-in form: type your email
   and a one-hour link to choose a new password is emailed, if the address
   has an account (the page never says whether it does). The email comes
