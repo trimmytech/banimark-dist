@@ -150,7 +150,8 @@
   function toast(o) {
     o = o || {};
     var kind = ICON[o.kind] && o.kind !== 'x' ? o.kind : 'info';
-    var title = String(o.title || ''), text = String(o.text || '');
+    var title = String(o.title || '').trim(), text = String(o.text || '').trim();
+    if (title === '' && text === '') return null;   // nothing to say, nothing to show
     var key = kind + '|' + title + '|' + text, now = Date.now();
     var dup = all().filter(function (t) { return t.getAttribute('data-key') === key && now - (+t.getAttribute('data-t') || 0) < 2000; })[0];
     if (dup) {
@@ -654,7 +655,12 @@
      standing notice (update available, database behind) is also a .flash-*
      box and must be neither toasted on every page load nor replaced */
   function topFlash() {
-    return document.querySelector('.bm-wrap [data-flash], .bm-card [data-flash], [data-flash]');
+    // not the live chat's hidden placeholder, nor an empty box: only a message
+    var all = document.querySelectorAll('[data-flash]');
+    for (var i = 0; i < all.length; i++) {
+      if (!all[i].hidden && (all[i].textContent || '').trim() !== '') return all[i];
+    }
+    return null;
   }
   function showTop(ok, text, near) {
     var olds = document.querySelectorAll('[data-flash]');

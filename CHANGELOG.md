@@ -3,6 +3,10 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.38.3
+
+- Fix: opening a conversation no longer shows an empty success toast (the live chat's hidden message box was being mirrored). A toast with nothing to say is never shown.
+
 ## 0.38.2
 
 - Notifications: the bottom-right toasts are redesigned on every surface (standalone, hosted, HQ). A flat notice with the kind on its left edge, a title that says what happened, a two-line message, an optional action, and a life bar that drains while it waits; errors stay until dismissed; four visible with a "+N more" pill; Esc dismisses the newest; the same message twice within two seconds does not add a second toast. New messages and handovers open the conversation and show the visitor's initials. One `bmToast()` in panel.js serves the events poll and the form answers.
