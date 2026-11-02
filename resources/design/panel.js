@@ -374,10 +374,14 @@
 (function () {
   'use strict';
   function apply(el) {
+    // one radio may hide several blocks (comma-separated) and show one
     var show = el.getAttribute('data-toggle-show');
-    var hide = el.getAttribute('data-toggle-hide');
-    var target = document.querySelector(show || hide);
-    if (target) target.hidden = !show;
+    (el.getAttribute('data-toggle-hide') || '').split(',').forEach(function (sel) {
+      var t = sel.trim() ? document.querySelector(sel.trim()) : null;
+      if (t) t.hidden = true;
+    });
+    var target = show ? document.querySelector(show) : null;
+    if (target) target.hidden = false;
   }
   document.addEventListener('change', function (ev) {
     var el = ev.target.closest('[data-toggle-show], [data-toggle-hide]');

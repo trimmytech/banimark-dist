@@ -165,6 +165,17 @@ class Schema
         self::index($pdo, "{$prefix}attach_token", "{$prefix}attachments", 'token', true);
         self::index($pdo, "{$prefix}attach_conv", "{$prefix}attachments", 'conversation_id', false);
 
+        // 0.37: a spreadsheet tool's uploaded CSV, one per tool (a sheet shared
+        // by link is fetched live instead). LONGTEXT on MySQL: TEXT stops at 64 KB.
+        $pdo->exec("CREATE TABLE IF NOT EXISTS {$prefix}sheets (
+            id {$pk},
+            name VARCHAR(80) NOT NULL,
+            csv ".($driver === Dialect::MYSQL ? 'LONGTEXT' : 'TEXT')." NOT NULL,
+            row_count INTEGER NOT NULL DEFAULT 0,
+            updated_at VARCHAR(32) NULL
+        ){$tail}");
+        self::index($pdo, "{$prefix}sheet_name", "{$prefix}sheets", 'name', true);
+
         $pdo->exec("CREATE TABLE IF NOT EXISTS {$prefix}settings (
             {$q('key')} VARCHAR(80) NOT NULL,
             {$q('value')} TEXT NOT NULL

@@ -223,6 +223,11 @@
     if (kind() === 'http') {
       names = (val('http_url') + ' ' + val('http_body')).match(/\{_([a-zA-Z_][a-zA-Z0-9_]*)\}/g) || [];
       names = names.map(function (x) { return x.slice(2, -1); });
+    } else if (kind() === 'sheet') {
+      // a spreadsheet is scoped by "this column must equal the visitor's <key>"
+      names = Array.prototype.map.call(form.querySelectorAll('select[name^="sheet_identity["]'), function (s) {
+        return s.value ? s.getAttribute('data-key') : '';
+      }).filter(Boolean);
     } else if (sqlBox) {
       names = ((sqlBox.value || '').match(/:_([a-zA-Z_][a-zA-Z0-9_]*)/g) || []).map(function (x) { return x.slice(2); });
     }
@@ -427,18 +432,23 @@
   if (!radios.length) return;
   var blocks = document.querySelectorAll('[data-kind-block]');
   var canonical = document.querySelector('[name=context]');
-  var mirror = document.querySelector('[data-mirror=context]');
+  var mirrors = document.querySelectorAll('[data-mirror=context]');   // one per block that has its own identity box
 
-  function apply() {
+  function current() {
     var kind = 'sql';
-    // a hosted desk has no chooser: one hidden input says "http" for good
     Array.prototype.forEach.call(radios, function (r) { if (r.type === 'hidden' || r.checked) kind = r.getAttribute('data-kind'); });
+    return kind;
+  }
+  function apply() {
+    var kind = current();
     Array.prototype.forEach.call(blocks, function (b) { b.hidden = b.getAttribute('data-kind-block') !== kind; });
-    // only one of the two identity inputs is on screen; keep the server's copy right
-    if (canonical && mirror) {
-      if (kind === 'http') { canonical.value = mirror.value; } else { mirror.value = canonical.value; }
+    // only one identity input is on screen; keep the server's copy right
+    if (canonical) {
+      Array.prototype.forEach.call(mirrors, function (m) {
+        if (m.getAttribute('data-for') === kind) { canonical.value = m.value; } else { m.value = canonical.value; }
+      });
     }
-    // SQL is only required when it is the kind being built
+    // a field is only required when its kind is the one being built
     var sql = document.querySelector('[name=sql]'), cols = document.querySelector('[name=columns]');
     if (sql) sql.required = kind === 'sql';
     if (cols) cols.required = kind === 'sql';
@@ -447,8 +457,116 @@
     if (fields) fields.required = kind === 'http';
   }
   Array.prototype.forEach.call(radios, function (r) { r.addEventListener('change', apply); });
-  if (mirror && canonical) mirror.addEventListener('input', function () { canonical.value = mirror.value; });
+  Array.prototype.forEach.call(mirrors, function (m) {
+    m.addEventListener('input', function () { if (canonical && m.getAttribute('data-for') === current()) canonical.value = m.value; });
+  });
   apply();
+})();
+
+/* ---- a spreadsheet as the source ----
+ * The owner pastes a sheet link or uploads a CSV and presses "Load the
+ * columns": the server reads the header row and a few sample values, and the
+ * columns come back as tick boxes (what the assistant may show) and as menus
+ * (which column answers each question, which column holds the visitor's
+ * identity). No JSON, no paths - the owner only ever sees their own column
+ * names with a sample value beside each. */
+(function () {
+  'use strict';
+  var block = document.querySelector('[data-kind-block="sheet"]');
+  if (!block) return;
+  var form = block.closest('form');
+  var loadBtn = block.querySelector('[data-sheet-load]'), status = block.querySelector('[data-sheet-status]');
+  var wrap = block.querySelector('[data-sheet-columns]');
+  var urlBox = block.querySelector('[name=sheet_url]'), fileBox = block.querySelector('[name=sheet_file]');
+  var ctxBox = block.querySelector('[name=context_sheet]');
+  var csrf = form.querySelector('[name=_token], [name=_csrf]');
+  var cols = [], sample = [];
+  var pre = {};
+  try { pre = JSON.parse(wrap.getAttribute('data-sheet-prefill') || '{}') || {}; } catch (e) { pre = {}; }
+
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
+  function paramNames() {
+    return Array.prototype.map.call(form.querySelectorAll('[name="param_name[]"]'), function (i) { return i.value.trim(); })
+      .filter(function (v) { return /^[a-z][a-z0-9_]*$/.test(v); });
+  }
+  function identityKeys() {
+    return ((ctxBox && ctxBox.value) || '').split(',').map(function (s) { return s.trim().replace(/^_/, ''); }).filter(Boolean);
+  }
+  function sampleOf(col) {
+    for (var i = 0; i < sample.length; i++) { if (sample[i][col] !== undefined && sample[i][col] !== '') return sample[i][col]; }
+    return '';
+  }
+  /* what is ticked / chosen right now, so a re-render (a parameter renamed) keeps it */
+  function state() {
+    var s = { fields: [], match: {}, identity: {} };
+    Array.prototype.forEach.call(wrap.querySelectorAll('input[name="sheet_fields[]"]'), function (c) { if (c.checked) s.fields.push(c.value); });
+    Array.prototype.forEach.call(wrap.querySelectorAll('select[name^="sheet_match["]'), function (sel) { s.match[sel.getAttribute('data-key')] = sel.value; });
+    Array.prototype.forEach.call(wrap.querySelectorAll('select[name^="sheet_identity["]'), function (sel) { s.identity[sel.getAttribute('data-key')] = sel.value; });
+    return s;
+  }
+  function menu(name, key, chosen, blank) {
+    return '<select name="' + name + '[' + esc(key) + ']" data-key="' + esc(key) + '" style="margin:0"><option value="">' + esc(blank) + '</option>' +
+      cols.map(function (c) { return '<option value="' + esc(c) + '"' + (c === chosen ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('') + '</select>';
+  }
+  function render(keep) {
+    if (!cols.length) return;
+    var s = keep || { fields: [], match: {}, identity: {} };
+    var html = '<label>Columns the assistant may show the customer</label><div class="row" style="flex-wrap:wrap;gap:8px 16px">' +
+      cols.map(function (c) {
+        var on = s.fields.indexOf(c) >= 0;
+        return '<label class="check" style="margin:0"><input type="checkbox" name="sheet_fields[]" value="' + esc(c) + '"' + (on ? ' checked' : '') + '> ' + esc(c) +
+          (sampleOf(c) !== '' ? ' <span class="muted">(' + esc(String(sampleOf(c)).slice(0, 40)) + ')</span>' : '') + '</label>';
+      }).join('') + '</div>';
+    var ps = paramNames();
+    html += '<label style="margin-top:12px">Which column answers each question</label>';
+    html += ps.length ? ps.map(function (p) {
+      return '<div class="row" style="gap:8px;margin:4px 0;align-items:center"><code style="min-width:120px">' + esc(p) + '</code><span class="muted">is looked for in</span>' + menu('sheet_match', p, s.match[p] || '', 'Choose a column…') + '</div>';
+    }).join('') : '<div class="muted">Add a question above ("What should the assistant ask the customer for?") and it appears here.</div>';
+    var ks = identityKeys();
+    if (ks.length) {
+      html += '<label style="margin-top:12px">Which column holds the signed-in visitor\'s identity <span class="muted">(leave blank if anyone may look)</span></label>';
+      html += ks.map(function (k) {
+        return '<div class="row" style="gap:8px;margin:4px 0;align-items:center"><code style="min-width:120px">' + esc(k) + '</code><span class="muted">must equal</span>' + menu('sheet_identity', k, s.identity[k] || '', 'Not used - anyone may look') + '</div>';
+      }).join('');
+    }
+    wrap.innerHTML = html;
+    // the try-it panel reads the identity menus, so tell it something changed
+    wrap.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  function load() {
+    var fd = new FormData();
+    if (csrf) fd.append(csrf.name, csrf.value);
+    fd.append('sheet_url', urlBox ? urlBox.value.trim() : '');
+    if (fileBox && fileBox.files && fileBox.files[0]) fd.append('sheet_file', fileBox.files[0]);
+    var original = form.querySelector('[name=original_name]');
+    fd.append('tool', original ? original.value : '');
+    status.textContent = 'Reading the sheet…'; loadBtn.disabled = true;
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', loadBtn.getAttribute('data-sheet-url'), true);
+    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+    xhr.setRequestHeader('Accept', 'application/json');
+    xhr.onreadystatechange = function () {
+      if (xhr.readyState !== 4) return;
+      loadBtn.disabled = false;
+      var d = null; try { d = JSON.parse(xhr.responseText); } catch (e) {}
+      if (!d || !d.ok) {
+        status.textContent = '';
+        wrap.innerHTML = '<div class="flash-err" style="display:block">' + esc((d && d.error) || ('Could not read it (HTTP ' + xhr.status + ').')) + '</div>';
+        return;
+      }
+      cols = d.columns || []; sample = d.sample || [];
+      status.textContent = d.rows + ' row' + (d.rows === 1 ? '' : 's') + ', ' + cols.length + ' column' + (cols.length === 1 ? '' : 's') + '.';
+      var keep = state();
+      if (!keep.fields.length && !Object.keys(keep.match).length) keep = { fields: pre.fields || [], match: pre.match || {}, identity: pre.identity || {} };
+      render(keep);
+    };
+    xhr.send(fd);
+  }
+  loadBtn.addEventListener('click', load);
+  // a parameter renamed or an identity key added: redraw the menus, keeping choices
+  form.addEventListener('input', function (e) { if (block.contains(e.target) && !wrap.contains(e.target) && e.target !== ctxBox) return; if (wrap.contains(e.target)) return; render(state()); });
+  if (urlBox) urlBox.addEventListener('change', function () { cols = []; });
+  if (pre.loaded) load();   // editing a saved sheet tool: the columns come back on their own
 })();
 
 /* ---- how the endpoint is secured -------------------------------------

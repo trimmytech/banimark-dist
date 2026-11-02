@@ -103,6 +103,7 @@ class InstallCommand extends Command
         $presets = [
             'gemini' => ['driver' => 'gemini', 'model' => \Banimark\Ai\ProviderPresets::DEFAULT_MODEL['gemini'], 'base_url' => null],
             'anthropic' => ['driver' => 'anthropic', 'model' => \Banimark\Ai\ProviderPresets::DEFAULT_MODEL['anthropic'], 'base_url' => null],
+            'opencode' => ['driver' => 'opencode', 'model' => \Banimark\Ai\ProviderPresets::DEFAULT_MODEL['opencode'], 'base_url' => null],
             // not offered yet (ProviderPresets::OFFERED_DRIVERS) - kept for when they come back:
             // 'deepseek' => ['driver' => 'openai-compat', 'model' => 'deepseek-chat', 'base_url' => 'https://api.deepseek.com'],
             // 'openai' => ['driver' => 'openai-compat', 'model' => 'gpt-4o-mini', 'base_url' => 'https://api.openai.com/v1'],

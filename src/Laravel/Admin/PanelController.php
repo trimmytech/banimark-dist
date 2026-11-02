@@ -1445,10 +1445,17 @@ class PanelController
                     $params[] = ['name' => $pn, 'type' => $spec['type'] ?? 'string', 'desc' => $spec['description'] ?? '', 'required' => !empty($spec['required'])];
                 }
                 $config = json_decode((string) ($row->config ?? ''), true) ?: [];
+                $sheetInfo = ($row->kind ?? '') === 'sheet' ? (new \Banimark\Storage\Sheets(DB::connection()->getPdo()))->info((string) $row->name) : null;
                 $editing = ['name' => $row->name, 'description' => $row->description, 'sql' => $row->sql, 'max_rows' => (int) $row->max_rows,
                     'columns' => implode(', ', json_decode($row->columns, true) ?: []), 'context' => implode(', ', json_decode((string) $row->context, true) ?: []),
                     'enabled' => (bool) $row->enabled, 'params' => $params,
                     'kind' => $row->kind ?? 'sql',
+                    'sheet_url' => (string) (($config['source'] ?? [])['url'] ?? ''),
+                    'sheet_mode' => (string) ($config['mode'] ?? 'exact'),
+                    'sheet_has_csv' => $sheetInfo !== null,
+                    'sheet_rows' => (int) ($sheetInfo['rows'] ?? 0),
+                    'sheet_prefill' => json_encode(['fields' => (array) ($config['fields'] ?? []), 'match' => (object) ($config['match'] ?? []), 'identity' => (object) ($config['identity'] ?? []),
+                        'loaded' => ($row->kind ?? '') === 'sheet']),
                     'http_method' => (string) ($config['method'] ?? 'GET'),
                     'http_url' => (string) ($config['url'] ?? ''),
                     'http_headers' => \Banimark\Tools\ToolFactory::headerLines((array) ($config['headers'] ?? [])),
@@ -1469,14 +1476,16 @@ class PanelController
         $rows = [];
         foreach (DB::table('banimark_tools')->orderBy('id')->get() as $r) {
             $rows[] = ['name' => (string) $r->name, 'description' => (string) $r->description, 'sql' => (string) $r->sql,
-                'params' => array_keys(json_decode((string) $r->parameters, true) ?: []), 'max_rows' => (int) $r->max_rows, 'enabled' => (bool) $r->enabled];
+                'params' => array_keys(json_decode((string) $r->parameters, true) ?: []), 'max_rows' => (int) $r->max_rows, 'enabled' => (bool) $r->enabled,
+                'needs' => \Banimark\Tools\ToolTester::needsOf((array) $r)];
         }
         // form values: what was just submitted (a refused save comes back filled
         // in), else the tool being edited, else a blank new tool
         $e = $editing ?? [];
         $keys = ['name', 'max_rows', 'description', 'kind', 'sql', 'http_method', 'http_url', 'http_headers', 'http_body', 'http_body_type', 'http_path', 'http_fields',
-            'http_auth', 'http_auth_header', 'http_auth_user', 'http_auth_issuer', 'http_auth_audience', 'http_auth_ttl'];
+            'http_auth', 'http_auth_header', 'http_auth_user', 'http_auth_issuer', 'http_auth_audience', 'http_auth_ttl', 'sheet_url', 'sheet_mode'];
         $form = ['params' => $e['params'] ?? [], 'http_auth_has_secret' => $e['http_auth_has_secret'] ?? false,
+            'sheet_prefill' => $e['sheet_prefill'] ?? '{}', 'sheet_has_csv' => $e['sheet_has_csv'] ?? false, 'sheet_rows' => $e['sheet_rows'] ?? 0,
             'enabled' => old('enabled', $e ? $e['enabled'] : true),
             'columns_csv' => old('columns', $e['columns'] ?? ''), 'context_csv' => old('context', $e['context'] ?? 'user_id')];
         foreach ($keys as $k) {
@@ -1497,9 +1506,11 @@ class PanelController
                 ...(($lib = $this->toolLibrary()) !== null ? ['library' => $lib] : []),
                 'upgrade_url' => (string) ($settings['support_url'] ?? ''),
                 'assist_ready' => \Banimark\Laravel\EngineFactory::driver()[0] !== null,
+                'connector' => \Banimark\Storage\DataSource::isConnector($settings),
                 'data_card' => \Banimark\Ui\Layout::dataConnection($settings, route('banimark.admin.tools.data'), route('banimark.admin.tools.data.test'), csrf_field()->toHtml(),
                     'Banimark reads the tables next to its own: '.(DB::connection()->getDatabaseName() ?: 'this application\'s database').'.',
-                    (string) session('bm_data_test', ''), (bool) session('bm_data_ok')),
+                    (string) session('bm_data_test', ''), (bool) session('bm_data_ok'),
+                    ['download' => (string) \Banimark\Laravel\RouteCache::url('banimark.admin.tools.connector.download'), 'secret_url' => (string) \Banimark\Laravel\RouteCache::url('banimark.admin.tools.connector.secret')]),
                 'urls' => [
                     'save' => route('banimark.admin.tools.save'),
                     'delete' => route('banimark.admin.tools.delete'),
@@ -1508,9 +1519,89 @@ class PanelController
                     'try' => route('banimark.admin.tools.try'),
                     'assist' => route('banimark.admin.tools.assist'),
                     'providers' => route('banimark.admin.providers'),
+                    // absent (not broken) on a stale route cache
+                    'sheet' => (string) \Banimark\Laravel\RouteCache::url('banimark.admin.tools.sheet'),
+                    'sheet_sample' => (string) \Banimark\Laravel\RouteCache::url('banimark.admin.tools.sheet.sample'),
                 ],
             ]),
         ]);
+    }
+
+    /** The sample CSV an owner downloads to see the shape a spreadsheet tool reads. */
+    public function sheetSample(AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        return response(\Banimark\Ui\Pages::sampleSheet(), 200, [
+            'Content-Type' => 'text/csv; charset=utf-8',
+            'Content-Disposition' => 'attachment; filename="banimark-sample-orders.csv"',
+            'Cache-Control' => 'no-store',
+        ]);
+    }
+
+    /** "Load the columns": read the sheet named in the form (link, upload, or what the tool being edited already has). */
+    public function sheetColumns(Request $request, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        $upload = self::uploadedCsv($request);
+        $url = trim((string) $request->input('sheet_url', ''));
+        $tool = trim((string) $request->input('tool', ''));
+        if ($upload === '') {
+            return response()->json(['ok' => false, 'error' => 'That CSV is larger than 1 MB.', 'columns' => [], 'sample' => [], 'rows' => 0]);
+        }
+        if ($upload !== null) {
+            $source = ['csv' => $upload];
+        } elseif ($url !== '') {
+            \Banimark\Tools\SheetTool::forget($url);
+            $source = ['url' => $url];
+        } elseif ($tool !== '' && ($csv = (new \Banimark\Storage\Sheets(DB::connection()->getPdo()))->read($tool)) !== null) {
+            $source = ['csv' => $csv];
+        } else {
+            return response()->json(['ok' => false, 'error' => 'Paste the link to the sheet, or choose a CSV file, then press the button again.', 'columns' => [], 'sample' => [], 'rows' => 0]);
+        }
+        return response()->json(\Banimark\Tools\SheetTool::inspect($source));
+    }
+
+    /** The uploaded CSV, if any: null = nothing uploaded, '' = too large. */
+    private static function uploadedCsv(Request $request): ?string
+    {
+        $file = $request->file('sheet_file');
+        if (!$file || !$file->isValid()) {
+            return null;
+        }
+        if ($file->getSize() > \Banimark\Tools\SheetTool::MAX_CSV_UPLOAD) {
+            return '';
+        }
+        return (string) file_get_contents($file->getRealPath());
+    }
+
+    /** The connector download for one platform, with this desk's secret and name inside. */
+    public function connectorDownload(Request $request, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        $settings = \Banimark\Laravel\BanimarkServiceProvider::settings();
+        try {
+            $file = \Banimark\Connector\Bundle::build((string) $request->query('platform', ''),
+                \Banimark\Storage\DataSource::ensureSecret($settings, fn (string $k, string $v) => self::setSetting($k, $v)), (string) ($settings['title'] ?? 'Banimark'));
+        } catch (\Throwable $e) {
+            return response($e->getMessage(), 404, ['Content-Type' => 'text/plain']);
+        }
+        return response($file['bytes'], 200, [
+            'Content-Type' => $file['mime'],
+            'Content-Disposition' => 'attachment; filename="'.$file['name'].'"',
+            'Cache-Control' => 'no-store',
+        ]);
+    }
+
+    /** A new connector secret: every copy downloaded before stops answering. */
+    public function connectorSecret(Request $request, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        if (!$auth->isOwner()) {
+            return back()->with('bm_error', 'Only an owner can change the connector secret.');
+        }
+        \Banimark\Storage\DataSource::save($request->all(), fn (string $k, string $v) => self::setSetting($k, $v));
+        self::setSetting('connector_secret', \Banimark\Connector\Protocol::secret());
+        return back()->with('bm_ok', 'A new secret is made. Download the connector again and replace the one on your website - the old copy no longer answers.');
     }
 
     public function saveDataConnection(Request $request, AgentAuth $auth)
@@ -1546,7 +1637,7 @@ class PanelController
             return response()->json(['ok' => false, 'error' => 'Connect an AI provider first - the assistant uses the same key your chat does.'], 422);
         }
         try {
-            $schema = (new \Banimark\Tools\SchemaInspector(\Banimark\Laravel\EngineFactory::dataPdo()))->all();
+            $schema = \Banimark\Storage\DataSource::schemaFor(\Banimark\Laravel\BanimarkServiceProvider::settings(), DB::connection()->getPdo());
         } catch (\Throwable $e) {
             return response()->json(['ok' => false, 'error' => 'Your data connection is not working: '.$e->getMessage()], 422);
         }
@@ -1563,7 +1654,7 @@ class PanelController
             $schema,
             array_keys($known),
             $existing,
-            \Banimark\Storage\Dialect::of(\Banimark\Laravel\EngineFactory::dataPdo()),
+            \Banimark\Storage\DataSource::dialectFor(\Banimark\Laravel\BanimarkServiceProvider::settings(), DB::connection()->getPdo()),
         );
         if (!$out['ok']) {
             \Illuminate\Support\Facades\Log::warning('Banimark tool assistant: '.$out['error']);
@@ -1598,8 +1689,13 @@ class PanelController
         $definition = self::toolDefinitionFromRequest($request);
         $args = (array) $request->input('args', []);
         $context = array_filter((array) $request->input('context_values', []), fn ($v) => $v !== '' && $v !== null);
+        if ($definition['kind'] === 'sheet') {
+            $definition['csv'] = self::uploadedCsv($request)
+                ?: (string) (new \Banimark\Storage\Sheets(DB::connection()->getPdo()))->read(trim((string) ($request->input('original_name') ?: $request->input('name'))));
+            return response()->json(\Banimark\Tools\ToolTester::run($definition, $args, $context, fn () => []));
+        }
         try {
-            $runner = \Banimark\Storage\DataSource::runner(\Banimark\Laravel\EngineFactory::dataPdo());
+            $runner = \Banimark\Storage\DataSource::runnerFor(\Banimark\Laravel\BanimarkServiceProvider::settings(), DB::connection()->getPdo());
         } catch (\Throwable $e) {
             return response()->json(['ok' => false, 'error' => 'Your data connection is not working: '.$e->getMessage(), 'diagnostic' => '', 'rows' => [], 'count' => 0, 'needs' => [], 'sql' => ''], 422);
         }
@@ -1611,7 +1707,7 @@ class PanelController
     {
         if ($r = $this->gate($auth)) { return $r; }
         try {
-            $tables = (new \Banimark\Tools\SchemaInspector(\Banimark\Laravel\EngineFactory::dataPdo()))->all();
+            $tables = \Banimark\Storage\DataSource::schemaFor(\Banimark\Laravel\BanimarkServiceProvider::settings(), DB::connection()->getPdo());
         } catch (\Throwable $e) {
             return response()->json(['tables' => [], 'error' => 'Your data connection is not working: '.$e->getMessage()]);
         }
@@ -1658,8 +1754,8 @@ class PanelController
             'columns' => array_values(array_filter(array_map('trim', explode(',', (string) $request->input('columns'))))),
             'context' => array_values(array_filter(array_map('trim', explode(',', (string) $request->input('context'))))),
             'max_rows' => max(1, min(50, (int) $request->input('max_rows', 10))),
-            'kind' => $request->input('kind') === 'http' ? 'http' : 'sql',
-            'config' => [
+            'kind' => in_array($request->input('kind'), ['http', 'sheet'], true) ? $request->input('kind') : 'sql',
+            'config' => $request->input('kind') === 'sheet' ? self::sheetConfigFromRequest($request, $params) : [
                 'method' => strtoupper((string) $request->input('http_method', 'GET')) === 'POST' ? 'POST' : 'GET',
                 'url' => trim((string) $request->input('http_url')),
                 'headers' => \Banimark\Tools\ToolFactory::parseHeaders((string) $request->input('http_headers')),
@@ -1674,9 +1770,50 @@ class PanelController
         ];
     }
 
+    /** The spreadsheet half of the form: link, which column answers which question, identity columns, ticked fields. */
+    private static function sheetConfigFromRequest(Request $request, array $params): array
+    {
+        $match = [];
+        foreach ((array) $request->input('sheet_match', []) as $param => $column) {
+            if (isset($params[$param]) && trim((string) $column) !== '') {
+                $match[(string) $param] = trim((string) $column);
+            }
+        }
+        $identity = [];
+        foreach ((array) $request->input('sheet_identity', []) as $key => $column) {
+            if (trim((string) $column) !== '') {
+                $identity[ltrim(trim((string) $key), '_')] = trim((string) $column);
+            }
+        }
+        return [
+            'source' => ['url' => trim((string) $request->input('sheet_url', ''))],
+            'match' => $match,
+            'identity' => $identity,
+            'mode' => in_array($request->input('sheet_mode'), \Banimark\Tools\SheetTool::MODES, true) ? $request->input('sheet_mode') : 'exact',
+            'fields' => array_values(array_unique(array_filter(array_map(fn ($f) => trim((string) $f), (array) $request->input('sheet_fields', [])), fn ($f) => $f !== ''))),
+        ];
+    }
+
     public function saveTool(Request $request)
     {
         $definition = self::toolDefinitionFromRequest($request);
+        $original = trim((string) $request->input('original_name', ''));
+        $sheets = new \Banimark\Storage\Sheets(DB::connection()->getPdo());
+        $upload = null;
+        if ($definition['kind'] === 'sheet') {
+            // the CSV is what was just uploaded, else what the tool already has; a link
+            // wins over a stored copy. Then the sheet is READ, so a column that is not
+            // there fails here and not in front of a visitor.
+            $upload = self::uploadedCsv($request);
+            if ($upload === '') {
+                return back()->with('bm_error', 'That CSV is larger than 1 MB. Keep only the columns the assistant needs, or share it as a Google Sheet instead.')->withInput();
+            }
+            $definition['csv'] = $upload ?? ($definition['config']['source']['url'] === '' ? (string) $sheets->read($original !== '' ? $original : $definition['name']) : '');
+            $check = \Banimark\Tools\SheetToolValidator::check(\Banimark\Tools\ToolFactory::sheetDefinition($definition), true);
+            if (!$check['ok']) {
+                return back()->with('bm_error', $check['error'])->withInput();
+            }
+        }
 
         // only when this would be a NEW tool; editing one you already have is
         // never blocked, whatever the plan says
@@ -1691,13 +1828,13 @@ class PanelController
 
         // the same compile-time gate the runtime uses - a bad tool dies HERE
         try {
-            \Banimark\Tools\ToolFactory::make($definition, fn () => [], fn () => ['status' => 200, 'body' => '[]', 'error' => '']);
+            \Banimark\Tools\ToolFactory::make($definition, fn () => [], fn () => ['status' => 200, 'body' => '[]', 'error' => ''],
+                \Banimark\Storage\DataSource::isConnector(\Banimark\Laravel\BanimarkServiceProvider::settings()));
         } catch (\Throwable $e) {
             return back()->with('bm_error', $e->getMessage())->withInput();
         }
 
         // editing: original_name is the row to update, name may be a rename
-        $original = trim((string) $request->input('original_name', ''));
         $target = $original !== '' && DB::table('banimark_tools')->where('name', $original)->exists() ? $original : $definition['name'];
         if ($target !== $definition['name'] && DB::table('banimark_tools')->where('name', $definition['name'])->exists()) {
             return back()->with('bm_error', 'A tool called "'.$definition['name'].'" already exists.')->withInput();
@@ -1711,19 +1848,30 @@ class PanelController
             'context' => json_encode($definition['context']),
             'max_rows' => $definition['max_rows'],
             'kind' => $definition['kind'],
-            'config' => $definition['kind'] === 'http' ? json_encode($definition['config']) : null,
+            'config' => $definition['kind'] !== 'sql' ? json_encode($definition['config']) : null,
             'enabled' => $request->boolean('enabled'),
             'updated_at' => now(),
         ];
         DB::table('banimark_tools')->where('name', $target)->exists()
             ? DB::table('banimark_tools')->where('name', $target)->update($data)
             : DB::table('banimark_tools')->insert($data + ['created_at' => now()]);
+        if ($definition['kind'] === 'sheet') {
+            $sheets->rename($target, $definition['name']);
+            if ($upload !== null && $upload !== '') {
+                $sheets->put($definition['name'], $upload, count(\Banimark\Tools\SheetTool::parse($upload)[1]));
+            } elseif ($definition['config']['source']['url'] !== '') {
+                $sheets->delete($definition['name']); // reading a live sheet now
+            }
+        } else {
+            $sheets->delete($definition['name']);
+        }
         return redirect()->route('banimark.admin.tools')->with('bm_ok', 'Tool "'.$definition['name'].'" '.($original !== '' ? 'updated' : 'saved').' and validated.');
     }
 
     public function deleteTool(Request $request)
     {
         DB::table('banimark_tools')->where('name', (string) $request->input('name'))->delete();
+        (new \Banimark\Storage\Sheets(DB::connection()->getPdo()))->delete((string) $request->input('name'));
         return back()->with('bm_ok', 'Tool removed.');
     }
 

@@ -54,7 +54,7 @@ final class Pages
         $planOff = array_flip((array) ($o['plan_off'] ?? []));
         $list = '';
         foreach ($rows as $r) {
-            $needs = \Banimark\Tools\ToolTester::identityKeys((string) $r['sql']);
+            $needs = $r['needs'] ?? \Banimark\Tools\ToolTester::identityKeys((string) $r['sql']);
             $chips = '';
             foreach ($r['params'] as $pn) {
                 $chips .= '<span class="chip-sm">'.$e($pn).'</span>';
@@ -86,7 +86,7 @@ final class Pages
             .($editing ? '<a class="btn-ghost btn-sm" href="'.$e($u['page']).'#build">Cancel - build a new one</a>' : (!$full ? Layout::allowance($o['allowance']) : ''))
             .'</div>'
             .($full ? Layout::allowance($o['allowance'], $o['upgrade_url']) : '')
-            .'<form method="post" action="'.$e($u['save']).'">'.$csrf
+            .'<form method="post" action="'.$e($u['save']).'" enctype="multipart/form-data">'.$csrf
             // only a NEW tool is blocked; an existing one stays editable whatever the plan says
             .'<fieldset class="bare '.($full ? 'is-locked' : '').'"'.($full ? ' disabled' : '').'>'
             .($editing ? '<input type="hidden" name="original_name" value="'.$e($v('name')).'">' : '')
@@ -106,7 +106,9 @@ final class Pages
                 'http_path' => $v('http_path'), 'http_fields' => $v('http_fields'), 'http_auth' => $v('http_auth', 'none'), 'http_auth_header' => $v('http_auth_header'),
                 'http_auth_user' => $v('http_auth_user'), 'http_auth_issuer' => $v('http_auth_issuer', 'banimark'), 'http_auth_audience' => $v('http_auth_audience'),
                 'http_auth_ttl' => $v('http_auth_ttl', \Banimark\Tools\HttpAuth::JWT_TTL), 'http_auth_has_secret' => $v('http_auth_has_secret', false),
-            ], $u['schema'], !empty($o['hosted']))
+                'sheet_url' => $v('sheet_url'), 'sheet_mode' => $v('sheet_mode', 'exact'), 'sheet_prefill' => $v('sheet_prefill', '{}'),
+                'sheet_has_csv' => $v('sheet_has_csv', false), 'sheet_rows' => $v('sheet_rows', 0),
+            ], $u['schema'], !empty($o['hosted']), ['sheet_url' => (string) ($u['sheet'] ?? ''), 'sheet_sample' => (string) ($u['sheet_sample'] ?? ''), 'connector' => !empty($o['connector'])])
             .Layout::tryItCard($u['try'])
             .'<div class="row" style="margin-top:18px;justify-content:flex-end"><button type="submit">'.Icons::get('check', 15).' '.($editing ? 'Check and save changes' : 'Check and save tool').'</button></div></fieldset></form></div>';
 
@@ -120,6 +122,15 @@ final class Pages
             .Layout::toolAssistant($u['assist'], (bool) $o['assist_ready'], $u['providers'])
             .$builder
             .Layout::toolBuilderScript();
+    }
+
+    /** The sample CSV an owner downloads to see the shape a spreadsheet tool reads. */
+    public static function sampleSheet(): string
+    {
+        return "Order number,Customer email,Status,Delivery date,Tracking number\n"
+            ."1042,ada@example.com,Shipped,Friday 7 Nov,TRK-55012\n"
+            ."1043,ada@example.com,Packing,Monday 10 Nov,\n"
+            ."2001,bob@example.com,Delivered,Yesterday,TRK-54990\n";
     }
 
     /**
@@ -687,7 +698,7 @@ final class Pages
                 .' — '.\Banimark\Ai\ProviderPresets::capabilityClause((string) $r['driver'], (string) $r['model']);
             $cards .= '<div class="prov'.($on ? ' on' : '').'">'
                 .'<div class="prov-h"><span class="prov-ic">'.Icons::get('providers', 18).'</span>'
-                .'<div><b>'.$e($r['slug']).'</b><small>'.$e(['gemini' => 'Google Gemini', 'anthropic' => 'Anthropic Claude', 'openai-compat' => 'OpenAI-compatible'][$r['driver']] ?? $r['driver']).'</small></div>'
+                .'<div><b>'.$e($r['slug']).'</b><small>'.$e(\Banimark\Ai\ProviderPresets::DRIVER_NAMES[$r['driver']] ?? $r['driver']).'</small></div>'
                 .($on ? '<span class="pill good">ANSWERING</span>' : '<span class="pill closed">STANDBY</span>').'</div>'
                 .'<dl class="facts"><div><dt>Model</dt><dd>'.$e($label).'</dd></div>'
                 .'<div><dt>Key</dt><dd>'.($r['has_key'] ? 'stored on this server' : '<span class="bad-text">missing - add one</span>').'</dd></div>'

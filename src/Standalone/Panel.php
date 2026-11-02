@@ -122,6 +122,12 @@ class Panel
             echo Html::totp($this->url('/login/2fa'), $this->url('/logout'));
             return;
         }
+        // Banimark HQ opening a hosted desk as its owner: a signed, five-minute,
+        // single-use link (Standalone\HqLogin). Only a hosted desk honours it.
+        if ($route === \Banimark\Standalone\HqLogin::ROUTE) {
+            $this->hqLogin((string) ($_GET['t'] ?? ''));
+            return;
+        }
         if (!$this->auth->sessionValid()) {
             echo $this->login();
             return;
@@ -212,6 +218,10 @@ class Panel
         if (isset($_GET['bm_err']) && trim((string) $_GET['bm_err']) !== '') {
             $flash .= '<div class="flash-err" data-flash>'.Html::e(mb_substr((string) $_GET['bm_err'], 0, 200)).'</div>';
         }
+        if (($via = $this->auth->via()) !== '') {
+            // whoever is really here is said on every page - the owner's staff, and the owner, deserve to see it
+            $flash = '<div class="flash-ok" data-hq-via><span>Signed in by <b>'.Html::e($via).'</b> as the owner of this desk, through Banimark HQ. Everything done here is done as the owner. <a href="'.Html::e($this->url('/logout')).'">Sign out</a></span></div>'.$flash;
+        }
         $flash = \Banimark\Licensing\HqNotice::html($this->settings->all(), Hosted::hostFor($_SERVER))
             // a hosted desk is updated by Banimark - there is never a button to press
             .(Hosted::on() ? '' : \Banimark\Update\Notice::html($this->settings->all(), $this->auth->isOwner(),
@@ -250,14 +260,39 @@ class Panel
             ]);
             return;
         }
+        if ($route === '/tools/sheet/sample') {
+            header('Content-Type: text/csv; charset=utf-8');
+            header('Content-Disposition: attachment; filename="banimark-sample-orders.csv"');
+            header('Cache-Control: no-store');
+            echo \Banimark\Ui\Pages::sampleSheet();
+            return;
+        }
+        if ($route === '/tools/connector/download') {
+            $set = fn (string $k, string $v) => $this->settings->set($k, $v);
+            try {
+                $file = \Banimark\Connector\Bundle::build((string) ($_GET['platform'] ?? ''),
+                    \Banimark\Storage\DataSource::ensureSecret($this->settings->all(), $set), (string) $this->settings->get('title', 'Banimark'));
+            } catch (\Throwable $e) {
+                http_response_code(404);
+                header('Content-Type: text/plain; charset=utf-8');
+                echo $e->getMessage();
+                return;
+            }
+            header('Content-Type: '.$file['mime']);
+            header('Content-Disposition: attachment; filename="'.$file['name'].'"');
+            header('Content-Length: '.strlen($file['bytes']));
+            header('Cache-Control: no-store');
+            echo $file['bytes'];
+            return;
+        }
         if ($route === '/tools/schema') {
             header('Content-Type: application/json');
-            if (Hosted::on()) {
+            if (\Banimark\Storage\DataSource::mode($this->settings->all()) === \Banimark\Storage\DataSource::MODE_NONE) {
                 echo json_encode(['tables' => [], 'error' => Hosted::NO_SQL]);
                 return;
             }
             try {
-                $tables = (new \Banimark\Tools\SchemaInspector($this->dataPdo()))->all();
+                $tables = \Banimark\Storage\DataSource::schemaFor($this->settings->all(), $this->pdo);
             } catch (\Throwable $e) {
                 echo json_encode(['tables' => [], 'error' => 'Your data connection is not working: '.$e->getMessage()]);
                 return;
@@ -539,8 +574,13 @@ class Panel
             $this->go($this->url('/conversation/'.$m[1]));
             return null;
         }
-        if (($route === '/tools/data' || $route === '/tools/data/test') && Hosted::on()) {
-            return '<div class="flash-err">'.Html::e(Hosted::NO_SQL).'</div>';
+        if ($route === '/tools/connector/secret') {
+            if (!$this->auth->isOwner()) {
+                return '<div class="flash-err">Only an owner can change the connector secret.</div>';
+            }
+            \Banimark\Storage\DataSource::save($p, fn (string $k, string $v) => $this->settings->set($k, $v));
+            $this->settings->set('connector_secret', \Banimark\Connector\Protocol::secret());
+            return '<div class="flash-ok">A new secret is made. Download the connector again and replace the one on your website - the old copy no longer answers.</div>';
         }
         if ($route === '/tools/data') {
             \Banimark\Storage\DataSource::save($p, fn (string $k, string $v) => $this->settings->set($k, $v));
@@ -588,8 +628,8 @@ class Panel
                 return null;
             }
             try {
-                // a hosted desk has no schema to show the draftsman: it drafts API tools only
-                $schema = Hosted::on() ? [] : (new \Banimark\Tools\SchemaInspector($this->dataPdo()))->all();
+                // a hosted desk without a connector has no schema to show the draftsman: it drafts API tools only
+                $schema = \Banimark\Storage\DataSource::schemaFor($this->settings->all(), $this->pdo);
             } catch (\Throwable $e) {
                 http_response_code(422);
                 echo json_encode(['ok' => false, 'error' => 'Your data connection is not working: '.$e->getMessage()]);
@@ -611,7 +651,7 @@ class Panel
                 }
             }
             $out = (new \Banimark\Tools\ToolDraftsman($driver))->draft($turns, $schema, array_keys($known), $existing,
-                Hosted::on() ? 'mysql' : \Banimark\Storage\Dialect::of($this->dataPdo()));
+                \Banimark\Storage\DataSource::dialectFor($this->settings->all(), $this->pdo));
             if (!$out['ok']) {
                 error_log('Banimark tool assistant: '.$out['error']);
                 http_response_code(422);
@@ -621,16 +661,29 @@ class Panel
             echo json_encode(['ok' => true, 'reply' => $out['reply'], 'tool' => $out['tool']]);
             return null;
         }
+        if ($route === '/tools/sheet/columns') {
+            header('Content-Type: application/json');
+            echo json_encode($this->sheetColumns($p, self::uploadedText($_FILES['sheet_file'] ?? null, \Banimark\Tools\SheetTool::MAX_CSV_UPLOAD)));
+            return null;
+        }
         if ($route === '/tools/try') {
             header('Content-Type: application/json');
             $context = array_filter((array) ($p['context_values'] ?? []), fn ($v) => $v !== '' && $v !== null);
-            if (Hosted::on() && ($p['kind'] ?? '') !== 'http') {
+            if (($p['kind'] ?? '') === 'sheet') {
+                // a spreadsheet tool runs through its own reader - no data connection involved.
+                // the CSV is what was just uploaded, else what is stored for the tool being edited
+                $definition = self::toolDefinitionFromForm($p);
+                $definition['csv'] = self::uploadedText($_FILES['sheet_file'] ?? null, \Banimark\Tools\SheetTool::MAX_CSV_UPLOAD)
+                    ?? (string) (new \Banimark\Storage\Sheets($this->pdo))->read(trim((string) ($p['original_name'] ?? $p['name'] ?? '')));
+                echo json_encode(\Banimark\Tools\ToolTester::run($definition, (array) ($p['args'] ?? []), $context, fn () => []));
+                return null;
+            }
+            if (\Banimark\Storage\DataSource::mode($this->settings->all()) === \Banimark\Storage\DataSource::MODE_NONE && ($p['kind'] ?? '') !== 'http') {
                 echo json_encode(['ok' => false, 'error' => Hosted::NO_SQL, 'diagnostic' => '', 'rows' => [], 'count' => 0, 'needs' => [], 'sql' => '']);
                 return null;
             }
             try {
-                // hosted: nothing runs SQL, so no data connection is opened
-                $runner = Hosted::on() ? fn () => [] : \Banimark\Storage\DataSource::runner($this->dataPdo());
+                $runner = \Banimark\Storage\DataSource::runnerFor($this->settings->all(), $this->pdo);
             } catch (\Throwable $e) {
                 echo json_encode(['ok' => false, 'error' => 'Your data connection is not working: '.$e->getMessage(), 'diagnostic' => '', 'rows' => [], 'count' => 0, 'needs' => [], 'sql' => '']);
                 return null;
@@ -653,6 +706,7 @@ class Panel
         }
         if ($route === '/tools/delete') {
             $this->exec('DELETE FROM banimark_tools WHERE name = ?', [(string) ($p['name'] ?? '')]);
+            (new \Banimark\Storage\Sheets($this->pdo))->delete((string) ($p['name'] ?? ''));
             $this->go($this->url('/tools'));
             return null;
         }
@@ -896,8 +950,8 @@ class Panel
             'columns' => array_values(array_filter(array_map('trim', explode(',', (string) ($p['columns'] ?? ''))))),
             'context' => array_values(array_filter(array_map('trim', explode(',', (string) ($p['context'] ?? ''))))),
             'max_rows' => max(1, min(50, (int) ($p['max_rows'] ?? 10))),
-            'kind' => ($p['kind'] ?? '') === 'http' ? 'http' : 'sql',
-            'config' => [
+            'kind' => in_array($p['kind'] ?? '', ['http', 'sheet'], true) ? $p['kind'] : 'sql',
+            'config' => ($p['kind'] ?? '') === 'sheet' ? self::sheetConfigFromForm($p, $params) : [
                 'method' => strtoupper((string) ($p['http_method'] ?? 'GET')) === 'POST' ? 'POST' : 'GET',
                 'url' => trim((string) ($p['http_url'] ?? '')),
                 'headers' => \Banimark\Tools\ToolFactory::parseHeaders((string) ($p['http_headers'] ?? '')),
@@ -909,6 +963,54 @@ class Panel
                 'auth' => \Banimark\Tools\HttpAuth::fromForm($p, $storedAuth),
             ],
         ];
+    }
+
+    /** The spreadsheet half of the form: link, which column answers which question, identity columns, ticked fields. */
+    private static function sheetConfigFromForm(array $p, array $params): array
+    {
+        $match = [];
+        foreach ((array) ($p['sheet_match'] ?? []) as $param => $column) {
+            if (isset($params[$param]) && trim((string) $column) !== '') {
+                $match[(string) $param] = trim((string) $column);
+            }
+        }
+        $identity = [];
+        foreach ((array) ($p['sheet_identity'] ?? []) as $key => $column) {
+            if (trim((string) $column) !== '') {
+                $identity[ltrim(trim((string) $key), '_')] = trim((string) $column);
+            }
+        }
+        return [
+            'source' => ['url' => trim((string) ($p['sheet_url'] ?? ''))],
+            'match' => $match,
+            'identity' => $identity,
+            'mode' => in_array($p['sheet_mode'] ?? '', \Banimark\Tools\SheetTool::MODES, true) ? $p['sheet_mode'] : 'exact',
+            'fields' => array_values(array_unique(array_filter(array_map(fn ($f) => trim((string) $f), (array) ($p['sheet_fields'] ?? [])), fn ($f) => $f !== ''))),
+        ];
+    }
+
+    /** "Load the columns": read the sheet named in the form (link, upload, or what the tool being edited already has). */
+    private function sheetColumns(array $p, ?string $upload): array
+    {
+        $url = trim((string) ($p['sheet_url'] ?? ''));
+        $tool = trim((string) ($p['tool'] ?? ''));
+        if ($upload === '') {
+            return ['ok' => false, 'error' => 'That CSV is larger than 1 MB. Keep only the columns the assistant needs, or share it as a Google Sheet instead.', 'columns' => [], 'sample' => [], 'rows' => 0];
+        }
+        if ($upload !== null) {
+            $source = ['csv' => $upload];
+        } elseif ($url !== '') {
+            if (Hosted::on() && !Hosted::publicAddress(\Banimark\Tools\SheetTool::exportUrl($url))) {
+                return ['ok' => false, 'error' => Hosted::NO_PRIVATE, 'columns' => [], 'sample' => [], 'rows' => 0];
+            }
+            \Banimark\Tools\SheetTool::forget($url); // the owner pressed the button: read it fresh
+            $source = ['url' => $url];
+        } elseif ($tool !== '' && ($csv = (new \Banimark\Storage\Sheets($this->pdo))->read($tool)) !== null) {
+            $source = ['csv' => $csv];
+        } else {
+            return ['ok' => false, 'error' => 'Paste the link to the sheet, or choose a CSV file, then press the button again.', 'columns' => [], 'sample' => [], 'rows' => 0];
+        }
+        return \Banimark\Tools\SheetTool::inspect($source);
     }
 
     /** The auth block already saved for the tool being edited, if any. */
@@ -925,13 +1027,30 @@ class Panel
     private function saveTool(array $p): ?string
     {
         $definition = self::toolDefinitionFromForm($p, $this->storedAuth($p));
+        $original = trim((string) ($p['original_name'] ?? ''));
+        $sheets = new \Banimark\Storage\Sheets($this->pdo);
+        $upload = null;
+        if ($definition['kind'] === 'sheet') {
+            // the CSV is what was just uploaded, else what the tool already has; a
+            // link wins over a stored copy. Then the sheet is READ, so a column
+            // that is not there fails here and not in front of a visitor.
+            $upload = self::uploadedText($_FILES['sheet_file'] ?? null, \Banimark\Tools\SheetTool::MAX_CSV_UPLOAD);
+            if ($upload === '') {
+                return '<div class="flash-err">That CSV is larger than 1 MB. Keep only the columns the assistant needs, or share it as a Google Sheet instead.</div>';
+            }
+            $definition['csv'] = $upload ?? ($definition['config']['source']['url'] === '' ? (string) $sheets->read($original !== '' ? $original : $definition['name']) : '');
+            $check = \Banimark\Tools\SheetToolValidator::check(\Banimark\Tools\ToolFactory::sheetDefinition($definition), true);
+            if (!$check['ok']) {
+                return '<div class="flash-err">'.Html::e($check['error']).'</div>';
+            }
+        }
         try {
-            \Banimark\Tools\ToolFactory::make($definition, fn () => [], fn () => ['status' => 200, 'body' => '[]', 'error' => '']);
+            \Banimark\Tools\ToolFactory::make($definition, fn () => [], fn () => ['status' => 200, 'body' => '[]', 'error' => ''],
+                \Banimark\Storage\DataSource::isConnector($this->settings->all()));
         } catch (\Throwable $e) {
             return '<div class="flash-err">'.Html::e($e->getMessage()).'</div>';
         }
         // editing: original_name is the row to replace, name may be a rename
-        $original = trim((string) ($p['original_name'] ?? ''));
         if ($original === '') {
             $count = (int) ($this->query('SELECT COUNT(*) AS c FROM banimark_tools', [])[0]['c'] ?? 0);
             $refuse = \Banimark\Licensing\Entitlements::refuseTool($this->entitlements(), $count);
@@ -954,9 +1073,19 @@ class Panel
         $this->exec("INSERT INTO banimark_tools (name, description, parameters, {$sqlCol}, columns, context, max_rows, kind, config, template, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
             $definition['name'], $definition['description'], json_encode($definition['parameters']),
             $definition['sql'], json_encode($definition['columns']), json_encode($definition['context']),
-            $definition['max_rows'], $definition['kind'], $definition['kind'] === 'http' ? json_encode($definition['config']) : null,
+            $definition['max_rows'], $definition['kind'], $definition['kind'] !== 'sql' ? json_encode($definition['config']) : null,
             $template, !empty($p['enabled']) ? 1 : 0, date('Y-m-d H:i:s'), date('Y-m-d H:i:s'),
         ]);
+        if ($definition['kind'] === 'sheet') {
+            $sheets->rename($target, $definition['name']);
+            if ($upload !== null && $upload !== '') {
+                $sheets->put($definition['name'], $upload, count(\Banimark\Tools\SheetTool::parse($upload)[1]));
+            } elseif ($definition['config']['source']['url'] !== '') {
+                $sheets->delete($definition['name']); // reading a live sheet now: the old upload would only confuse
+            }
+        } else {
+            $sheets->delete($definition['name']);
+        }
         $this->go($this->url('/tools'));
         return null;
     }
@@ -1101,6 +1230,50 @@ class Panel
     private function login(string $error = '', string $notice = ''): string
     {
         return Html::auth($this->url('/login'), $error, $notice);
+    }
+
+    /** The HQ sign-in link: verify, refuse a replay, sign in as the first owner, say so. */
+    private function hqLogin(string $token): void
+    {
+        if (!Hosted::on()) {
+            http_response_code(404);
+            echo $this->login('This desk is not hosted by Banimark, so HQ cannot sign in to it.');
+            return;
+        }
+        $slug = \Banimark\Standalone\HqLogin::slugFor($_SERVER);
+        $v = \Banimark\Standalone\HqLogin::verify($token, $slug);
+        if (!$v['ok']) {
+            http_response_code(403);
+            echo $this->login($v['error']);
+            return;
+        }
+        // one use: the jti is remembered until the token would have expired anyway
+        $seen = json_decode((string) $this->settings->get('hq_login_seen', ''), true) ?: [];
+        $seen = array_filter($seen, fn ($exp) => (int) $exp >= time());
+        if (isset($seen[$v['jti']])) {
+            http_response_code(403);
+            echo $this->login('That sign-in link was already used - open the desk from HQ again.');
+            return;
+        }
+        $seen[$v['jti']] = $v['exp'];
+        $this->settings->set('hq_login_seen', (string) json_encode($seen));
+
+        $owner = null;
+        foreach ($this->agents->all() as $a) {
+            if (($a['role'] ?? '') === 'owner' && (int) ($a['enabled'] ?? 1) === 1 && ($a['status'] ?? 'active') === 'active') {
+                $owner = $a;
+                break;
+            }
+        }
+        if ($owner === null) {
+            http_response_code(409);
+            echo $this->login('This desk has no active owner account to sign in as.');
+            return;
+        }
+        $this->auth->loginAs($owner, $v['by'].' (Banimark HQ)');
+        $this->settings->set('hq_login_last', (string) json_encode(['by' => $v['by'], 'at' => date('Y-m-d H:i:s'), 'as' => (string) $owner['email']]));
+        error_log('Banimark: HQ ('.$v['by'].') signed in to hosted desk "'.$slug.'" as '.$owner['email']);
+        $this->go($this->url().'?bm_ok='.rawurlencode('Signed in as '.$owner['name'].' (owner), through Banimark HQ.'));
     }
 
     private function inbox(string $flash): string
@@ -1277,10 +1450,17 @@ class Panel
                     $params[] = ['name' => $pn, 'type' => $spec['type'] ?? 'string', 'desc' => $spec['description'] ?? '', 'required' => !empty($spec['required'])];
                 }
                 $config = json_decode((string) ($row['config'] ?? ''), true) ?: [];
+                $sheetInfo = ($row['kind'] ?? '') === 'sheet' ? (new \Banimark\Storage\Sheets($this->pdo))->info((string) $row['name']) : null;
                 $ed = $row + ['params' => $params,
                     'columns_csv' => implode(', ', json_decode($row['columns'], true) ?: []),
                     'context_csv' => implode(', ', json_decode((string) $row['context'], true) ?: []),
                     'kind' => $row['kind'] ?? 'sql',
+                    'sheet_url' => (string) (($config['source'] ?? [])['url'] ?? ''),
+                    'sheet_mode' => (string) ($config['mode'] ?? 'exact'),
+                    'sheet_has_csv' => $sheetInfo !== null,
+                    'sheet_rows' => (int) ($sheetInfo['rows'] ?? 0),
+                    'sheet_prefill' => json_encode(['fields' => (array) ($config['fields'] ?? []), 'match' => (object) ($config['match'] ?? []), 'identity' => (object) ($config['identity'] ?? []),
+                        'loaded' => ($row['kind'] ?? '') === 'sheet']),
                     'http_method' => (string) ($config['method'] ?? 'GET'),
                     'http_url' => (string) ($config['url'] ?? ''),
                     'http_headers' => \Banimark\Tools\ToolFactory::headerLines((array) ($config['headers'] ?? [])),
@@ -1301,10 +1481,16 @@ class Panel
         $rows = [];
         foreach ($this->query('SELECT * FROM banimark_tools ORDER BY id', []) as $r) {
             $rows[] = ['name' => (string) $r['name'], 'description' => (string) $r['description'], 'sql' => (string) $r['sql'],
-                'params' => array_keys(json_decode((string) $r['parameters'], true) ?: []), 'max_rows' => (int) $r['max_rows'], 'enabled' => (bool) $r['enabled']];
+                'params' => array_keys(json_decode((string) $r['parameters'], true) ?: []), 'max_rows' => (int) $r['max_rows'], 'enabled' => (bool) $r['enabled'],
+                'needs' => \Banimark\Tools\ToolTester::needsOf($r)];
         }
-        // a hosted desk builds API tools only - the form opens on that kind
-        $form = $ed !== null ? $ed + ['enabled' => !empty($ed['enabled'])] : ['enabled' => true, 'context_csv' => 'user_id', 'max_rows' => 10] + (Hosted::on() ? ['kind' => 'http'] : []);
+        $connector = \Banimark\Storage\DataSource::isConnector($this->settings->all());
+        // a hosted desk without a connector builds API and spreadsheet tools - the form opens on the API kind
+        $form = $ed !== null ? $ed + ['enabled' => !empty($ed['enabled'])] : ['enabled' => true, 'context_csv' => 'user_id', 'max_rows' => 10] + (Hosted::on() && !$connector ? ['kind' => 'http'] : []);
+        if (Hosted::on()) {
+            // the downloads carry the secret: make sure there is one before the card is drawn
+            \Banimark\Storage\DataSource::ensureSecret($this->settings->all(), fn (string $k, string $v) => $this->settings->set($k, $v));
+        }
         [$assistDriver] = \Banimark\Standalone\EngineBuilder::driver($this->pdo);
         // ONE body for both runtimes: Ui\Pages::tools
         return Html::page('Tools', $flash.\Banimark\Ui\Pages::tools($rows, $form, [
@@ -1316,8 +1502,10 @@ class Panel
             'upgrade_url' => $upgradeUrl,
             'assist_ready' => $assistDriver !== null,
             'hosted' => Hosted::on(),
-            'data_card' => Hosted::on() ? \Banimark\Ui\Pages::hostedToolsNote() : Layout::dataConnection($this->settings->all(), $this->url('/tools/data'), $this->url('/tools/data/test'),
-                $this->csrfField(), 'Banimark reads the tables next to its own.'),
+            'connector' => $connector,
+            'data_card' => Layout::dataConnection($this->settings->all(), $this->url('/tools/data'), $this->url('/tools/data/test'),
+                $this->csrfField(), 'Banimark reads the tables next to its own.', '', false,
+                ['hosted' => Hosted::on(), 'download' => $this->url('/tools/connector/download'), 'secret_url' => $this->url('/tools/connector/secret')]),
             'urls' => [
                 'save' => $this->url('/tools'),
                 'delete' => $this->url('/tools/delete'),
@@ -1326,6 +1514,8 @@ class Panel
                 'try' => $this->url('/tools/try'),
                 'assist' => $this->url('/tools/assist'),
                 'providers' => $this->url('/providers'),
+                'sheet' => $this->url('/tools/sheet/columns'),
+                'sheet_sample' => $this->url('/tools/sheet/sample'),
             ],
         ]), $this->nav('/tools'), 'Let the assistant look things up in your own data - safely, read-only');
     }

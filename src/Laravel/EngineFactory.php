@@ -35,7 +35,7 @@ class EngineFactory
         ));
         // tools read from the owner's data connection, which may be a read-only
         // user, a replica, or another server entirely
-        $runner = \Banimark\Storage\DataSource::runner(self::dataPdo());
+        $runner = \Banimark\Storage\DataSource::runnerFor($settings, DB::connection()->getPdo());
         // which tools, and how many, is the licence's call - decided in the core
         foreach (\Banimark\Tools\ToolFactory::forDesk(DB::connection()->getPdo(), 'banimark_', $settings, $runner,
             fn (string $name, string $why) => Log::warning('banimark: skipped invalid tool "'.$name.'": '.$why)) as $tool) {

@@ -3,6 +3,36 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.37.0
+- **Banimark HQ can open a hosted desk as its owner.** For support: one
+  button on HQ's "Hosted desks" page signs the HQ admin in to the desk's
+  admin without the owner's password, through a signed link that lasts five
+  minutes and works once. Every page of the desk then says who is really
+  there ("Signed in by Ada at HQ as the owner of this desk") until they sign
+  out, and the desk keeps a note of the last such sign-in. A self-hosted
+  install ignores these links entirely.
+- **A spreadsheet as a data source.** On the Tools page, "In a spreadsheet":
+  paste the link to a Google Sheet shared with "Anyone with the link", or
+  upload a CSV, press "Load the columns", tick what the assistant may show,
+  and say which column answers each question. Nothing to install, nothing to
+  write. A sheet by link is re-read every few minutes, so edits show up on
+  their own. Works on hosted desks (public https links only).
+- **Your website, through the Banimark connector.** The third choice under
+  "Where your data lives", and the first database a hosted desk can have.
+  Download the connector for your platform (WordPress plugin, plain PHP file,
+  Laravel, or a single Node file), install it, paste the address it shows,
+  and build database tools exactly as on a self-hosted desk: the table picker,
+  Try it and the assistant's lookups all go through it, signed. It is
+  read-only, caps every query, strips columns that look like secrets, and
+  your database password never leaves your server. "Make a new secret" locks
+  out every copy downloaded before. Contract and checker: docs/connector.md.
+- **OpenCode is a provider.** On the Providers page pick OpenCode, paste the
+  key from your OpenCode console (opencode.ai/console), choose a model - one
+  key covers Claude, GPT, Gemini, DeepSeek, Kimi, GLM, MiniMax, Qwen and
+  Mistral, with OpenCode's price shown beside each. No address to type.
+  These models are listed as text-only for now: the assistant sees that a
+  visitor attached a file, not what is inside it.
+
 ## 0.36.0
 - **Import rules from a file.** On the Rules page, download the sample JSON,
   fill it in, upload it. Every rule carries a `key` that never changes, so

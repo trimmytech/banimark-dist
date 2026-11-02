@@ -35,6 +35,9 @@ class AiManager
         $this->factories = [
             'gemini' => fn (array $c, $t) => new GeminiDriver($c, $t),
             'openai-compat' => fn (array $c, $t) => new OpenAiCompatDriver($c, $t),
+            // OpenCode: the OpenAI-compatible driver pinned to OpenCode's gateway,
+            // whatever address the row carries - the owner never chooses one
+            'opencode' => fn (array $c, $t) => new OpenAiCompatDriver(['base_url' => \Banimark\Ai\ProviderPresets::OPENCODE_URL] + $c, $t),
             'anthropic' => fn (array $c, $t) => new AnthropicDriver($c, $t),
         ];
     }

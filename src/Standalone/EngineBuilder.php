@@ -55,7 +55,7 @@ class EngineBuilder
         $settings = (new Settings($pdo))->all();
         // tools read from the owner's data connection, which may be a read-only
         // user, a replica, or another server entirely
-        $runner = \Banimark\Storage\DataSource::runner(\Banimark\Storage\DataSource::pdo($settings, $pdo));
+        $runner = \Banimark\Storage\DataSource::runnerFor($settings, $pdo);
         $registry = new ToolRegistry();
         $registry->register(new EscalateTool(
             \Banimark\Ai\Behaviour::escalation($settings),

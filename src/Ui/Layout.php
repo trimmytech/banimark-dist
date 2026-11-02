@@ -148,32 +148,65 @@ class Layout
      *
      * @param array $e the tool being edited, or [] for a new one
      */
-    public static function toolSourceFields(array $e, string $schemaUrl, bool $hosted = false): string
+    /**
+     * @param array $opt sheet_url (the "load the columns" endpoint), sheet_sample (a sample CSV to download),
+     *                   connector (a hosted desk reads its database through the owner's connector)
+     */
+    public static function toolSourceFields(array $e, string $schemaUrl, bool $hosted = false, array $opt = []): string
     {
         $q = fn ($v) => htmlspecialchars((string) $v, ENT_QUOTES);
         $v = fn (string $k, string $d = '') => $q($e[$k] ?? $d);
-        // a hosted desk has one kind of tool: the owner's own API. No chooser,
-        // no database block - the form IS the API form
-        $http = $hosted || ($e['kind'] ?? 'sql') === 'http';
+        // a hosted desk has no database of the owner's to read - unless their
+        // connector is installed, which makes the database block theirs again
+        $noDb = $hosted && empty($opt['connector']);
+        $kind = (string) ($e['kind'] ?? ($noDb ? 'http' : 'sql'));
+        if (!in_array($kind, ['sql', 'http', 'sheet'], true) || ($noDb && $kind === 'sql')) {
+            $kind = $noDb ? 'http' : 'sql';
+        }
+        $http = $kind === 'http';
+        $sheet = $kind === 'sheet';
         $method = strtoupper((string) ($e['http_method'] ?? 'GET'));
+        $choice = fn (string $value, string $title, string $blurb) => '<label style="display:flex;gap:9px;align-items:flex-start;padding:12px;border:1px solid var(--border-2);border-radius:var(--r);flex:1;cursor:pointer">'
+            .'<input type="radio" name="kind" value="'.$value.'"'.($kind === $value ? ' checked' : '').' style="margin-top:2px" data-kind="'.$value.'">'
+            .'<span><b>'.$title.'</b><div class="muted">'.$blurb.'</div></span></label>';
 
-        return '<h3 class="bm-step">'.($hosted ? 'Which address in your app should it call?' : 'Where should it look?').'</h3>'
-            // hosted: the kind is fixed, and the identity keys the server reads
-            // ("context") still need a home - the API block's box mirrors into it
-            .($hosted ? '<input type="hidden" name="kind" value="http" data-kind="http">'
-                .'<input type="hidden" name="context" value="'.$v('context_csv', 'user_id').'">'
-                .'<div class="hint" style="margin-bottom:12px">'.$q(\Banimark\Standalone\Hosted::NO_SQL).'</div>' : '')
-            .($hosted ? '' : '<div class="row" style="gap:10px;margin-bottom:12px">'
-            .'<label style="display:flex;gap:9px;align-items:flex-start;padding:12px;border:1px solid var(--border-2);border-radius:var(--r);flex:1;cursor:pointer">'
-            .'<input type="radio" name="kind" value="sql"'.($http ? '' : ' checked').' style="margin-top:2px" data-kind="sql">'
-            .'<span><b>In my database</b><div class="muted">Point at a table and the builder writes the query.</div></span></label>'
-            .'<label style="display:flex;gap:9px;align-items:flex-start;padding:12px;border:1px solid var(--border-2);border-radius:var(--r);flex:1;cursor:pointer">'
-            .'<input type="radio" name="kind" value="http"'.($http ? ' checked' : '').' style="margin-top:2px" data-kind="http">'
-            .'<span><b>From my own API</b><div class="muted">Call an address in your app - for data Banimark cannot reach directly.</div></span></label>'
-            .'</div>')
+        return '<h3 class="bm-step">Where should it look?</h3>'
+            // the identity keys the server reads ("context") live in the database
+            // block; without one, a hidden input is their home and the other
+            // blocks' boxes mirror into it
+            .($noDb ? '<input type="hidden" name="context" value="'.$v('context_csv', 'user_id').'">' : '')
+            .'<div class="row" style="gap:10px;margin-bottom:12px">'
+            .($noDb ? '' : $choice('sql', 'In my database', !empty($opt['connector']) ? 'Through the connector on your website - pick a table and the builder writes the query.' : 'Point at a table and the builder writes the query.'))
+            .$choice('sheet', 'In a spreadsheet', 'A Google Sheet shared by link, or a CSV you upload. Nothing to install.')
+            .$choice('http', 'From my own API', $noDb ? 'Call an address in your app - for data Banimark cannot reach directly.' : 'Call an address in your app - for data Banimark cannot reach directly.')
+            .'</div>'
+            .($noDb ? '<div class="hint" style="margin-bottom:12px">'.$q(\Banimark\Standalone\Hosted::NO_SQL).'</div>' : '')
+
+            // ---- spreadsheet ----
+            .'<div data-kind-block="sheet"'.($sheet ? '' : ' hidden').' style="background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:14px 16px">'
+            .'<div class="grid2">'
+            .'<div><label>Link to the sheet <span class="muted">(Google Sheets: Share &rarr; "Anyone with the link" &rarr; Copy link)</span></label>'
+            .'<input type="text" name="sheet_url" placeholder="https://docs.google.com/spreadsheets/d/…" value="'.$v('sheet_url').'"></div>'
+            .'<div><label>Who is chatting is identified by <span class="muted">(identity keys)</span></label>'
+            .'<input type="text" name="context_sheet" value="'.$v('context_csv', 'user_id').'" placeholder="email" data-mirror="context" data-for="sheet"></div>'
+            .'</div>'
+            .'<label>Or upload a CSV <span class="muted">(exported from Excel, Numbers or Sheets; up to 1 MB; the first row names the columns)</span></label>'
+            .'<input type="file" name="sheet_file" accept=".csv,text/csv">'
+            .(!empty($e['sheet_has_csv']) ? '<div class="hint">A CSV with '.(int) ($e['sheet_rows'] ?? 0).' rows is stored for this tool. Upload a new one to replace it, or paste a link to read a live sheet instead.</div>' : '')
+            .'<div class="row" style="gap:10px;margin-top:12px;align-items:center">'
+            .'<button type="button" class="btn2 btn-sm" data-sheet-load data-sheet-url="'.$q((string) ($opt['sheet_url'] ?? '')).'">'.Icons::get('bolt', 14).' Load the columns</button>'
+            .'<span class="muted" data-sheet-status></span>'
+            .(!empty($opt['sheet_sample']) ? '<span class="spacer"></span><a class="btn-ghost btn-sm" href="'.$q($opt['sheet_sample']).'" download="banimark-sample-orders.csv">Download a sample CSV</a>' : '')
+            .'</div>'
+            .'<div data-sheet-columns data-sheet-prefill="'.$q((string) ($e['sheet_prefill'] ?? '{}')).'" style="margin-top:12px"><span class="muted">Press "Load the columns" and tick what the assistant may show.</span></div>'
+            .'<div class="grid2" style="margin-top:12px"><div><label>How a question is matched</label><select name="sheet_mode">'
+            .'<option value="exact"'.(($e['sheet_mode'] ?? 'exact') !== 'contains' ? ' selected' : '').'>Exactly - order numbers, emails, codes</option>'
+            .'<option value="contains"'.(($e['sheet_mode'] ?? '') === 'contains' ? ' selected' : '').'>Contains the words - product names, towns</option></select></div></div>'
+            .'<div class="hint">Only the ticked columns ever reach the assistant. A sheet shared by link is re-read every few minutes, so edits show up on their own; an uploaded CSV stays as it was until you upload again.</div>'
+            .'</div>'
 
             // ---- database ----
-            .($hosted ? '' : '<div data-kind-block="sql"'.($http ? ' hidden' : '').'>'
+            .($noDb ? '' : '<div data-kind-block="sql"'.($kind !== 'sql' ? ' hidden' : '').'>'
             .'<div data-toolbuilder data-schema-url="'.$q($schemaUrl).'" style="background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:14px 16px">'
             .'<div class="row" style="justify-content:space-between"><b>Visual builder</b><span class="muted" data-status>…</span></div>'
             .'<div class="grid2" style="margin-top:8px">'
@@ -186,7 +219,7 @@ class Layout
             .'<div class="muted" style="margin:10px 0 4px">Tip: add a condition on the customer\'s own id using the <i>identity</i> option so every customer only ever sees their own rows.</div>'
             .'<pre class="mono" data-preview style="white-space:pre-wrap;padding:10px 12px;border-radius:8px;margin:8px 0">-- pick a table and at least one column</pre>'
             .'<button type="button" class="btn2 btn-sm" data-apply disabled>'.Icons::get('check', 14).' Use this query</button></div>'
-            .'<details style="margin-top:14px"'.(!$http && ($e['sql'] ?? '') !== '' ? ' open' : '').'>'
+            .'<details style="margin-top:14px"'.($kind === 'sql' && ($e['sql'] ?? '') !== '' ? ' open' : '').'>'
             .'<summary class="muted" style="cursor:pointer">Advanced: the query the AI will run (editable)</summary>'
             .'<label>SQL - SELECT only. <code>:param</code> for values the AI asks for, <code>:_key</code> for identity values</label>'
             .'<textarea name="sql" placeholder="SELECT reference, status, total FROM orders WHERE reference = :reference AND user_id = :_user_id">'.$q($e['sql'] ?? '').'</textarea>'
@@ -200,7 +233,7 @@ class Layout
             .'<option value="GET"'.($method === 'GET' ? ' selected' : '').'>GET - fetch something</option>'
             .'<option value="POST"'.($method === 'POST' ? ' selected' : '').'>POST - fetch something, with a body</option></select></div>'
             .'<div><label>Who is chatting is identified by <span class="muted">(identity keys)</span></label>'
-            .'<input type="text" name="context_http" value="'.$v('context_csv', 'user_id').'" placeholder="user_id" data-mirror="context"></div>'
+            .'<input type="text" name="context_http" value="'.$v('context_csv', 'user_id').'" placeholder="user_id" data-mirror="context" data-for="http"></div>'
             .'</div>'
             .'<label>Address <span class="muted">Use <code>{name}</code> for what the AI asks the customer, <code>{_key}</code> for who they are</span></label>'
             .'<input type="text" name="http_url" placeholder="https://app.example.com/api/orders?user={_user_id}&amp;q={reference}" value="'.$v('http_url').'">'
@@ -510,29 +543,52 @@ class Layout
      * Node, Rails or Django shop needs when Banimark keeps its own tables
      * somewhere else.
      */
-    public static function dataConnection(array $s, string $saveUrl, string $testUrl, string $csrf, string $ownDescription, string $result = '', bool $resultOk = false): string
+    /**
+     * "Where your data lives": Banimark's own database (self-hosted default),
+     * another database the owner types in, or - the only database a hosted
+     * desk can have - the owner's own website through the connector they
+     * install there. One card, three choices; the hosted card has two.
+     *
+     * @param array $opt hosted (bool), download (url, ?platform= is appended), secret_url (rotate the secret)
+     */
+    public static function dataConnection(array $s, string $saveUrl, string $testUrl, string $csrf, string $ownDescription, string $result = '', bool $resultOk = false, array $opt = []): string
     {
         $e = fn ($v) => htmlspecialchars((string) $v, ENT_QUOTES);
-        $separate = \Banimark\Storage\DataSource::isSeparate($s);
+        $hosted = !empty($opt['hosted']);
+        $mode = \Banimark\Storage\DataSource::mode($s);
         $driver = \Banimark\Storage\DataSource::driver($s);
         $drivers = '';
         foreach (\Banimark\Storage\DataSource::DRIVERS as $key => $label) {
             $drivers .= '<option value="'.$e($key).'"'.($driver === $key ? ' selected' : '').'>'.$e($label).'</option>';
         }
         $hasPassword = trim((string) ($s['tools_db_password'] ?? '')) !== '';
+        $secret = trim((string) ($s['connector_secret'] ?? ''));
+        $choice = fn (string $value, bool $on, string $title, string $blurb, string $attrs) => '<label class="choice">'
+            .'<input type="radio" name="tools_db_enabled" value="'.$value.'"'.($on ? ' checked' : '').' '.$attrs.'>'
+            .'<span><b>'.$title.'</b><div class="muted">'.$blurb.'</div></span></label>';
+
+        $downloads = '';
+        foreach (\Banimark\Connector\Bundle::platforms() as $slug => $p) {
+            $downloads .= '<div class="row" style="gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--border)">'
+                .'<a class="btn2 btn-sm" style="white-space:nowrap" href="'.$e(($opt['download'] ?? '').(str_contains((string) ($opt['download'] ?? ''), '?') ? '&' : '?').'platform='.$slug).'" download="'.$e($p['file']).'">'.Icons::get('download', 14).' '.$e($p['label']).'</a>'
+                .'<span class="muted" style="font-size:13px">'.$e($p['how']).'</span></div>';
+        }
 
         return '<div class="bm-card"><form method="post" action="'.$e($saveUrl).'">'.$csrf
             .'<div class="bm-sec-h"><div><h2>Where your data lives</h2>'
-            .'<div class="muted">Tools only ever read, and only the columns you list. This is which database they read from.</div></div></div>'
-            .'<div class="choices two" style="margin:12px 0">'
-            .'<label class="choice">'
-            .'<input type="radio" name="tools_db_enabled" value="0"'.($separate ? '' : ' checked').' data-toggle-hide="#bm-datadb">'
-            .'<span><b>The same database as Banimark</b><div class="muted">'.$e($ownDescription).'</div></span></label>'
-            .'<label class="choice">'
-            .'<input type="radio" name="tools_db_enabled" value="1"'.($separate ? ' checked' : '').' data-toggle-show="#bm-datadb">'
-            .'<span><b>A different database</b><div class="muted">Another server, another engine, or the same data through a read-only account.</div></span></label>'
+            .'<div class="muted">Tools only ever read, and only the columns you list. This is where database tools read from.</div></div></div>'
+            .'<div class="choices'.($hosted ? ' two' : '').'" style="margin:12px 0">'
+            .($hosted
+                ? $choice('0', $mode !== \Banimark\Storage\DataSource::MODE_CONNECTOR, 'No database', 'The assistant answers from your API and your spreadsheets. Banimark cannot see your database from here.', 'data-toggle-hide="#bm-dataconn"')
+                : $choice('0', $mode === \Banimark\Storage\DataSource::MODE_OWN, 'The same database as Banimark', $e($ownDescription), 'data-toggle-hide="#bm-datadb,#bm-dataconn"')
+                  .$choice('1', $mode === \Banimark\Storage\DataSource::MODE_SEPARATE, 'A different database', 'Another server, another engine, or the same data through a read-only account.', 'data-toggle-show="#bm-datadb" data-toggle-hide="#bm-dataconn"'))
+            .$choice(\Banimark\Storage\DataSource::MODE_CONNECTOR, $mode === \Banimark\Storage\DataSource::MODE_CONNECTOR, 'My website, through the Banimark connector',
+                'A small file or plugin you install on your site. It answers only your desk, reads only, and your database password never leaves your server.',
+                'data-toggle-show="#bm-dataconn"'.($hosted ? '' : ' data-toggle-hide="#bm-datadb"'))
             .'</div>'
-            .'<div id="bm-datadb"'.($separate ? '' : ' hidden').'>'
+
+            // ---- a typed-in database (self-hosted only) ----
+            .($hosted ? '' : '<div id="bm-datadb"'.($mode === \Banimark\Storage\DataSource::MODE_SEPARATE ? '' : ' hidden').'>'
             .'<div class="grid2">'
             .'<div><label>Engine</label><select name="tools_db_driver">'.$drivers.'</select></div>'
             .'<div><label>Host</label><input type="text" name="tools_db_host" value="'.$e($s['tools_db_host'] ?? '').'" placeholder="127.0.0.1"></div>'
@@ -545,7 +601,21 @@ class Layout
             .'<div><label>SQLite file <span class="muted">(only for SQLite)</span></label><input type="text" name="tools_db_sqlite_path" value="'.$e($s['tools_db_sqlite_path'] ?? '').'" placeholder="/var/www/app/data.sqlite"></div>'
             .'</div>'
             .'<div class="hint">Give this account <b>SELECT only</b>. Tools cannot write - the query is checked before it is saved and again before it runs - but a read-only account means a mistake anywhere cannot cost you data.</div>'
+            .'</div>')
+
+            // ---- the connector ----
+            .'<div id="bm-dataconn"'.($mode === \Banimark\Storage\DataSource::MODE_CONNECTOR ? '' : ' hidden').' data-connector>'
+            .'<h3 class="bm-step">1. Download the connector for your website</h3>'
+            .'<div class="muted" style="margin-bottom:6px">Your desk\'s secret is already inside every download, so there is nothing to type on your site.</div>'
+            .$downloads
+            .'<h3 class="bm-step">2. Install it, then paste the address it shows</h3>'
+            .'<div class="muted" style="margin-bottom:8px">Open the connector in your browser once it is installed: its page shows the address to paste here.</div>'
+            .'<input type="text" name="connector_url" value="'.$e($s['connector_url'] ?? '').'" placeholder="https://yourshop.com/banimark-connector.php" autocomplete="off">'
+            .'<div class="hint">'.($secret !== '' ? 'Secret ending in <code>…'.$e(substr($secret, -6)).'</code> is inside the downloads above. ' : '')
+            .'Lost the file, or want to lock out an old copy? <button type="submit" class="btn-ghost btn-sm" formaction="'.$e((string) ($opt['secret_url'] ?? $saveUrl)).'" name="rotate" value="1" data-confirm="Make a new secret? Every connector you downloaded before stops working until you install a fresh download.">Make a new secret</button></div>'
+            .'<div class="hint">What the connector does: answers only requests signed by this desk, runs only single SELECT queries with the values bound, stops at 100 rows and 5 seconds, and never returns columns that look like passwords, tokens or card numbers. Your database password stays on your server.</div>'
             .'</div>'
+
             .'<div class="row" style="gap:10px;margin-top:16px"><button type="submit">'.Icons::get('check', 15).' Save</button>'
             .'<button type="submit" class="btn2" formaction="'.$e($testUrl).'">'.Icons::get('bolt', 15).' Test the connection</button></div>'
             .($result !== '' ? '<div class="'.($resultOk ? 'flash-ok' : 'flash-err').'" style="margin-top:12px">'.Icons::get($resultOk ? 'check' : 'escalation', 16).'<span>'.$e($result).'</span></div>' : '')

@@ -21,7 +21,100 @@ final class DataSource
 {
     /** Settings keys, all optional - absent means "use Banimark's own connection". */
     public const KEYS = ['tools_db_enabled', 'tools_db_driver', 'tools_db_host', 'tools_db_port',
-        'tools_db_database', 'tools_db_username', 'tools_db_password', 'tools_db_sqlite_path', 'tools_db_schema'];
+        'tools_db_database', 'tools_db_username', 'tools_db_password', 'tools_db_sqlite_path', 'tools_db_schema',
+        'connector_url', 'connector_secret'];
+
+    /**
+     * Where database tools read from:
+     *  own        Banimark's own connection (self-hosted default)
+     *  separate   another database the owner typed in
+     *  connector  the owner's own website, through the connector they installed
+     *             (Connector\Protocol) - the only database mode a hosted desk has
+     *  none       a hosted desk with no connector: API and spreadsheet tools only
+     */
+    public const MODE_OWN = 'own';
+    public const MODE_SEPARATE = 'separate';
+    public const MODE_CONNECTOR = 'connector';
+    public const MODE_NONE = 'none';
+
+    public static function mode(array $settings): string
+    {
+        $v = (string) ($settings['tools_db_enabled'] ?? '0');
+        if ($v === self::MODE_CONNECTOR) {
+            return self::MODE_CONNECTOR;
+        }
+        if ($v === '1' && !\Banimark\Standalone\Hosted::on()) {
+            return self::MODE_SEPARATE;
+        }
+        // a hosted desk's "own" database is OURS, never the owner's
+        return \Banimark\Standalone\Hosted::on() ? self::MODE_NONE : self::MODE_OWN;
+    }
+
+    /** The connector is chosen AND set up: an address and a secret. */
+    public static function isConnector(array $settings): bool
+    {
+        return self::mode($settings) === self::MODE_CONNECTOR
+            && trim((string) ($settings['connector_url'] ?? '')) !== ''
+            && trim((string) ($settings['connector_secret'] ?? '')) !== '';
+    }
+
+    /** @throws \RuntimeException when the connector is not set up */
+    public static function connector(array $settings, ?callable $transport = null): \Banimark\Connector\Client
+    {
+        if (!self::isConnector($settings)) {
+            throw new \RuntimeException('The connector is not set up yet: download it, install it on your website, and paste its address here.');
+        }
+        return new \Banimark\Connector\Client(trim((string) $settings['connector_url']), trim((string) $settings['connector_secret']), $transport);
+    }
+
+    /** The desk's connector secret - minted on first sight, kept until the owner asks for a new one. */
+    public static function ensureSecret(array $settings, callable $set): string
+    {
+        $secret = trim((string) ($settings['connector_secret'] ?? ''));
+        if ($secret === '') {
+            $secret = \Banimark\Connector\Protocol::secret();
+            $set('connector_secret', $secret);
+        }
+        return $secret;
+    }
+
+    /**
+     * The callable every SqlTool runs through, whatever the mode. A hosted
+     * desk without a connector gets a runner that refuses, so a stale tool
+     * row can never read OUR database.
+     */
+    public static function runnerFor(array $settings, \PDO $own, ?callable $transport = null): callable
+    {
+        return match (self::mode($settings)) {
+            self::MODE_CONNECTOR => self::connector($settings, $transport)->runner(),
+            self::MODE_NONE => function () { throw new \RuntimeException(\Banimark\Standalone\Hosted::NO_SQL); },
+            default => self::runner(self::pdo($settings, $own)),
+        };
+    }
+
+    /** Tables and columns for the Tool Builder, whatever the mode. @throws \RuntimeException */
+    public static function schemaFor(array $settings, \PDO $own, ?callable $transport = null): array
+    {
+        return match (self::mode($settings)) {
+            self::MODE_CONNECTOR => self::connector($settings, $transport)->schema(),
+            self::MODE_NONE => [],
+            default => (new \Banimark\Tools\SchemaInspector(self::pdo($settings, $own)))->all(),
+        };
+    }
+
+    /** Which SQL dialect the builder and the draftsman should write. Never throws. */
+    public static function dialectFor(array $settings, \PDO $own, ?callable $transport = null): string
+    {
+        try {
+            return match (self::mode($settings)) {
+                self::MODE_CONNECTOR => self::connector($settings, $transport)->dialect(),
+                self::MODE_NONE => Dialect::MYSQL,
+                default => Dialect::of(self::pdo($settings, $own)),
+            };
+        } catch (\Throwable $e) {
+            return Dialect::MYSQL;
+        }
+    }
 
     public const DRIVERS = [
         Dialect::MYSQL => 'MySQL / MariaDB',
@@ -34,7 +127,7 @@ final class DataSource
 
     public static function isSeparate(array $settings): bool
     {
-        return ($settings['tools_db_enabled'] ?? '0') === '1';
+        return self::mode($settings) === self::MODE_SEPARATE;
     }
 
     /**
@@ -115,6 +208,22 @@ final class DataSource
     /** What is missing before this can be used at all. */
     public static function misconfigured(array $settings): string
     {
+        if (self::mode($settings) === self::MODE_CONNECTOR) {
+            $url = trim((string) ($settings['connector_url'] ?? ''));
+            if ($url === '') {
+                return 'Paste the connector\'s address - the one its page shows after you install it.';
+            }
+            if (!preg_match('#^https?://#i', $url) || parse_url($url, PHP_URL_HOST) === null) {
+                return 'The connector address must start with https:// (or http:// for a site without a certificate).';
+            }
+            if (\Banimark\Standalone\Hosted::on() && (!preg_match('#^https://#i', $url) || !\Banimark\Standalone\Hosted::publicAddress($url))) {
+                return 'A hosted desk reaches its connector over https:// on the public internet only - '.\Banimark\Standalone\Hosted::NO_PRIVATE;
+            }
+            if (trim((string) ($settings['connector_secret'] ?? '')) === '') {
+                return 'No connector secret yet - download the connector once and one is made.';
+            }
+            return '';
+        }
         if (!self::isSeparate($settings)) {
             return '';
         }
@@ -133,11 +242,26 @@ final class DataSource
      *
      * @return array{ok: bool, message: string, tables: int, writable: ?bool}
      */
-    public static function check(array $settings, \PDO $own): array
+    public static function check(array $settings, \PDO $own, ?callable $transport = null): array
     {
         $problem = self::misconfigured($settings);
         if ($problem !== '') {
             return ['ok' => false, 'message' => $problem, 'tables' => 0, 'writable' => null];
+        }
+        if (self::mode($settings) === self::MODE_CONNECTOR) {
+            try {
+                $h = self::connector($settings, $transport)->health();
+            } catch (\Throwable $e) {
+                return ['ok' => false, 'message' => $e->getMessage(), 'tables' => 0, 'writable' => null];
+            }
+            $n = (int) ($h['tables'] ?? 0);
+            return ['ok' => true, 'tables' => $n, 'writable' => false,
+                'message' => 'Connected through the connector on '.(string) (parse_url(trim((string) $settings['connector_url']), PHP_URL_HOST) ?: 'your website')
+                    .' ('.(string) ($h['platform'] ?? 'php').', '.(string) ($h['dialect'] ?? 'mysql').'): '.$n.' table'.($n === 1 ? '' : 's')
+                    .'. Lookups are signed, read-only, and never return columns that look like secrets.'];
+        }
+        if (self::mode($settings) === self::MODE_NONE) {
+            return ['ok' => false, 'message' => \Banimark\Standalone\Hosted::NO_SQL, 'tables' => 0, 'writable' => null];
         }
         try {
             $pdo = self::pdo($settings, $own);
@@ -200,7 +324,12 @@ final class DataSource
      */
     public static function save(array $input, callable $set): void
     {
-        $set('tools_db_enabled', ($input['tools_db_enabled'] ?? '0') === '1' ? '1' : '0');
+        $choice = (string) ($input['tools_db_enabled'] ?? '0');
+        // a hosted desk has two choices: no database, or the connector - never ours, never a typed-in one
+        $set('tools_db_enabled', $choice === self::MODE_CONNECTOR ? self::MODE_CONNECTOR : ($choice === '1' && !\Banimark\Standalone\Hosted::on() ? '1' : '0'));
+        if (array_key_exists('connector_url', $input)) {
+            $set('connector_url', trim((string) $input['connector_url']));
+        }
         $driver = (string) ($input['tools_db_driver'] ?? '');
         $set('tools_db_driver', in_array($driver, Dialect::SUPPORTED, true) ? $driver : Dialect::MYSQL);
         foreach (['tools_db_host', 'tools_db_database', 'tools_db_username', 'tools_db_schema', 'tools_db_sqlite_path'] as $k) {

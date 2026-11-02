@@ -120,6 +120,7 @@ class Installer
                 $presets = [
                     'gemini' => ['gemini', \Banimark\Ai\ProviderPresets::DEFAULT_MODEL['gemini'], null],
                     'anthropic' => ['anthropic', \Banimark\Ai\ProviderPresets::DEFAULT_MODEL['anthropic'], null],
+                    'opencode' => ['opencode', \Banimark\Ai\ProviderPresets::DEFAULT_MODEL['opencode'], null],
                     // not offered yet (ProviderPresets::OFFERED_DRIVERS) - kept for when they come back:
                     // 'deepseek' => ['openai-compat', 'deepseek-chat', 'https://api.deepseek.com'],
                     // 'openai' => ['openai-compat', 'gpt-4o-mini', 'https://api.openai.com/v1'],

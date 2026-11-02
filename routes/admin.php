@@ -54,9 +54,13 @@ Route::post('/rules/folder/move', [PanelController::class, 'moveFolder'])->name(
 Route::get('/tools', [PanelController::class, 'tools'])->name('banimark.admin.tools');
 Route::get('/tools/schema', [PanelController::class, 'toolSchema'])->name('banimark.admin.tools.schema');
 Route::post('/tools/try', [PanelController::class, 'tryTool'])->name('banimark.admin.tools.try');
+Route::post('/tools/sheet/columns', [PanelController::class, 'sheetColumns'])->name('banimark.admin.tools.sheet');
+Route::get('/tools/sheet/sample', [PanelController::class, 'sheetSample'])->name('banimark.admin.tools.sheet.sample');
 Route::post('/tools/assist', [PanelController::class, 'assistTool'])->name('banimark.admin.tools.assist');
 Route::post('/tools/data', [PanelController::class, 'saveDataConnection'])->name('banimark.admin.tools.data');
 Route::post('/tools/data/test', [PanelController::class, 'testDataConnection'])->name('banimark.admin.tools.data.test');
+Route::get('/tools/connector/download', [PanelController::class, 'connectorDownload'])->name('banimark.admin.tools.connector.download');
+Route::post('/tools/connector/secret', [PanelController::class, 'connectorSecret'])->name('banimark.admin.tools.connector.secret');
 Route::post('/tools', [PanelController::class, 'saveTool'])->name('banimark.admin.tools.save');
 Route::post('/tools/delete', [PanelController::class, 'deleteTool'])->name('banimark.admin.tools.delete');
 Route::get('/ai', [PanelController::class, 'aiSettings'])->name('banimark.admin.ai');
