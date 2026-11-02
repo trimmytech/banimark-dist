@@ -88,6 +88,152 @@
   if (msgs) msgs.scrollTop = msgs.scrollHeight;
 })();
 
+
+/* ---- toasts: window.bmToast ----
+ * One notice component for every surface (standalone and hosted desks): the events
+ * poll and the AJAX forms below both call it, so a new message and a saved
+ * form look the same. Bottom right, newest at the bottom, four visible and a
+ * "+N more" pill above them, Esc dismisses the newest, hover pauses the life
+ * bar, errors stay until dismissed, and the same text twice in two seconds
+ * restarts the first toast instead of adding a second.
+ *
+ *   bmToast({ kind: 'ok'|'err'|'warn'|'info'|'message'|'esc',
+ *             title, text, href, action: {label, href|onClick}, life, avatar })
+ *   bmToast.split(ok, text) -> {title, text}  (a flash sentence into the two lines) */
+(function () {
+  'use strict';
+  var ICON = {
+    ok: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.5 12.3l2.4 2.4 4.8-5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    err: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5v5.5M12 16.2v.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+    warn: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l9 16H3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 10v4M12 17v.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+    info: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 11v5M12 7.8v.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+    message: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 12.2c0 3.9-3.8 7-8.5 7-1 0-2-.15-2.9-.42L4 20.5l1.5-3.6A6.6 6.6 0 0 1 3.5 12.2c0-3.9 3.8-7 8.5-7s8.5 3.1 8.5 7Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
+    esc: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M5.2 20c.5-3.5 3.3-5.7 6.8-5.7s6.3 2.2 6.8 5.7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>',
+    x: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
+  };
+  var LIFE = { ok: 5000, info: 5000, warn: 8000, message: 7000, esc: 10000, err: 0 };
+  var MAX = 4;
+  var stack;
+  function stackEl() {
+    if (!stack || !stack.parentNode) stack = document.querySelector('.bm-toasts');
+    if (!stack) {
+      stack = document.createElement('div');
+      stack.className = 'bm-toasts';
+      stack.setAttribute('role', 'status');
+      stack.setAttribute('aria-live', 'polite');
+      document.body.appendChild(stack);
+    }
+    return stack;
+  }
+  function all() { return Array.prototype.slice.call(stackEl().querySelectorAll('.bm-toast')); }
+  /* beyond MAX the oldest fold into a "+N more" pill; clicking it shows them all */
+  function overflow() {
+    var box = stackEl(), list = all(), hidden = 0;
+    list.forEach(function (t, i) { var hide = i < list.length - MAX && !box.hasAttribute('data-open'); t.hidden = hide; if (hide) hidden++; });
+    var pill = box.querySelector('.more');
+    if (hidden > 0) {
+      if (!pill) {
+        pill = document.createElement('button');
+        pill.type = 'button'; pill.className = 'more';
+        pill.addEventListener('click', function () { box.setAttribute('data-open', '1'); overflow(); });
+        box.insertBefore(pill, box.firstChild);
+      }
+      pill.textContent = '+' + hidden + ' more';
+    } else if (pill) { pill.remove(); box.removeAttribute('data-open'); }
+  }
+  function initials(name) {
+    var w = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (!w.length) return '';
+    var s = (w[0][0] || '') + (w.length > 1 ? (w[w.length - 1][0] || '') : '');
+    return s.toUpperCase();
+  }
+  function toast(o) {
+    o = o || {};
+    var kind = ICON[o.kind] && o.kind !== 'x' ? o.kind : 'info';
+    var title = String(o.title || ''), text = String(o.text || '');
+    var key = kind + '|' + title + '|' + text, now = Date.now();
+    var dup = all().filter(function (t) { return t.getAttribute('data-key') === key && now - (+t.getAttribute('data-t') || 0) < 2000; })[0];
+    if (dup) {
+      var b = dup.querySelector('.bar');
+      if (b) { b.style.animation = 'none'; void b.offsetWidth; b.style.animation = ''; }
+      dup.setAttribute('data-t', String(now));
+      if (dup._bmRestart) dup._bmRestart();
+      return dup;
+    }
+    var life = typeof o.life === 'number' ? o.life : LIFE[kind];
+    var el = document.createElement(o.href ? 'a' : 'div');
+    el.className = 'bm-toast ' + kind;
+    el.setAttribute('data-key', key);
+    el.setAttribute('data-t', String(now));
+    if (o.href) el.href = o.href;
+    if (kind === 'err') el.setAttribute('role', 'alert');
+    if (life > 0) el.style.setProperty('--life', life + 'ms');
+    el.innerHTML = '<span class="ic"></span>'
+      + '<span class="tx"><b></b><span class="body"></span></span>'
+      + '<span class="acts"></span>'
+      + (life > 0 ? '<span class="bar"></span>' : '');
+    var ic = el.querySelector('.ic');
+    if (o.avatar) { var av = document.createElement('span'); av.className = 'av'; av.textContent = String(o.avatar).slice(0, 2); ic.appendChild(av); }
+    else ic.innerHTML = ICON[kind];
+    el.querySelector('b').textContent = title;
+    el.querySelector('.body').textContent = text;
+    var acts = el.querySelector('.acts');
+    var gone = false, timer;
+    function dismiss() {
+      if (gone) return;
+      gone = true; clearTimeout(timer);
+      el.classList.add('out'); el.classList.remove('on');
+      setTimeout(function () { el.remove(); overflow(); }, 220);
+    }
+    if (o.action && o.action.label) {
+      var act = document.createElement(o.action.href ? 'a' : 'button');
+      act.className = 'act';
+      if (o.action.href) act.href = o.action.href; else act.type = 'button';
+      act.textContent = o.action.label;
+      act.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        if (typeof o.action.onClick === 'function') { ev.preventDefault(); o.action.onClick(ev); }
+        dismiss();
+      });
+      acts.appendChild(act);
+    }
+    var x = document.createElement('button');
+    x.type = 'button'; x.className = 'x'; x.setAttribute('aria-label', 'Dismiss'); x.innerHTML = ICON.x;
+    x.addEventListener('click', function (ev) { ev.preventDefault(); ev.stopPropagation(); dismiss(); });
+    acts.appendChild(x);
+    if (life > 0) {
+      timer = setTimeout(dismiss, life);
+      el.addEventListener('mouseenter', function () { clearTimeout(timer); });
+      el.addEventListener('mouseleave', function () { timer = setTimeout(dismiss, 2000); });
+      el._bmRestart = function () { clearTimeout(timer); timer = setTimeout(dismiss, life); };
+    }
+    el._bmDismiss = dismiss;
+    stackEl().appendChild(el);
+    overflow();
+    requestAnimationFrame(function () { el.classList.add('on'); });
+    return el;
+  }
+  /* "Rule saved." -> title "Rule saved"; "Not saved. The SQL has …" -> title + message */
+  toast.split = function (ok, text) {
+    text = String(text || '').trim();
+    var m = /^(.{3,64}?[.!?:])(\s+\S[\s\S]*)?$/.exec(text);
+    if (m && !/\d\.$/.test(m[1])) {
+      return { title: m[1].replace(/[.:]$/, ''), text: (m[2] || '').trim() };
+    }
+    if (text.length <= 64) return { title: text.replace(/\.$/, ''), text: '' };
+    return { title: ok ? 'Done' : 'Something went wrong', text: text };
+  };
+  toast.initials = initials;
+  toast.stack = stackEl;
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Escape' || ev.defaultPrevented) return;
+    var list = all().filter(function (t) { return !t.hidden; });
+    var last = list[list.length - 1];
+    if (last && last._bmDismiss) last._bmDismiss();
+  });
+  window.bmToast = toast;
+})();
+
 /* Staff alerts: poll the event feed, chime + badge on new visitor messages
    and handovers. The chime is synthesised (no audio files to ship) and can
    be muted per browser. First poll starts from "now" so a reload is silent. */
@@ -133,61 +279,18 @@
   }
   var baseTitle = document.title;
 
-  /* Toasts live in ONE fixed stack, not individually positioned: the old
-     version pinned the second and third to bottom:96px/174px, which only held
-     while every toast was exactly one line. A wrapped message overlapped it. */
-  var stack;
-  function toastStack() {
-    if (!stack) stack = document.querySelector('.bm-toasts'); // the form answers share the stack
-    if (!stack) {
-      stack = document.createElement('div');
-      stack.className = 'bm-toasts';
-      stack.setAttribute('role', 'status');
-      stack.setAttribute('aria-live', 'polite');
-      document.body.appendChild(stack);
-    }
-    return stack;
-  }
-
-  var ICON = {
-    message: '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M20.5 12.2c0 3.9-3.8 7-8.5 7-1 0-2-.15-2.9-.42L4 20.5l1.5-3.6A6.6 6.6 0 0 1 3.5 12.2c0-3.9 3.8-7 8.5-7s8.5 3.1 8.5 7Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
-    escalation: '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="12" cy="8" r="3.3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M5.2 20c.5-3.5 3.3-5.7 6.8-5.7s6.3 2.2 6.8 5.7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>'
-  };
-
+  /* a new message or a handover: the whole toast opens the conversation */
   function toast(item) {
     var esc = item.kind === 'escalation';
-    var el = document.createElement('a');
-    el.className = 'bm-toast' + (esc ? ' esc' : '');
-    el.href = (cfg.conversation || '').replace('__SID__', item.session_id);
-
-    el.innerHTML = '<span class="ic"></span>'
-      + '<span class="tx"><b></b><span class="msg"></span></span>'
-      + '<button type="button" class="x" aria-label="Dismiss">&times;</button>';
-    el.querySelector('.ic').innerHTML = esc ? ICON.escalation : ICON.message;
-    el.querySelector('b').textContent = item.label;
-    el.querySelector('.msg').textContent = item.text;
-
-    var gone = false;
-    function dismiss() {
-      if (gone) { return; }
-      gone = true;
-      el.classList.remove('on');
-      setTimeout(function () { el.remove(); }, 260);
-    }
-    el.querySelector('.x').addEventListener('click', function (ev) {
-      ev.preventDefault();
-      ev.stopPropagation();   // it sits inside the link
-      dismiss();
+    var href = (cfg.conversation || '').replace('__SID__', item.session_id);
+    window.bmToast({
+      kind: esc ? 'esc' : 'message',
+      title: esc ? 'Needs a human' : (item.label || 'New message'),
+      text: esc && item.label ? item.label + ': ' + (item.text || '') : item.text,
+      href: href,
+      avatar: esc ? '' : window.bmToast.initials(item.label),
+      action: { label: 'Open', href: href }
     });
-    // reading it should not yank it away mid-sentence
-    var timer = setTimeout(dismiss, 7000);
-    el.addEventListener('mouseenter', function () { clearTimeout(timer); });
-    el.addEventListener('mouseleave', function () { timer = setTimeout(dismiss, 2500); });
-
-    var box = toastStack();
-    box.appendChild(el);
-    while (box.children.length > 4) { box.removeChild(box.firstChild); }
-    requestAnimationFrame(function () { el.classList.add('on'); });
   }
 
   function poll() {
@@ -568,35 +671,9 @@
     else { document.body.insertBefore(el, document.body.firstChild); }
     return el;
   }
-  function stackEl() {
-    var s = document.querySelector('.bm-toasts');
-    if (!s) {
-      s = document.createElement('div');
-      s.className = 'bm-toasts';
-      s.setAttribute('role', 'status');
-      s.setAttribute('aria-live', 'polite');
-      document.body.appendChild(s);
-    }
-    return s;
-  }
   function toast(ok, text) {
-    var el = document.createElement('div');
-    el.className = 'bm-toast ' + (ok ? 'ok' : 'err');
-    el.innerHTML = '<span class="ic"></span><span class="tx"><b></b><span class="msg"></span></span><button type="button" class="x" aria-label="Dismiss">&times;</button>';
-    el.querySelector('.ic').innerHTML = ICONS[ok ? 'ok' : 'err'];
-    el.querySelector('b').textContent = ok ? 'Done' : 'Not saved';
-    el.querySelector('.msg').textContent = text;
-    var gone = false;
-    function dismiss() { if (gone) return; gone = true; el.classList.remove('on'); setTimeout(function () { el.remove(); }, 260); }
-    el.querySelector('.x').addEventListener('click', dismiss);
-    var timer = setTimeout(dismiss, ok ? 6000 : 9000);
-    el.addEventListener('mouseenter', function () { clearTimeout(timer); });
-    el.addEventListener('mouseleave', function () { timer = setTimeout(dismiss, 2500); });
-    var box = stackEl();
-    box.appendChild(el);
-    while (box.children.length > 4) { box.removeChild(box.firstChild); }
-    requestAnimationFrame(function () { el.classList.add('on'); });
-    return el;
+    var parts = window.bmToast.split(ok, text);
+    return window.bmToast({ kind: ok ? 'ok' : 'err', title: parts.title, text: parts.text });
   }
   function remember(ok, text) {
     try { sessionStorage.setItem(KEY, JSON.stringify({ ok: ok, text: text, t: Date.now() })); } catch (e) {}

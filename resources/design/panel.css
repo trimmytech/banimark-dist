@@ -498,14 +498,48 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monosp
 [data-sound-toggle].muted { opacity: .45; }
 [data-sound-toggle].muted::after { content: ''; position: absolute; width: 2px; height: 20px; background: currentColor; transform: rotate(45deg); }
 [data-sound-toggle] { position: relative; }
-.bm-toasts { position: fixed; right: 18px; bottom: 18px; z-index: 60; display: grid; gap: 10px; justify-items: end; max-width: min(360px, calc(100vw - 36px)); pointer-events: none; }
-.bm-toast { pointer-events: auto; width: 100%; display: grid; grid-template-columns: 30px minmax(0, 1fr) 20px; gap: 10px; align-items: start;
-  background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 14px; padding: 12px 12px 12px 13px;
-  box-shadow: 0 14px 34px rgba(0,0,0,.20); text-decoration: none; transform: translateY(10px) scale(.98); opacity: 0; transition: transform .26s cubic-bezier(.22,.61,.36,1), opacity .26s; }
+/* ---- toasts (bottom right; one stack, every surface) ----
+   A flat notice with the kind on its left edge, a title that says what happened,
+   a two-line message, an optional action, and a life bar that drains while it
+   waits. Errors have no bar: they stay until dismissed. panel.js (bmToast) owns
+   the behaviour; the public site carries the same block in its own stylesheet. */
+.bm-toasts { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: max(16px, env(safe-area-inset-bottom, 0px)); z-index: 60;
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-end; width: min(380px, calc(100vw - 32px)); pointer-events: none; }
+.bm-toast { --tone: var(--brand); pointer-events: auto; position: relative; width: 100%; display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  background: var(--surface); color: var(--text); border: 1px solid var(--border-2); border-left: 3px solid var(--tone); border-radius: 10px;
+  padding: 11px 10px 11px 12px; box-shadow: var(--sh-3); text-decoration: none; overflow: hidden; font-family: inherit;
+  transform: translateY(12px); opacity: 0; transition: transform .22s var(--ease), opacity .22s; }
 .bm-toast.on { transform: none; opacity: 1; }
-.bm-toast:hover { border-color: var(--s2); }
-.bm-toast .ic { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: color-mix(in srgb, var(--s2) 14%, transparent); color: var(--s2); }
-.bm-toast.esc .ic { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+.bm-toast.out { transform: translateX(12px); opacity: 0; }
+.bm-toast[hidden] { display: none; }
+a.bm-toast:hover { border-color: var(--tone); }
+.bm-toast .ic { width: 20px; height: 20px; display: grid; place-items: center; color: var(--tone); align-self: start; margin-top: 1px; }
+.bm-toast .ic svg { width: 18px; height: 18px; }
+.bm-toast .ic .av { width: 20px; height: 20px; border-radius: 50%; background: var(--tone); color: #fff; font-size: 10px; font-weight: 700; display: grid; place-items: center; letter-spacing: .02em; }
+.bm-toast .tx { min-width: 0; display: grid; gap: 1px; }
+.bm-toast .tx b { font-size: 13.5px; font-weight: 600; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.bm-toast .tx b:empty, .bm-toast .tx .body:empty { display: none; }
+.bm-toast .tx .body { font-size: 13px; color: var(--text-2); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.bm-toast .acts { display: flex; align-items: center; gap: 2px; align-self: start; margin-top: -2px; }
+.bm-toast .act { border: 0; background: none; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--tone); cursor: pointer; padding: 4px 8px; border-radius: 7px; white-space: nowrap; text-decoration: none; }
+.bm-toast .act:hover { background: var(--surface-3); }
+.bm-toast .x { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0; width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font-size: 0; }
+.bm-toast .x svg { width: 14px; height: 14px; }
+.bm-toast .x:hover { color: var(--text); background: var(--surface-3); }
+.bm-toast .act:focus-visible, .bm-toast .x:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.bm-toast .bar { position: absolute; left: 0; bottom: 0; height: 2px; width: 100%; background: var(--tone); opacity: .45; transform-origin: left; animation: bmToastLife var(--life, 5s) linear forwards; }
+.bm-toast:hover .bar { animation-play-state: paused; }
+@keyframes bmToastLife { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+.bm-toast.ok { --tone: var(--good); }
+.bm-toast.err { --tone: var(--critical); }
+.bm-toast.warn { --tone: var(--warn); }
+.bm-toast.info { --tone: var(--s1); }
+.bm-toast.message { --tone: var(--brand); }
+.bm-toast.esc { --tone: var(--s2); }
+.bm-toasts .more { font-size: 12px; font-weight: 600; color: var(--muted); background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; pointer-events: auto; cursor: pointer; font-family: inherit; }
+.bm-toasts .more:hover { color: var(--text); }
+@media (max-width: 560px) { .bm-toasts { left: max(16px, env(safe-area-inset-left, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); width: auto; align-items: stretch; } }
+@media (prefers-reduced-motion: reduce) { .bm-toast { transition: none; } .bm-toast .bar { animation: none; } }
 /* ---- the tool templates and the rule library ---- */
 .lib-fold { padding: 0; }
 .lib-fold > .lib-fold-h { cursor: pointer; list-style: none; display: flex; gap: 12px; align-items: center; padding: 18px 20px; }
@@ -530,17 +564,7 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monosp
 .lib-rule { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13.5px; cursor: pointer; }
 .lib-rule input { margin-top: 3px; }
 .lib-rule.have { opacity: .7; }
-.bm-toast.ok .ic { background: var(--good-soft); color: var(--good); }
-.bm-toast.err .ic { background: var(--critical-soft); color: var(--critical); }
-.bm-toast.err { border-color: color-mix(in srgb, var(--critical) 35%, transparent); }
 button.is-busy { opacity: .7; cursor: progress; }
-.bm-toast .tx { min-width: 0; display: grid; gap: 2px; }
-.bm-toast b { font-size: 13px; font-weight: 640; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bm-toast .msg { font-size: 12.5px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.bm-toast .x { border: 0; background: none; color: var(--muted); font-size: 17px; line-height: 1; cursor: pointer; padding: 0; width: 20px; height: 20px; border-radius: 6px; }
-.bm-toast .x:hover { color: var(--text); background: var(--bg); }
-@media (max-width: 560px) { .bm-toasts { left: 18px; right: 18px; max-width: none; justify-items: stretch; } }
-@media (prefers-reduced-motion: reduce) { .bm-toast { transition: none; } }
 .bm-secret { font-family: ui-monospace, Menlo, monospace; font-size: 20px; letter-spacing: .12em; padding: 14px 16px; background: var(--surface-2); border: 1px dashed var(--border); border-radius: 12px; text-align: center; word-break: break-all; }
 
 /* collapsible folders */
