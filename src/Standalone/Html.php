@@ -41,7 +41,7 @@ class Html
     }
 
     /** The sign-in screen. */
-    public static function auth(string $action, string $error = '', string $notice = ''): string
+    public static function auth(string $action, string $error = '', string $notice = '', string $forgotUrl = ''): string
     {
         return self::bare('Sign in', '<div class="bm-card">'
             .'<div class="head"><div class="bm-logo"></div><h2>Welcome back</h2>'
@@ -51,7 +51,39 @@ class Html
             .'<form method="post" action="'.self::e($action).'">'
             .'<label>Email</label><input type="text" name="email" autofocus autocomplete="username" placeholder="you@company.com">'
             .'<label>Password</label><input type="password" name="password" autocomplete="current-password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;">'
-            .'<button type="submit" style="width:100%;margin-top:18px">Sign in</button></form></div>');
+            .'<button type="submit" style="width:100%;margin-top:18px">Sign in</button></form>'
+            .($forgotUrl !== '' ? '<p class="muted" style="text-align:center;margin:14px 0 0"><a href="'.self::e($forgotUrl).'">Forgot your password?</a></p>' : '').'</div>');
+    }
+
+    /** "Forgot your password": ask for the email; the answer never says whether it exists. */
+    public static function forgot(string $action, string $loginUrl, string $error = '', string $notice = ''): string
+    {
+        return self::bare('Forgot your password', '<div class="bm-card">'
+            .'<div class="head"><div class="bm-logo"></div><h2>Forgot your password?</h2>'
+            .'<p class="muted">Type the email of your staff account and we send you a link to choose a new one. The link works for an hour.</p></div>'
+            .($notice !== '' ? '<div class="flash-ok"><span>'.self::e($notice).'</span></div>' : '')
+            .($error !== '' ? '<div class="flash-err"><span>'.self::e($error).'</span></div>' : '')
+            .($notice === '' ? '<form method="post" action="'.self::e($action).'">'
+                .'<label>Email</label><input type="text" name="email" autofocus autocomplete="username" placeholder="you@company.com">'
+                .'<button type="submit" style="width:100%;margin-top:18px">Email me a link</button></form>' : '')
+            .'<p class="muted" style="text-align:center;margin:14px 0 0"><a href="'.self::e($loginUrl).'">Back to sign in</a></p></div>');
+    }
+
+    /** Choose a new password from the emailed link. $agent null = link expired or used. */
+    public static function reset(string $action, string $loginUrl, string $forgotUrl, ?array $agent, string $error = ''): string
+    {
+        $head = $agent
+            ? '<h2>Choose a new password</h2><p class="muted">For '.self::e($agent['email']).'.</p>'
+            : '<h2>This link has expired</h2><p class="muted">Password links work for an hour and once only. <a href="'.self::e($forgotUrl).'">Ask for a new one</a>.</p>';
+        $body = $agent
+            ? '<form method="post" action="'.self::e($action).'">'
+                .'<label>New password <span class="muted">(at least 8 characters)</span></label><input type="password" name="password" autocomplete="new-password" autofocus>'
+                .'<label>Password again</label><input type="password" name="password_confirmation" autocomplete="new-password">'
+                .'<button type="submit" style="width:100%;margin-top:18px">Save and sign in</button></form>'
+            : '<a class="btn-ghost" href="'.self::e($loginUrl).'" style="display:block;text-align:center">Back to sign in</a>';
+        return self::bare('New password', '<div class="bm-card">'
+            .'<div class="head"><div class="bm-logo"></div>'.$head.'</div>'
+            .($error !== '' ? '<div class="flash-err"><span>'.self::e($error).'</span></div>' : '').$body.'</div>');
     }
 
     /** An invited colleague sets their own password. $agent null = link expired or used. */

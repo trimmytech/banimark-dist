@@ -7,6 +7,10 @@ Route::get('/login', [PanelController::class, 'login'])->name('banimark.admin.lo
 Route::post('/login', [PanelController::class, 'doLogin'])->name('banimark.admin.login.post');
 Route::get('/login/2fa', [PanelController::class, 'login2fa'])->name('banimark.admin.login.2fa');
 Route::post('/login/2fa', [PanelController::class, 'doLogin2fa'])->name('banimark.admin.login.2fa.post');
+Route::get('/forgot', [PanelController::class, 'forgot'])->name('banimark.admin.forgot');
+Route::post('/forgot', [PanelController::class, 'doForgot'])->name('banimark.admin.forgot.post');
+Route::get('/reset/{token}', [PanelController::class, 'reset'])->name('banimark.admin.reset');
+Route::post('/reset/{token}', [PanelController::class, 'doReset'])->name('banimark.admin.reset.post');
 Route::get('/activate/{token}', [PanelController::class, 'activate'])->name('banimark.admin.activate');
 Route::post('/activate/{token}', [PanelController::class, 'doActivate'])->name('banimark.admin.activate.post');
 Route::get('/security', [PanelController::class, 'security'])->name('banimark.admin.security');

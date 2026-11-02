@@ -11,6 +11,7 @@
                 <h2>Welcome back</h2>
                 <p class="muted">Sign in to your Banimark support desk.</p>
             </div>
+            @if(session('bm_ok'))<div class="flash-ok" data-flash><span>{{ session('bm_ok') }}</span></div>@endif
             @if(session('bm_error'))<div class="flash-err" data-flash><span>{{ session('bm_error') }}</span></div>@endif
             <form method="post" action="{{ route('banimark.admin.login.post') }}">
                 @csrf
@@ -20,6 +21,7 @@
                 <input type="password" name="password" autocomplete="current-password" placeholder="••••••••">
                 <button type="submit" style="width:100%;margin-top:18px;">Sign in</button>
             </form>
+            <p class="muted" style="text-align:center;margin:14px 0 0"><a href="{{ route('banimark.admin.forgot') }}">Forgot your password?</a></p>
         </div>
         <p class="muted" style="text-align:center">Banimark runs entirely on your server.</p>
     </div>

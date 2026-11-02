@@ -10,6 +10,12 @@ class Agents
     {
     }
 
+    /** The connection, for tests that need to age a token. */
+    public function pdo(): \PDO
+    {
+        return $this->pdo;
+    }
+
     /** @return int|string|false new id, or false when the email already exists */
     public function create(string $name, string $email, string $password, string $role = 'agent'): int|string|false
     {
@@ -62,6 +68,52 @@ class Agents
 
     /** Links are good for 7 days. */
     public const INVITE_TTL = 7 * 86400;
+    /** A password-reset link is good for an hour. */
+    public const RESET_TTL = 3600;
+
+    /**
+     * "Forgot your password": a fresh one-hour link for an ACTIVE account.
+     * null when there is no such account - the caller says nothing either
+     * way, so an address cannot be probed.
+     *
+     * @return array{id: int, token: string}|null
+     */
+    public function beginReset(string $email): ?array
+    {
+        $agent = $this->findByEmail(strtolower(trim($email)));
+        if (!$agent || ($agent['status'] ?? 'active') !== 'active' || (int) ($agent['enabled'] ?? 0) !== 1) {
+            return null;
+        }
+        $token = bin2hex(random_bytes(24));
+        $this->pdo->prepare("UPDATE {$this->prefix}agents SET invite_token = ?, invited_at = ? WHERE id = ?")
+            ->execute([hash('sha256', $token), date('Y-m-d H:i:s'), (int) $agent['id']]);
+        return ['id' => (int) $agent['id'], 'token' => $token];
+    }
+
+    public function findByResetToken(string $token): ?array
+    {
+        if ($token === '' || !preg_match('/^[a-f0-9]{48}$/', $token)) {
+            return null;
+        }
+        $st = $this->pdo->prepare("SELECT * FROM {$this->prefix}agents WHERE invite_token = ? AND status = 'active'");
+        $st->execute([hash('sha256', $token)]);
+        $agent = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
+        if (!$agent || strtotime((string) $agent['invited_at']) < time() - self::RESET_TTL) {
+            return null;
+        }
+        return $agent;
+    }
+
+    /** The new password; the link is spent. */
+    public function resetPassword(int $id, string $password): bool
+    {
+        if (strlen($password) < 8) {
+            return false;
+        }
+        $st = $this->pdo->prepare("UPDATE {$this->prefix}agents SET password = ?, invite_token = '' WHERE id = ? AND status = 'active'");
+        $st->execute([password_hash($password, PASSWORD_DEFAULT), $id]);
+        return $st->rowCount() === 1;
+    }
 
     public function findByInviteToken(string $token): ?array
     {

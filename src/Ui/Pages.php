@@ -271,7 +271,9 @@ final class Pages
             .'<form method="post" action="'.$e($u['folder']).'">'.$csrf
             .'<div class="grid2"><div><label>Folder name</label><input type="text" name="title" required placeholder="Refund policy"></div>'
             .'<div><label>What goes in here <span class="muted">(optional)</span></label><input type="text" name="description" placeholder="What the assistant may and may not promise about refunds"></div></div>'
-            .'<div class="row" style="margin-top:14px;justify-content:flex-end"><button type="button" class="btn-ghost" data-dismiss=".bm-card">Cancel</button><button type="submit">Create folder</button></div></form></div>';
+            .'<div class="row" style="margin-top:14px;justify-content:flex-end"><button type="button" class="btn-ghost" data-dismiss=".bm-card">Cancel</button><button type="submit">Create folder</button></div></form></div>'
+            // importing a whole file of rules is how a new desk gets going - it sits above the folders, not under them
+            .(isset($u['import'], $u['sample']) ? self::ruleImport($u['import'], $u['sample'], $csrf) : '');
 
         if ($folders === []) {
             $html .= '<div class="bm-card">'.Chart::empty('No folders yet', 'Create a folder, then add rules to it.').'</div>';
@@ -323,7 +325,7 @@ final class Pages
                 .'<input type="text" name="content" required placeholder="Add a rule to '.$e($f['title']).'…" aria-label="Rule">'
                 .'<button type="submit" class="btn2">'.Icons::get('plus', 14).' Add</button></form></div></div>';
         }
-        return $html.$library.(isset($u['import'], $u['sample']) ? self::ruleImport($u['import'], $u['sample'], $csrf) : '');
+        return $html.$library;
     }
 
     /**
@@ -840,10 +842,17 @@ final class Pages
                 '<ol class="steps-list"><li>Start the setup to get your personal key.</li><li>Add it to your authenticator app.</li><li>Type the 6-digit code it shows to confirm.</li></ol>'
                 .'<form method="post" action="'.$e($u['begin']).'">'.$csrf.'<button type="submit">'.Icons::get('shield', 15).' Start setup</button></form>');
         } else {
+            $qr = '';
+            try {
+                $qr = (string) $o['uri'] !== '' ? QrCode::svg((string) $o['uri'], 184) : '';
+            } catch (\Throwable $ignore) {
+            }
             $main = Layout::section('Finish setup', 'Nothing changes until you confirm a code, so you cannot lock yourself out halfway.',
                 '<ol class="steps-list">'
-                .'<li>Open your authenticator app and choose <b>Add account</b> &rarr; <b>Enter a setup key</b>.</li>'
-                .'<li>Type this key (account name: your email, type: time-based):<div class="bm-secret">'.$e(trim(chunk_split($pending, 4, ' '))).'</div>'
+                .'<li>Open your authenticator app and choose <b>Add account</b>.'
+                .($qr !== '' ? '<div class="bm-qr" style="margin:10px 0;padding:10px;background:#fff;border:1px solid var(--border);border-radius:12px;width:max-content">'.$qr.'</div>'
+                    .'<div class="muted">Scan this code with the app. Nothing here is sent anywhere - the code is drawn on this server.</div>' : '').'</li>'
+                .'<li>No camera? Choose <b>Enter a setup key</b> and type this key (account name: your email, type: time-based):<div class="bm-secret">'.$e(trim(chunk_split($pending, 4, ' '))).'</div>'
                 .'<div class="hint">On this device? <a href="'.$e($o['uri']).'">Open it in your authenticator app</a>.</div></li>'
                 .'<li>Enter the 6-digit code the app shows now:'
                 .'<form method="post" action="'.$e($u['confirm']).'" class="row" style="gap:10px;margin-top:10px;flex-wrap:wrap">'.$csrf.$code(true)

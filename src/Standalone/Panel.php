@@ -122,6 +122,34 @@ class Panel
             echo Html::totp($this->url('/login/2fa'), $this->url('/logout'));
             return;
         }
+        // forgot / reset password: reachable signed out, like the login page
+        if ($route === '/forgot') {
+            if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
+                $this->forgot((string) ($_POST['email'] ?? ''));
+                return;
+            }
+            echo Html::forgot($this->url('/forgot'), $this->url('/login'));
+            return;
+        }
+        if (preg_match('#^/reset/([a-f0-9]{48})$#', $route, $m)) {
+            $agent = $this->agents->findByResetToken($m[1]);
+            if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && $agent) {
+                $pw = (string) ($_POST['password'] ?? '');
+                if (strlen($pw) < 8 || $pw !== (string) ($_POST['password_confirmation'] ?? '')) {
+                    $this->fail('Use at least 8 characters, and type the same password twice.', fn (string $e) => Html::reset($this->url('/reset/'.$m[1]), $this->url('/login'), $this->url('/forgot'), $agent, $e));
+                    return;
+                }
+                $this->agents->resetPassword((int) $agent['id'], $pw);
+                if (self::ajaxForm()) {
+                    $this->json(['ok' => true, 'message' => 'Your password is changed - sign in with it.', 'redirect' => $this->url('/login')]);
+                    return;
+                }
+                echo $this->login('', 'Your password is changed - sign in with it.');
+                return;
+            }
+            echo Html::reset($this->url('/reset/'.$m[1]), $this->url('/login'), $this->url('/forgot'), $agent);
+            return;
+        }
         // Banimark HQ opening a hosted desk as its owner: a signed, five-minute,
         // single-use link (Standalone\HqLogin). Only a hosted desk honours it.
         if ($route === \Banimark\Standalone\HqLogin::ROUTE) {
@@ -1229,7 +1257,47 @@ class Panel
 
     private function login(string $error = '', string $notice = ''): string
     {
-        return Html::auth($this->url('/login'), $error, $notice);
+        return Html::auth($this->url('/login'), $error, $notice, $this->url('/forgot'));
+    }
+
+    /**
+     * "Forgot your password": the same answer whether or not the address has
+     * an account, a cap on how often anyone may ask, and the link by email.
+     */
+    private function forgot(string $email): void
+    {
+        $email = strtolower(trim($email));
+        $done = fn (string $notice) => self::ajaxForm()
+            ? $this->json(['ok' => true, 'message' => $notice, 'redirect' => null])
+            : print(Html::forgot($this->url('/forgot'), $this->url('/login'), '', $notice));
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $this->fail('Type the email of your staff account.', fn (string $e) => Html::forgot($this->url('/forgot'), $this->url('/login'), $e));
+            return;
+        }
+        if ((new \Banimark\Http\RateLimiter($this->pdo))->hit('forgot', 3600) > 20) {
+            $this->fail('That is a lot of requests in one hour. Try again a little later.', fn (string $e) => Html::forgot($this->url('/forgot'), $this->url('/login'), $e));
+            return;
+        }
+        $notice = 'If '.$email.' has a staff account here, a link to choose a new password is on its way. It works for an hour.';
+        $reset = $this->agents->beginReset($email);
+        if ($reset === null) {
+            $done($notice);
+            return;
+        }
+        $agent = $this->agents->find($reset['id']) ?? ['name' => '', 'email' => $email];
+        $url = Master::siteUrlFromServer($_SERVER).$this->url('/reset/'.$reset['token']);
+        [$subject, $body] = \Banimark\Notify\PasswordReset::message((string) $agent['name'], (string) $this->settings->get('title', 'Support'), $url);
+        $sent = false;
+        try {
+            $sent = MailerFactory::make($this->settings->all())->send([$email], $subject, $body);
+        } catch (\Throwable $e) {
+        }
+        if (!$sent) {
+            error_log('Banimark: password reset email to '.$email.' could not be sent (check Notifications -> Email)');
+            $this->fail('The email could not be sent from this desk. Ask an owner to check Notifications → Email, or to reset your password for you.', fn (string $e) => Html::forgot($this->url('/forgot'), $this->url('/login'), $e));
+            return;
+        }
+        $done($notice);
     }
 
     /** The HQ sign-in link: verify, refuse a replay, sign in as the first owner, say so. */

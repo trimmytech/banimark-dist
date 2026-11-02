@@ -296,6 +296,60 @@ class PanelController
 
     /* ---------------- activation (public: the invitee has no session yet) ---------------- */
 
+    public function forgot()
+    {
+        return view('banimark::admin.forgot');
+    }
+
+    /** The same answer whether or not the address has an account; the link by email. */
+    public function doForgot(Request $request, Agents $agents)
+    {
+        $email = strtolower(trim((string) $request->input('email')));
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return back()->with('bm_error', 'Type the email of your staff account.');
+        }
+        if ((new \Banimark\Http\RateLimiter(DB::connection()->getPdo()))->hit('forgot', 3600) > 20) {
+            return back()->with('bm_error', 'That is a lot of requests in one hour. Try again a little later.');
+        }
+        $notice = 'If '.$email.' has a staff account here, a link to choose a new password is on its way. It works for an hour.';
+        $reset = $agents->beginReset($email);
+        if ($reset === null) {
+            return back()->with('bm_ok', $notice);
+        }
+        $agent = $agents->find($reset['id']) ?? ['name' => ''];
+        $settings = \Banimark\Laravel\BanimarkServiceProvider::settings();
+        [$subject, $body] = \Banimark\Notify\PasswordReset::message((string) $agent['name'], (string) ($settings['title'] ?? 'Support'), route('banimark.admin.reset', $reset['token']));
+        $sent = false;
+        try {
+            $sent = \Banimark\Notify\MailerFactory::make($settings)->send([$email], $subject, $body);
+        } catch (\Throwable $e) {
+        }
+        if (!$sent) {
+            \Illuminate\Support\Facades\Log::warning('banimark: password reset email to '.$email.' could not be sent');
+            return back()->with('bm_error', 'The email could not be sent from this desk. Ask an owner to check Notifications → Email, or to reset your password for you.');
+        }
+        return back()->with('bm_ok', $notice);
+    }
+
+    public function reset(string $token, Agents $agents)
+    {
+        return view('banimark::admin.reset', ['agent' => $agents->findByResetToken($token), 'token' => $token]);
+    }
+
+    public function doReset(Request $request, string $token, Agents $agents)
+    {
+        $agent = $agents->findByResetToken($token);
+        if (!$agent) {
+            return redirect()->route('banimark.admin.reset', $token);
+        }
+        $pw = (string) $request->input('password');
+        if (strlen($pw) < 8 || $pw !== (string) $request->input('password_confirmation')) {
+            return back()->with('bm_error', 'Use at least 8 characters, and type the same password twice.');
+        }
+        $agents->resetPassword((int) $agent['id'], $pw);
+        return redirect()->route('banimark.admin.login')->with('bm_ok', 'Your password is changed - sign in with it.');
+    }
+
     public function activate(string $token, Agents $agents)
     {
         $agent = $agents->findByInviteToken($token);

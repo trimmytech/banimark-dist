@@ -3,6 +3,17 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## Unreleased
+- **Forgot your password.** A link under the sign-in form: type your email
+  and a one-hour link to choose a new password is emailed, if the address
+  has an account (the page never says whether it does). The email comes
+  from the desk's own mail settings (Notifications → Email); an owner can
+  still reset a colleague's password by hand as before.
+- **Two-factor setup shows a QR code** to scan, drawn on the server itself,
+  beside the typed key for people without a camera.
+- On the Rules page, "Import rules from a file" now sits at the top, above
+  the folders.
+
 ## 0.37.0
 - **Banimark HQ can open a hosted desk as its owner.** For support: one
   button on HQ's "Hosted desks" page signs the HQ admin in to the desk's
