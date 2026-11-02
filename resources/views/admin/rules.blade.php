@@ -13,6 +13,7 @@
             'save' => route('banimark.admin.rules.save'),
             'move' => route('banimark.admin.rules.move'),
             'delete' => route('banimark.admin.rules.delete'),
+            ...(!empty($import) && !empty($sample) ? ['import' => $import, 'sample' => $sample] : []),
         ],
     ]) !!}
 @endsection

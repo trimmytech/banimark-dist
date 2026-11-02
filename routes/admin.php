@@ -43,6 +43,8 @@ Route::post('/providers/activate', [PanelController::class, 'activateProvider'])
 Route::get('/rules', [PanelController::class, 'rules'])->name('banimark.admin.rules');
 Route::post('/rules', [PanelController::class, 'saveRule'])->name('banimark.admin.rules.save');
 Route::post('/rules/library', [PanelController::class, 'installRulePack'])->name('banimark.admin.rules.library');
+Route::get('/rules/sample', [PanelController::class, 'rulesSample'])->name('banimark.admin.rules.sample');
+Route::post('/rules/import', [PanelController::class, 'importRules'])->name('banimark.admin.rules.import');
 Route::post('/tools/template', [PanelController::class, 'installToolTemplate'])->name('banimark.admin.tools.template');
 Route::post('/rules/delete', [PanelController::class, 'deleteRule'])->name('banimark.admin.rules.delete');
 Route::post('/rules/move', [PanelController::class, 'moveRule'])->name('banimark.admin.rules.move');

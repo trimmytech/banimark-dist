@@ -1310,6 +1310,8 @@ class PanelController
         $url = \Banimark\Laravel\RouteCache::url('banimark.admin.rules.library');
         return view('banimark::admin.rules', [
             'folders' => $rules->tree(),
+            'import' => \Banimark\Laravel\RouteCache::url('banimark.admin.rules.import'),
+            'sample' => \Banimark\Laravel\RouteCache::url('banimark.admin.rules.sample'),
             'library' => $url === null ? null : ['installed' => (new \Banimark\Library\LibraryInstaller(DB::connection()->getPdo()))->installedRules(), 'url' => $url],
         ]);
     }
@@ -1399,6 +1401,27 @@ class PanelController
         if ($folder <= 0) { return back()->with('bm_error', 'Pick a folder for the rule.'); }
         $this->rulesRepo()->addRule($folder, (string) $request->input('title', ''), $content);
         return back()->with('bm_ok', 'Rule added.');
+    }
+
+    public function rulesSample(AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        return response(\Banimark\Storage\Rules::sampleJson(), 200, [
+            'Content-Type' => 'application/json; charset=utf-8',
+            'Content-Disposition' => 'attachment; filename="banimark-rules-sample.json"',
+            'Cache-Control' => 'no-store',
+        ]);
+    }
+
+    public function importRules(Request $request, AgentAuth $auth)
+    {
+        if ($r = $this->gate($auth)) { return $r; }
+        $file = $request->file('file');
+        $text = ($file && $file->isValid() && $file->getSize() <= 2_000_000)
+            ? (string) file_get_contents($file->getRealPath())
+            : (string) $request->input('json', '');
+        $out = $this->rulesRepo()->import($text);
+        return back()->with($out['ok'] ? 'bm_ok' : 'bm_error', $out['message']);
     }
 
     public function deleteRule(Request $request, AgentAuth $auth)

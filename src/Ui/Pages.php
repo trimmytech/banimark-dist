@@ -312,7 +312,30 @@ final class Pages
                 .'<input type="text" name="content" required placeholder="Add a rule to '.$e($f['title']).'…" aria-label="Rule">'
                 .'<button type="submit" class="btn2">'.Icons::get('plus', 14).' Add</button></form></div></div>';
         }
-        return $html.$library;
+        return $html.$library.(isset($u['import'], $u['sample']) ? self::ruleImport($u['import'], $u['sample'], $csrf) : '');
+    }
+
+    /**
+     * "Import rules": download the sample JSON, fill it in, upload it. Keys
+     * make a re-upload an update, so the fold says so in one line.
+     */
+    public static function ruleImport(string $importUrl, string $sampleUrl, string $csrf): string
+    {
+        $e = [self::class, 'e'];
+        return '<details class="bm-card lib-fold" id="import" data-remember="rule-import">'
+            .'<summary class="lib-fold-h"><div><h2>Import rules from a file</h2>'
+            .'<div class="muted">Download the sample, fill it in, upload it. Upload it again later and the same rules are updated, not added twice.</div></div>'
+            .'<span class="spacer"></span><span class="lib-fold-chev" aria-hidden="true">'.Icons::get('chevron', 16).'</span></summary>'
+            .'<div class="lib-fold-body">'
+            .'<p class="muted" style="margin:0 0 10px">The file is JSON: a list of folders, each with its rules. Every rule has a <code>key</code> - a short name that never changes, such as <code>refund-window</code>. '
+            .'A rule whose key is already in your desk is updated; a new key is added; folders are matched by name. Nothing is ever deleted by an import.</p>'
+            .'<form method="post" action="'.$e($importUrl).'" enctype="multipart/form-data" data-rule-import>'.$csrf
+            .'<div class="row" style="gap:10px;flex-wrap:wrap;align-items:center">'
+            .'<a class="btn-ghost btn-sm" href="'.$e($sampleUrl).'" download="banimark-rules-sample.json">Download the sample</a>'
+            .'<input type="file" name="file" accept=".json,application/json" aria-label="Rules file" required>'
+            .'<button type="submit" class="btn2">'.Icons::get('plus', 14).' Import</button></div>'
+            .'<div class="hint">Up to '.\Banimark\Storage\Rules::IMPORT_MAX_RULES.' rules per file. Keys may use letters, numbers, - and _.</div>'
+            .'</form></div></details>';
     }
 
     /**

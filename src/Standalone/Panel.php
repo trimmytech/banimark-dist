@@ -224,6 +224,13 @@ class Panel
             echo \Banimark\Ui\Pages::widgetTryPage($this->base.'/widget.js', $this->url('/widget'));
             return;
         }
+        if ($route === '/rules/sample') {
+            header('Content-Type: application/json; charset=utf-8');
+            header('Content-Disposition: attachment; filename="banimark-rules-sample.json"');
+            header('Cache-Control: no-store');
+            echo \Banimark\Storage\Rules::sampleJson();
+            return;
+        }
         if ($route === '/events') {
             header('Content-Type: application/json');
             echo json_encode($this->store->staffEvents((int) ($_GET['since'] ?? 0), null, $this->onlineMinutes()));
@@ -1347,6 +1354,9 @@ class Panel
             case '/rules/folder/move': $rules->moveFolder($id, (int) ($p['direction'] ?? 1)); return '';
             case '/rules/move': $rules->moveRule($id, (int) ($p['direction'] ?? 1)); return '';
             case '/rules/delete': $rules->deleteRule($id); return '';
+            case '/rules/import':
+                $r = $rules->import(self::uploadedText($_FILES['file'] ?? null) ?? (string) ($p['json'] ?? ''));
+                return '<div class="'.($r['ok'] ? 'flash-ok' : 'flash-err').'">'.Html::e($r['message']).'</div>';
             case '/rules':
                 $content = trim((string) ($p['content'] ?? ''));
                 if ($content === '') {
@@ -1364,6 +1374,16 @@ class Panel
                 return '';
         }
         return '<div class="flash-err">Unknown action.</div>';
+    }
+
+    /** The text of a small uploaded file (a rules JSON), or null when nothing usable arrived. */
+    private static function uploadedText(mixed $f, int $max = 2_000_000): ?string
+    {
+        if (!is_array($f) || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file((string) $f['tmp_name'])) {
+            return null;
+        }
+        $text = file_get_contents((string) $f['tmp_name'], false, null, 0, $max + 1);
+        return $text === false ? null : (strlen($text) > $max ? '' : $text);
     }
 
     /** The Tools page's templates section: what is added, and the room the plan leaves for templates. */
@@ -1394,6 +1414,8 @@ class Panel
                 'save' => $this->url('/rules'),
                 'move' => $this->url('/rules/move'),
                 'delete' => $this->url('/rules/delete'),
+                'import' => $this->url('/rules/import'),
+                'sample' => $this->url('/rules/sample'),
             ],
         ]), $this->nav('/rules'), 'How your assistant behaves - organised in folders, applied in order');
     }

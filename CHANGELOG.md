@@ -3,6 +3,13 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.36.0
+- **Import rules from a file.** On the Rules page, download the sample JSON,
+  fill it in, upload it. Every rule carries a `key` that never changes, so
+  uploading the file again updates those rules instead of adding them twice;
+  folders are matched by name, and an import never deletes anything. A
+  mistake anywhere in the file is reported and nothing is written.
+
 ## 0.35.0
 - **The widget only loads on the websites you listed.** A page on any other
   site gets a short refusal in its console instead of a chat that could never
