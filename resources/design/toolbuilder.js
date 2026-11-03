@@ -328,10 +328,17 @@
   }
 
   function fill(tool) {
-    // an API tool and a database tool fill different halves of the form
-    var kind = tool.kind === 'http' ? 'http' : 'sql';
+    // an API tool, a spreadsheet tool and a database tool fill different parts of the form
+    var kind = tool.kind === 'http' ? 'http' : (tool.kind === 'sheet' ? 'sheet' : 'sql');
     var radio = document.querySelector('[data-kind="' + kind + '"]');
     if (radio) { radio.checked = true; radio.dispatchEvent(new Event('change', { bubbles: true })); }
+    var cfg = tool.config || {};
+    if (kind === 'sheet') {
+      setField('context_sheet', (tool.context || []).join(', '));
+      setField('sheet_url', (cfg.source && cfg.source.url) || '');
+      setField('sheet_mode', cfg.mode || 'exact');
+      setField('sheet_copy_from', tool.sheet_from || '');
+    }
     if (kind === 'http' && tool.config) {
       setField('http_method', tool.config.method || 'GET');
       setField('http_url', tool.config.url || '');
@@ -361,6 +368,10 @@
       window.BanimarkToolForm.setParameters((tool.parameters || []).map(function (p) {
         return { name: p.name, type: p.type, desc: p.description, required: p.required };
       }));
+    }
+    // the sheet's columns are read after the parameters exist: the menus are drawn per parameter
+    if (kind === 'sheet' && window.BanimarkSheetForm) {
+      window.BanimarkSheetForm.prefill({ fields: cfg.fields || [], match: cfg.match || {}, identity: cfg.identity || {}, from: tool.sheet_from || '' });
     }
     // the SQL goes last: the try-it panel rebuilds its boxes from this field
     setField('sql', tool.sql);
@@ -539,7 +550,8 @@
     fd.append('sheet_url', urlBox ? urlBox.value.trim() : '');
     if (fileBox && fileBox.files && fileBox.files[0]) fd.append('sheet_file', fileBox.files[0]);
     var original = form.querySelector('[name=original_name]');
-    fd.append('tool', original ? original.value : '');
+    // the CSV to read: the tool being edited, or the tool a draft borrows its CSV from
+    fd.append('tool', pre.from || (original ? original.value : ''));
     status.textContent = 'Reading the sheet…'; loadBtn.disabled = true;
     var xhr = new XMLHttpRequest();
     xhr.open('POST', loadBtn.getAttribute('data-sheet-url'), true);
@@ -563,6 +575,10 @@
     xhr.send(fd);
   }
   loadBtn.addEventListener('click', load);
+  // the AI assistant drafted a spreadsheet tool: read its sheet and tick what the draft says
+  window.BanimarkSheetForm = {
+    prefill: function (p) { pre = p || {}; cols = []; wrap.innerHTML = '<span class="muted">Reading the sheet…</span>'; load(); }
+  };
   // a parameter renamed or an identity key added: redraw the menus, keeping choices
   form.addEventListener('input', function (e) { if (block.contains(e.target) && !wrap.contains(e.target) && e.target !== ctxBox) return; if (wrap.contains(e.target)) return; render(state()); });
   if (urlBox) urlBox.addEventListener('change', function () { cols = []; });

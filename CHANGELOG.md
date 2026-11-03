@@ -3,6 +3,11 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.40.0
+
+- **"Describe it, and it builds it" knows your spreadsheets.** The assistant is now shown every spreadsheet the desk reads (the linked Google Sheets and the uploaded CSVs, with their column names) alongside the connector's tables, and drafts a spreadsheet tool when that is where the data lives: the sheet, which column answers each question, which column must equal the visitor's identity, and the columns it may show. Paste a sheet's share link into the chat and it reads the columns itself. A draft that names a column the sheet does not have is sent back for correction before you see it; a draft reusing an uploaded CSV copies it when you save.
+- Fix: on a hosted desk with the connector, "Describe it, and it builds it" ignored the connector's schema and kept asking for an API address ("this assistant cannot connect to your database"). The draftsman now looks at whether there is a schema, not at who hosts the desk: with a connector it drafts SQL against your real tables, as on a self-hosted desk; only a desk with no database at all is steered to API tools.
+
 ## 0.39.2
 
 - Fix: "Test the connection" and "Make a new secret" under "Where your data lives" went to the save route instead (the page just said "Saved"). A button that posts somewhere else than its form is now honoured by the in-page form handling. The hosted refusal of a private connector address no longer says the same thing twice.

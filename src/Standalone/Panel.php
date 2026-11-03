@@ -665,7 +665,8 @@ class Panel
             }
             $known = [];
             $existing = [];
-            foreach ($this->query('SELECT name, context FROM banimark_tools', []) as $row) {
+            $rows = $this->query('SELECT name, kind, config, context FROM banimark_tools', []);
+            foreach ($rows as $row) {
                 $existing[] = (string) $row['name'];
                 foreach ((array) (json_decode((string) $row['context'], true) ?: []) as $k) {
                     $known[(string) $k] = true;
@@ -678,8 +679,10 @@ class Panel
                     $turns[] = ['role' => ($t['role'] ?? '') === 'assistant' ? 'assistant' : 'user', 'text' => mb_substr($text, 0, 2000)];
                 }
             }
+            // the spreadsheets the desk reads (and a link pasted in the chat) are shown to the draftsman too
+            $sheets = \Banimark\Tools\ToolDraftsman::sheetsFor($rows, new \Banimark\Storage\Sheets($this->pdo), $turns);
             $out = (new \Banimark\Tools\ToolDraftsman($driver))->draft($turns, $schema, array_keys($known), $existing,
-                \Banimark\Storage\DataSource::dialectFor($this->settings->all(), $this->pdo));
+                \Banimark\Storage\DataSource::dialectFor($this->settings->all(), $this->pdo), $sheets);
             if (!$out['ok']) {
                 error_log('Banimark tool assistant: '.$out['error']);
                 http_response_code(422);
@@ -701,8 +704,10 @@ class Panel
                 // a spreadsheet tool runs through its own reader - no data connection involved.
                 // the CSV is what was just uploaded, else what is stored for the tool being edited
                 $definition = self::toolDefinitionFromForm($p);
+                $store = new \Banimark\Storage\Sheets($this->pdo);
                 $definition['csv'] = self::uploadedText($_FILES['sheet_file'] ?? null, \Banimark\Tools\SheetTool::MAX_CSV_UPLOAD)
-                    ?? (string) (new \Banimark\Storage\Sheets($this->pdo))->read(trim((string) ($p['original_name'] ?? $p['name'] ?? '')));
+                    ?? $store->read(trim((string) ($p['original_name'] ?? $p['name'] ?? '')))
+                    ?? (string) $store->read(trim((string) ($p['sheet_copy_from'] ?? '')));   // a draft reusing another tool's CSV
                 echo json_encode(\Banimark\Tools\ToolTester::run($definition, (array) ($p['args'] ?? []), $context, fn () => []));
                 return null;
             }
@@ -1066,7 +1071,11 @@ class Panel
             if ($upload === '') {
                 return '<div class="flash-err">That CSV is larger than 1 MB. Keep only the columns the assistant needs, or share it as a Google Sheet instead.</div>';
             }
-            $definition['csv'] = $upload ?? ($definition['config']['source']['url'] === '' ? (string) $sheets->read($original !== '' ? $original : $definition['name']) : '');
+            // (a tool drafted from another tool's uploaded CSV copies that CSV: sheet_copy_from)
+            $copyFrom = trim((string) ($p['sheet_copy_from'] ?? ''));
+            $definition['csv'] = $upload ?? ($definition['config']['source']['url'] === ''
+                ? (string) ($sheets->read($original !== '' ? $original : $definition['name']) ?? ($copyFrom !== '' ? $sheets->read($copyFrom) : null))
+                : '');
             $check = \Banimark\Tools\SheetToolValidator::check(\Banimark\Tools\ToolFactory::sheetDefinition($definition), true);
             if (!$check['ok']) {
                 return '<div class="flash-err">'.Html::e($check['error']).'</div>';
@@ -1110,6 +1119,8 @@ class Panel
                 $sheets->put($definition['name'], $upload, count(\Banimark\Tools\SheetTool::parse($upload)[1]));
             } elseif ($definition['config']['source']['url'] !== '') {
                 $sheets->delete($definition['name']); // reading a live sheet now: the old upload would only confuse
+            } elseif ($sheets->read($definition['name']) === null && $definition['csv'] !== '') {
+                $sheets->put($definition['name'], $definition['csv'], count(\Banimark\Tools\SheetTool::parse($definition['csv'])[1]));   // copied from another tool
             }
         } else {
             $sheets->delete($definition['name']);

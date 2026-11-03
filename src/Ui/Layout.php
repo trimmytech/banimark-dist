@@ -192,6 +192,8 @@ class Layout
             .'</div>'
             .'<label>Or upload a CSV <span class="muted">(exported from Excel, Numbers or Sheets; up to 1 MB; the first row names the columns)</span></label>'
             .'<input type="file" name="sheet_file" accept=".csv,text/csv">'
+            // a draft that reuses the CSV stored for another tool names it here; save copies that CSV
+            .'<input type="hidden" name="sheet_copy_from" value="">'
             .(!empty($e['sheet_has_csv']) ? '<div class="hint">A CSV with '.(int) ($e['sheet_rows'] ?? 0).' rows is stored for this tool. Upload a new one to replace it, or paste a link to read a live sheet instead.</div>' : '')
             .'<div class="row" style="gap:10px;margin-top:12px;align-items:center">'
             .'<button type="button" class="btn2 btn-sm" data-sheet-load data-sheet-url="'.$q((string) ($opt['sheet_url'] ?? '')).'">'.Icons::get('bolt', 14).' Load the columns</button>'
@@ -665,7 +667,7 @@ class Layout
             .($providerName !== '' ? '<div class="spacer"></div><span class="pill ai">'.$e($providerName).'</span>' : '')
             .'</div>'
             .'<div class="bm-assist-log" data-assist-log>'
-            .'<div class="bm-assist-msg bot">What should the assistant be able to look up? For example: <i>"let a customer check the status of their order from the order number"</i>.</div>'
+            .'<div class="bm-assist-msg bot">What should the assistant be able to look up? For example: <i>"let a customer check the status of their order from the order number"</i>, or <i>"look up a staff member\'s leave balance in my leave sheet"</i>. It can see your tables, your linked spreadsheets, and any sheet link you paste here.</div>'
             .'</div>'
             .'<form class="bm-assist-ask" data-assist-form>'
             .'<textarea data-assist-input rows="1" placeholder="Describe it in your own words…" autocomplete="off"></textarea>'

@@ -1697,18 +1697,24 @@ class PanelController
         }
         $known = [];
         $existing = [];
-        foreach (DB::table('banimark_tools')->get(['name', 'context']) as $row) {
+        $rows = [];
+        foreach (DB::table('banimark_tools')->get(['name', 'kind', 'config', 'context']) as $row) {
+            $rows[] = (array) $row;
             $existing[] = (string) $row->name;
             foreach ((array) (json_decode((string) $row->context, true) ?: []) as $k) {
                 $known[(string) $k] = true;
             }
         }
+        $turns = self::assistTurns((array) $request->input('turns', []));
+        // the spreadsheets the desk reads (and a link pasted in the chat) are shown to the draftsman too
+        $sheets = \Banimark\Tools\ToolDraftsman::sheetsFor($rows, new \Banimark\Storage\Sheets(DB::connection()->getPdo()), $turns);
         $out = (new \Banimark\Tools\ToolDraftsman($driver))->draft(
-            self::assistTurns((array) $request->input('turns', [])),
+            $turns,
             $schema,
             array_keys($known),
             $existing,
             \Banimark\Storage\DataSource::dialectFor(\Banimark\Laravel\BanimarkServiceProvider::settings(), DB::connection()->getPdo()),
+            $sheets,
         );
         if (!$out['ok']) {
             \Illuminate\Support\Facades\Log::warning('Banimark tool assistant: '.$out['error']);
@@ -1744,8 +1750,10 @@ class PanelController
         $args = (array) $request->input('args', []);
         $context = array_filter((array) $request->input('context_values', []), fn ($v) => $v !== '' && $v !== null);
         if ($definition['kind'] === 'sheet') {
+            $store = new \Banimark\Storage\Sheets(DB::connection()->getPdo());
             $definition['csv'] = self::uploadedCsv($request)
-                ?: (string) (new \Banimark\Storage\Sheets(DB::connection()->getPdo()))->read(trim((string) ($request->input('original_name') ?: $request->input('name'))));
+                ?: ($store->read(trim((string) ($request->input('original_name') ?: $request->input('name'))))
+                    ?? (string) $store->read(trim((string) $request->input('sheet_copy_from', ''))));   // a draft reusing another tool's CSV
             return response()->json(\Banimark\Tools\ToolTester::run($definition, $args, $context, fn () => []));
         }
         try {
@@ -1862,7 +1870,11 @@ class PanelController
             if ($upload === '') {
                 return back()->with('bm_error', 'That CSV is larger than 1 MB. Keep only the columns the assistant needs, or share it as a Google Sheet instead.')->withInput();
             }
-            $definition['csv'] = $upload ?? ($definition['config']['source']['url'] === '' ? (string) $sheets->read($original !== '' ? $original : $definition['name']) : '');
+            // (a tool drafted from another tool's uploaded CSV copies that CSV: sheet_copy_from)
+            $copyFrom = trim((string) $request->input('sheet_copy_from', ''));
+            $definition['csv'] = $upload ?? ($definition['config']['source']['url'] === ''
+                ? (string) ($sheets->read($original !== '' ? $original : $definition['name']) ?? ($copyFrom !== '' ? $sheets->read($copyFrom) : null))
+                : '');
             $check = \Banimark\Tools\SheetToolValidator::check(\Banimark\Tools\ToolFactory::sheetDefinition($definition), true);
             if (!$check['ok']) {
                 return back()->with('bm_error', $check['error'])->withInput();
@@ -1915,6 +1927,8 @@ class PanelController
                 $sheets->put($definition['name'], $upload, count(\Banimark\Tools\SheetTool::parse($upload)[1]));
             } elseif ($definition['config']['source']['url'] !== '') {
                 $sheets->delete($definition['name']); // reading a live sheet now
+            } elseif ($sheets->read($definition['name']) === null && $definition['csv'] !== '') {
+                $sheets->put($definition['name'], $definition['csv'], count(\Banimark\Tools\SheetTool::parse($definition['csv'])[1]));   // copied from another tool
             }
         } else {
             $sheets->delete($definition['name']);
