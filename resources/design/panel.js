@@ -514,6 +514,12 @@
       if (on && focus) t.focus();
     });
     Array.prototype.forEach.call(panes, function (p) { p.hidden = p.getAttribute('data-pane') !== slug; });
+    // text elsewhere on the page that follows the tab (the address box's label and placeholder)
+    var name = group.getAttribute('data-tabs') || '', chosen = group.querySelector('[role="tab"][data-tab="' + slug + '"]');
+    Array.prototype.forEach.call(document.querySelectorAll('[data-tab-of="' + name + '"]'), function (el) { el.hidden = el.getAttribute('data-tab-is') !== slug; });
+    if (chosen && chosen.hasAttribute('data-placeholder')) {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-tab-placeholder="' + name + '"]'), function (el) { el.placeholder = chosen.getAttribute('data-placeholder'); });
+    }
     try { localStorage.setItem('bm-tabs-' + (group.getAttribute('data-tabs') || ''), slug); } catch (e) { /* private mode */ }
   }
   document.addEventListener('click', function (ev) {

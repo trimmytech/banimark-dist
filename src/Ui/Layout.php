@@ -570,10 +570,12 @@ class Layout
         // one tab per platform: what it needs, the download, the steps with the lines to copy
         $tabs = '';
         $panes = '';
+        $labels = '';
         $first = true;
         foreach (\Banimark\Connector\Bundle::platforms() as $slug => $p) {
             $href = ($opt['download'] ?? '').(str_contains((string) ($opt['download'] ?? ''), '?') ? '&' : '?').'platform='.$slug;
-            $tabs .= '<button type="button" role="tab" id="bm-ctab-'.$slug.'" aria-controls="bm-cpane-'.$slug.'" aria-selected="'.($first ? 'true' : 'false').'" data-tab="'.$slug.'"'.($first ? '' : ' tabindex="-1"').'>'.$e($p['tab']).'</button>';
+            $tabs .= '<button type="button" role="tab" id="bm-ctab-'.$slug.'" aria-controls="bm-cpane-'.$slug.'" aria-selected="'.($first ? 'true' : 'false').'" data-tab="'.$slug.'" data-placeholder="'.$e($p['address']).'"'.($first ? '' : ' tabindex="-1"').'>'.$e($p['tab']).'</button>';
+            $labels .= '<span data-tab-of="connector" data-tab-is="'.$slug.'"'.($first ? '' : ' hidden').'>'.$e($p['field']).'</span>';
             $steps = '';
             foreach ($p['steps'] as $step) {
                 $steps .= '<li><span>'.$e($step[0]).'</span>'.(isset($step[1]) ? '<pre><code>'.$e($step[1]).'</code></pre>' : '').'</li>';
@@ -586,6 +588,7 @@ class Layout
                 .'</div>';
             $first = false;
         }
+        $firstAddress = (string) (array_values(\Banimark\Connector\Bundle::platforms())[0]['address'] ?? '');
         $downloads = '<div class="bm-tabs" data-tabs="connector"><div role="tablist" aria-label="Your website runs on">'.$tabs.'</div>'.$panes.'</div>';
 
         return '<div class="bm-card"><form method="post" action="'.$e($saveUrl).'">'.$csrf
@@ -624,7 +627,8 @@ class Layout
             .$downloads
             .'<h3 class="bm-step">2. Paste the address the connector shows</h3>'
             .'<div class="muted" style="margin-bottom:8px">Open the connector in your browser once it is installed: its page shows the address to paste here.</div>'
-            .'<input type="text" name="connector_url" value="'.$e($s['connector_url'] ?? '').'" placeholder="https://yourshop.com/banimark-connector.php" autocomplete="off">'
+            .'<label for="bm-connector-url">'.$labels.'</label>'
+            .'<input type="text" id="bm-connector-url" name="connector_url" value="'.$e($s['connector_url'] ?? '').'" placeholder="'.$e($firstAddress).'" data-tab-placeholder="connector" autocomplete="off">'
             .'<div class="hint">'.($secret !== '' ? 'Secret ending in <code>…'.$e(substr($secret, -6)).'</code> is inside every download above. ' : '')
             .'Lost the file, or want to lock out an old copy? <button type="submit" class="btn-ghost btn-sm" formaction="'.$e((string) ($opt['secret_url'] ?? $saveUrl)).'" name="rotate" value="1" data-confirm="Make a new secret? Every connector you downloaded before stops working until you install a fresh download.">Make a new secret</button></div>'
             .'<div class="hint">What the connector does: answers only requests signed by this desk, runs only single SELECT queries with the values bound, stops at 100 rows and 5 seconds, and never returns columns that look like passwords, tokens or card numbers. Your database password stays on your server.</div>'

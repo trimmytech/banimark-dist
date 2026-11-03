@@ -3,6 +3,10 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.39.1
+
+- The address box under "Paste the address the connector shows" is labelled for the platform tab you chose, and its example address follows the tab.
+
 ## 0.39.0
 
 - **The connector downloads are tabs.** "Where your data lives" → "Download the connector for your website and install it" shows one tab per platform (WordPress, Plain PHP, Laravel, Node.js, Python): what it needs, the download, numbered steps with the exact lines to copy, and what the address will look like. The tab you picked is remembered.

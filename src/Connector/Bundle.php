@@ -16,10 +16,10 @@ final class Bundle
 
     /**
      * The platforms, in the order the Tools page shows them. `how` is the one-line
-     * version; `needs` and `steps` are the tab on the Tools page (a step is text,
+     * version; `needs`, `steps`, `address` and `field` (the label of the address box) are the tab on the Tools page (a step is text,
      * or text plus a code block to copy).
      *
-     * @return array<string, array{label: string, tab: string, file: string, how: string, zip: bool, needs: string, address: string, steps: list<array{0: string, 1?: string}>}>
+     * @return array<string, array{label: string, tab: string, file: string, how: string, zip: bool, needs: string, address: string, field: string, steps: list<array{0: string, 1?: string}>}>
      */
     public static function platforms(): array
     {
@@ -28,6 +28,7 @@ final class Bundle
                 'how' => 'Plugins → Add New → Upload Plugin → choose the zip → Activate. Then Settings → Banimark connector shows the address.',
                 'needs' => 'WordPress 5.6 or newer on PHP 7.4 or newer. It reads the database wp-config.php already points at - nothing to configure.',
                 'address' => 'https://yoursite.com/wp-json/banimark/v1/connector',
+                'field' => 'The address Settings → Banimark connector shows in your WordPress admin',
                 'steps' => [
                     ['In your WordPress admin go to Plugins → Add New → Upload Plugin, choose banimark-connector.zip, press Install Now, then Activate.'],
                     ['Open Settings → Banimark connector. The page says the connector is installed and shows its address.'],
@@ -37,6 +38,7 @@ final class Bundle
                 'how' => 'Upload the file next to your site\'s index.php, then open it in your browser: it shows the address. Fill in the four database lines at the top if it asks.',
                 'needs' => 'Any PHP 7.4 or newer host with PDO (cPanel, Plesk, a plain server). MySQL, MariaDB, PostgreSQL or SQLite.',
                 'address' => 'https://yoursite.com/banimark-connector.php',
+                'field' => 'The address banimark-connector.php shows when you open it on your site',
                 'steps' => [
                     ['Upload banimark-connector.php next to your site\'s index.php, with FTP or your host\'s file manager.'],
                     ['Open it in your browser. If the page says the database is not reachable yet, open the file and fill in the three lines near the top (a WordPress site is found on its own):',
@@ -47,6 +49,7 @@ final class Bundle
                 'how' => 'Copy the controller into app/Http/Controllers, the route file into routes/, and add one line to routes/api.php (README inside). The address is /api/banimark-connector.',
                 'needs' => 'Laravel 9 or newer. It uses your app\'s default database connection.',
                 'address' => 'https://yoursite.com/api/banimark-connector',
+                'field' => 'The address of /api/banimark-connector on your Laravel site',
                 'steps' => [
                     ['Unzip it. Copy app/Http/Controllers/BanimarkConnectorController.php into your app\'s app/Http/Controllers/, and routes/banimark-connector.php into routes/.'],
                     ['Add one line at the bottom of routes/api.php (Laravel 11 or newer: run php artisan install:api first if routes/api.php does not exist):',
@@ -57,6 +60,7 @@ final class Bundle
                 'how' => 'One file, no package. Run it with node, or mount it in your Express app (comments inside). Needs your database driver (mysql2, pg) or Node\'s built-in SQLite.',
                 'needs' => 'Node 18 or newer, no package to install. It uses the driver your app already has: mysql2, pg, or Node\'s built-in SQLite.',
                 'address' => 'https://yoursite.com/banimark-connector',
+                'field' => 'The address of /banimark-connector on your Node app',
                 'steps' => [
                     ['Put banimark-connector.js in your project.'],
                     ['Inside Express, mount it before express.json() - the request is signed over the raw body:',
@@ -69,6 +73,7 @@ final class Bundle
                 'how' => 'One file. Drop it next to your app and add one line: FastAPI app.include_router(fastapi_router(engine)), Flask or Django views for the others (comments inside), or run it on its own with python. Uses the SQLAlchemy and driver your app already has (PostgreSQL, MySQL, SQLite).',
                 'needs' => 'Python 3.8 or newer with SQLAlchemy 1.4 or 2.x and the driver your app already uses (psycopg2 for PostgreSQL, PyMySQL for MySQL, SQLite built in). No other package.',
                 'address' => 'https://api.yoursite.com/banimark-connector',
+                'field' => 'The address of /banimark-connector on your Python app',
                 'steps' => [
                     ['Put banimark_connector.py next to your app, where main.py or app.py is.'],
                     ['FastAPI: two lines, with the SQLAlchemy engine your app already made. The connector answers at /banimark-connector.',
