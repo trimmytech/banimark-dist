@@ -497,6 +497,47 @@
 })();
 
 
+/* ---- tabs: [data-tabs] with role=tab buttons and role=tabpanel panes ----
+ * The connector downloads on the Tools page. Click or arrow keys switch; the
+ * last choice is remembered per tab group, so the owner lands back on their
+ * platform after a save. */
+(function () {
+  'use strict';
+  function pick(group, slug, focus) {
+    var tabs = group.querySelectorAll('[role="tab"]'), panes = group.querySelectorAll('[role="tabpanel"]'), found = false;
+    Array.prototype.forEach.call(tabs, function (t) { if (t.getAttribute('data-tab') === slug) found = true; });
+    if (!found) return;
+    Array.prototype.forEach.call(tabs, function (t) {
+      var on = t.getAttribute('data-tab') === slug;
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+      t.tabIndex = on ? 0 : -1;
+      if (on && focus) t.focus();
+    });
+    Array.prototype.forEach.call(panes, function (p) { p.hidden = p.getAttribute('data-pane') !== slug; });
+    try { localStorage.setItem('bm-tabs-' + (group.getAttribute('data-tabs') || ''), slug); } catch (e) { /* private mode */ }
+  }
+  document.addEventListener('click', function (ev) {
+    var tab = ev.target.closest('[data-tabs] [role="tab"]');
+    if (tab) pick(tab.closest('[data-tabs]'), tab.getAttribute('data-tab'), false);
+  });
+  document.addEventListener('keydown', function (ev) {
+    var tab = ev.target.closest('[data-tabs] [role="tab"]');
+    if (!tab || (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight' && ev.key !== 'Home' && ev.key !== 'End')) return;
+    var group = tab.closest('[data-tabs]'), tabs = Array.prototype.slice.call(group.querySelectorAll('[role="tab"]')), i = tabs.indexOf(tab);
+    if (ev.key === 'ArrowLeft') i = (i - 1 + tabs.length) % tabs.length;
+    else if (ev.key === 'ArrowRight') i = (i + 1) % tabs.length;
+    else i = ev.key === 'Home' ? 0 : tabs.length - 1;
+    ev.preventDefault();
+    pick(group, tabs[i].getAttribute('data-tab'), true);
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-tabs]'), function (group) {
+    var last = '';
+    try { last = localStorage.getItem('bm-tabs-' + (group.getAttribute('data-tabs') || '')) || ''; } catch (e) { last = ''; }
+    if (last) pick(group, last, false);
+  });
+})();
+
+
 /* ---- one-click update, with honest progress ----
  * Each step is a real server call that has actually finished before the tick
  * appears. No step is marked done optimistically, because the one thing worse

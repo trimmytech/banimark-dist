@@ -3,6 +3,11 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.39.0
+
+- **The connector downloads are tabs.** "Where your data lives" → "Download the connector for your website and install it" shows one tab per platform (WordPress, Plain PHP, Laravel, Node.js, Python): what it needs, the download, numbered steps with the exact lines to copy, and what the address will look like. The tab you picked is remembered.
+- **A Python connector.** The fifth download under "Where your data lives": one file for a FastAPI, Flask, Django or any WSGI app, or run on its own. It uses the SQLAlchemy engine and driver the app already has (PostgreSQL, MySQL/MariaDB, SQLite), keeps every limit per statement so a shared connection pool is untouched, and passes `build/check-connector.php` standalone and inside FastAPI.
+
 ## 0.38.3
 
 - Fix: opening a conversation no longer shows an empty success toast (the live chat's hidden message box was being mirrored). A toast with nothing to say is never shown.

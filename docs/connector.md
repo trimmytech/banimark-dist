@@ -3,7 +3,7 @@
 A connector is a small program the owner installs on **their own** website so
 the assistant can look things up in their database without Banimark ever
 holding a database password. Banimark ships one for plain PHP, WordPress,
-Laravel and Node; any language can implement the contract below, and
+Laravel, Node and Python; any language can implement the contract below, and
 `php build/check-connector.php <url> <secret>` proves an implementation.
 
 The owner never writes a query. They build tools in Banimark as on a
@@ -124,6 +124,16 @@ installs it and pastes back the address the status page shows.
   `app.post('/banimark-connector', require('./banimark-connector').express())`
   inside an Express app. Needs the database driver the app already has
   (`mysql2`, `pg`) or Node's built-in `node:sqlite`.
+* **Python**: one file, `banimark_connector.py`, next to the app. FastAPI:
+  `app.include_router(fastapi_router(engine))` with the app's SQLAlchemy
+  engine (the address is `/banimark-connector`); Flask `flask_view(engine)`,
+  Django `django_view(engine)`, any WSGI host `wsgi_app(engine)`; or
+  `python banimark_connector.py` on its own with `BANIMARK_DB_URL`. Needs
+  SQLAlchemy 1.4 or 2.x and the driver the app already uses (psycopg2 or
+  psycopg, PyMySQL or mysqlclient, SQLite built in). Limits are per
+  statement (PostgreSQL `SET LOCAL statement_timeout` in a read-only
+  transaction, MySQL `MAX_EXECUTION_TIME` hint, MariaDB `SET STATEMENT`),
+  so a pooled connection the app shares is left exactly as it was.
 
 ## Checking an implementation
 
