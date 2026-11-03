@@ -3,6 +3,10 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.39.2
+
+- Fix: "Test the connection" and "Make a new secret" under "Where your data lives" went to the save route instead (the page just said "Saved"). A button that posts somewhere else than its form is now honoured by the in-page form handling. The hosted refusal of a private connector address no longer says the same thing twice.
+
 ## 0.39.1
 
 - The address box under "Paste the address the connector shows" is labelled for the platform tab you chose, and its example address follows the tab.

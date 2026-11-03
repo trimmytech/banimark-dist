@@ -217,7 +217,7 @@ final class DataSource
                 return 'The connector address must start with https:// (or http:// for a site without a certificate).';
             }
             if (\Banimark\Standalone\Hosted::on() && (!preg_match('#^https://#i', $url) || !\Banimark\Standalone\Hosted::publicAddress($url))) {
-                return 'A hosted desk reaches its connector over https:// on the public internet only - '.\Banimark\Standalone\Hosted::NO_PRIVATE;
+                return 'The connector must be on the public internet over https:// - localhost and private network addresses are this server, not your website.';
             }
             if (trim((string) ($settings['connector_secret'] ?? '')) === '') {
                 return 'No connector secret yet - download the connector once and one is made.';

@@ -810,7 +810,9 @@
     var fd = new FormData(form);
     if (ev.submitter && ev.submitter.name) { fd.append(ev.submitter.name, ev.submitter.value); }
     busy(btn, true);
-    fetch(form.getAttribute('action') || here(), {
+    // the button pressed may post somewhere else than the form ("Test the connection", "Make a new secret")
+    var url = ev.submitter && ev.submitter.hasAttribute('formaction') ? ev.submitter.getAttribute('formaction') : (form.getAttribute('action') || here());
+    fetch(url || here(), {
       method: 'POST',
       body: fd,
       credentials: 'same-origin',
