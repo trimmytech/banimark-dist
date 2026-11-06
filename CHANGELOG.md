@@ -3,6 +3,11 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.44.0
+
+- **A provider failure after the lookups no longer throws the lookups away.** Seen live: the assistant found two products for a visitor, then the provider timed out, and the visitor got "I'm having trouble reaching our assistant" with the answers discarded. Now a timeout, a 5xx or an overloaded provider is retried once; if it still fails and lookups are in hand, the visitor is shown what was found, plainly, and told a person will finish - the conversation is escalated and staff see the provider's error in the thread. A failure before any lookup escalates as before.
+- The provider call may take up to 120 seconds, not 40: a turn carrying long product descriptions took longer than that to answer.
+
 ## 0.43.0
 
 - **Shopify connects itself after the install.** The guide now says to paste the app's Client ID and Client secret first, then press Install in the Dev Dashboard. Shopify sends the owner back to the Tools page with the store's name signed by that secret; the desk checks the signature, saves the store name, switches to Shopify and tests the connection on arrival - nothing left to type. Without the secret saved yet, the store name is at least put in the box and the page says what to paste.

@@ -377,15 +377,20 @@ class ChatEndpoint
         $this->recordVisitor($sessionId, $claims, (array) ($input['visitor'] ?? []));
         $this->noteToolProblems($sessionId, $result);
 
-        // the model called escalate_to_human -> flip to agent mode + notify
+        // the model called escalate_to_human -> flip to agent mode + notify.
+        // The same when the provider failed after the lookups and the visitor
+        // was given what was found: a person finishes the answer, and staff see why
         $mode = 'ai';
-        if (in_array(EscalateTool::NAME, $result->toolsUsed(), true) && $this->store instanceof PdoStore
-            && !self::wasHeldForHours($result)) {
+        $fallback = $result->finishReason === 'fallback';
+        if (($fallback || (in_array(EscalateTool::NAME, $result->toolsUsed(), true) && !self::wasHeldForHours($result))) && $this->store instanceof PdoStore) {
             $label = self::visitorLabel($claims, (array) ($input['visitor'] ?? []));
+            if ($fallback) {
+                $this->store->appendSystemNote($sessionId, 'AI answered from its lookups only and escalated automatically - the provider failed before it could finish. Provider error: '.($result->error !== '' ? $result->error : 'unknown'));
+            }
             $this->store->setMode($sessionId, 'agent', $label);
             $mode = 'agent';
             if ($this->notifier) {
-                $reason = '';
+                $reason = $fallback ? 'The assistant showed the visitor what it found, but the provider failed before it could finish - a person is needed.' : '';
                 foreach ($result->toolTrace as $t) {
                     if (($t['tool'] ?? '') === EscalateTool::NAME) {
                         $reason = (string) ($t['args']['reason'] ?? '');
