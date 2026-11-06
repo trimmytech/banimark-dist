@@ -1590,7 +1590,9 @@ class Panel
             'shopify' => \Banimark\Storage\DataSource::isShopify($this->settings->all()),
             'data_card' => Layout::dataConnection($this->settings->all(), $this->url('/tools/data'), $this->url('/tools/data/test'),
                 $this->csrfField(), 'Banimark reads the tables next to its own.', '', false,
-                ['hosted' => Hosted::on(), 'download' => $this->url('/tools/connector/download'), 'secret_url' => $this->url('/tools/connector/secret')]),
+                ['hosted' => Hosted::on(), 'download' => $this->url('/tools/connector/download'), 'secret_url' => $this->url('/tools/connector/secret'),
+                    // the full address, for Shopify's App URL box: the desk's site as its licence knows it, then the admin path
+                    'tools_url' => rtrim(Hosted::siteUrlFor($_SERVER), '/').'/'.$this->admin.'/tools']),
             'urls' => [
                 'save' => $this->url('/tools'),
                 'delete' => $this->url('/tools/delete'),

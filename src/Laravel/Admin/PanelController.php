@@ -1565,7 +1565,8 @@ class PanelController
                 'data_card' => \Banimark\Ui\Layout::dataConnection($settings, route('banimark.admin.tools.data'), route('banimark.admin.tools.data.test'), csrf_field()->toHtml(),
                     'Banimark reads the tables next to its own: '.(DB::connection()->getDatabaseName() ?: 'this application\'s database').'.',
                     (string) session('bm_data_test', ''), (bool) session('bm_data_ok'),
-                    ['download' => (string) \Banimark\Laravel\RouteCache::url('banimark.admin.tools.connector.download'), 'secret_url' => (string) \Banimark\Laravel\RouteCache::url('banimark.admin.tools.connector.secret')]),
+                    ['download' => (string) \Banimark\Laravel\RouteCache::url('banimark.admin.tools.connector.download'), 'secret_url' => (string) \Banimark\Laravel\RouteCache::url('banimark.admin.tools.connector.secret'),
+                        'tools_url' => route('banimark.admin.tools')]),
                 'urls' => [
                     'save' => route('banimark.admin.tools.save'),
                     'delete' => route('banimark.admin.tools.delete'),

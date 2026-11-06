@@ -6,7 +6,10 @@ is what the desk uses. The owner makes an app in Shopify's Dev Dashboard
 (dev.shopify.com, signed in as the store owner), with five read scopes (`read_orders`, `read_all_orders`, `read_customers`,
 `read_products`, `read_inventory` - the last two of the five because Shopify
 otherwise shows only the last 60 days of orders and no stock levels),
-releases a version, installs it on the store from the app's Home page, and
+releases a version, installs it on the store from the app's Home page (if
+the dashboard asks for an App URL or a redirect URL, the desk's own Tools
+page address does - Shopify only opens it after the install; "Use legacy
+install flow" and "Embed app" stay off), and
 pastes the store name plus the app's **Client ID and Client secret** (its
 Settings page) on the Tools page. A Dev Dashboard app never shows an access
 token: `Shopify\Client::withCredentials()` mints one with the client

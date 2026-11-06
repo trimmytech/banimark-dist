@@ -3,6 +3,10 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.42.1
+
+- Shopify guide: the install step says what to put in the Dev Dashboard's App URL and redirect URL boxes (this desk's Tools page address, shown on the card to copy) and to leave the legacy install flow and embedding off.
+
 ## 0.42.0
 
 - **Shopify: apps from the Dev Dashboard.** Shopify now makes apps in its Dev Dashboard, which shows a Client ID and a Client secret and never an access token - so "Shopify refused the access token" was the only possible outcome of pasting either. The card now asks for the Client ID and Client secret, and Banimark mints the access token itself with Shopify's client credentials grant, keeps it for the day it lives, renews it before it expires and once more if Shopify stops honouring it. The guide walks through the Dev Dashboard (create the app, enter the five read scopes, release, install on the store, copy the credentials from Settings). An app made the older way in the Shopify admin still works with its shpat_ token, under "made the app in your Shopify admin instead". Shopify's refusals name the fix: credentials copied wrong, app not installed on the store, or app and store in different Dev Dashboard organisations.
