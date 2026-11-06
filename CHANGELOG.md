@@ -3,6 +3,11 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.43.0
+
+- **Shopify connects itself after the install.** The guide now says to paste the app's Client ID and Client secret first, then press Install in the Dev Dashboard. Shopify sends the owner back to the Tools page with the store's name signed by that secret; the desk checks the signature, saves the store name, switches to Shopify and tests the connection on arrival - nothing left to type. Without the secret saved yet, the store name is at least put in the box and the page says what to paste.
+- An error from "Test the connection", or any refused save, now scrolls the page up to the message instead of leaving the owner looking at the form below it.
+
 ## 0.42.1
 
 - Shopify guide: the install step says what to put in the Dev Dashboard's App URL and redirect URL boxes (this desk's Tools page address, shown on the card to copy) and to leave the legacy install flow and embedding off.

@@ -1548,6 +1548,10 @@ class PanelController
             }
         }
         $settings = \Banimark\Laravel\BanimarkServiceProvider::settings();
+        // Shopify sends the owner back here after installing the app: with the
+        // Client secret already saved, the store is connected on arrival
+        $arrival = \Banimark\Shopify\Install::arrival($request->query(), $settings, fn (string $k, string $v) => self::setSetting($k, $v), DB::connection()->getPdo());
+        $settings = $arrival['settings'];
         return view('banimark::admin.tools', [
             // ONE body for both runtimes: Ui\Pages::tools
             'body' => \Banimark\Ui\Pages::tools($rows, $form, [
@@ -1562,7 +1566,7 @@ class PanelController
                 'assist_ready' => \Banimark\Laravel\EngineFactory::driver()[0] !== null,
                 'connector' => \Banimark\Storage\DataSource::ownerData($settings),
                 'shopify' => \Banimark\Storage\DataSource::isShopify($settings),
-                'data_card' => \Banimark\Ui\Layout::dataConnection($settings, route('banimark.admin.tools.data'), route('banimark.admin.tools.data.test'), csrf_field()->toHtml(),
+                'data_card' => $arrival['flash'].\Banimark\Ui\Layout::dataConnection($settings, route('banimark.admin.tools.data'), route('banimark.admin.tools.data.test'), csrf_field()->toHtml(),
                     'Banimark reads the tables next to its own: '.(DB::connection()->getDatabaseName() ?: 'this application\'s database').'.',
                     (string) session('bm_data_test', ''), (bool) session('bm_data_ok'),
                     ['download' => (string) \Banimark\Laravel\RouteCache::url('banimark.admin.tools.connector.download'), 'secret_url' => (string) \Banimark\Laravel\RouteCache::url('banimark.admin.tools.connector.secret'),

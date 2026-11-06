@@ -722,7 +722,13 @@
     if (w) { w.insertBefore(el, w.firstChild); }
     else if (near && near.parentNode) { near.parentNode.insertBefore(el, near); }
     else { document.body.insertBefore(el, document.body.firstChild); }
+    // an error lands at the top of the page while the owner is still down at
+    // the form that caused it (Test the connection, a refused save): bring it into view
+    if (!ok) reveal(el);
     return el;
+  }
+  function reveal(el) {
+    try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { el.scrollIntoView(); }
   }
   function toast(ok, text) {
     var parts = window.bmToast.split(ok, text);
@@ -761,6 +767,7 @@
     var p = pending();
     if (top) {
       toast(top.classList.contains('flash-ok'), (top.textContent || '').trim());
+      if (top.classList.contains('flash-err')) reveal(top);   // a reload that restored the old scroll position
     } else if (p) {
       showTop(!!p.ok, p.text);
       toast(!!p.ok, p.text);

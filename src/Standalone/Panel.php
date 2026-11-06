@@ -1521,6 +1521,11 @@ class Panel
     private function tools(string $flash): string
     {
         $e = fn ($v) => Html::e((string) $v);
+        // Shopify sends the owner back here after installing the app: with the
+        // Client secret already saved, the store is connected on arrival
+        $arrival = \Banimark\Shopify\Install::arrival($_GET, $this->settings->all(), fn (string $k, string $v) => $this->settings->set($k, $v), $this->pdo);
+        $flash .= $arrival['flash'];
+        $dataSettings = $arrival['settings'];
         // how many tools the plan covers, worked out before the form is drawn
         $toolRoom = \Banimark\Licensing\Entitlements::allowance($this->entitlements(), 'tools',
             (int) ($this->query('SELECT COUNT(*) AS c FROM banimark_tools', [])[0]['c'] ?? 0));
@@ -1568,7 +1573,7 @@ class Panel
                 'params' => array_keys(json_decode((string) $r['parameters'], true) ?: []), 'max_rows' => (int) $r['max_rows'], 'enabled' => (bool) $r['enabled'],
                 'needs' => \Banimark\Tools\ToolTester::needsOf($r)];
         }
-        $connector = \Banimark\Storage\DataSource::ownerData($this->settings->all());
+        $connector = \Banimark\Storage\DataSource::ownerData($dataSettings);
         // a hosted desk without a connector (or a Shopify store) builds API and spreadsheet tools - the form opens on the API kind
         $form = $ed !== null ? $ed + ['enabled' => !empty($ed['enabled'])] : ['enabled' => true, 'context_csv' => 'user_id', 'max_rows' => 10] + (Hosted::on() && !$connector ? ['kind' => 'http'] : []);
         if (Hosted::on()) {
@@ -1587,8 +1592,8 @@ class Panel
             'assist_ready' => $assistDriver !== null,
             'hosted' => Hosted::on(),
             'connector' => $connector,
-            'shopify' => \Banimark\Storage\DataSource::isShopify($this->settings->all()),
-            'data_card' => Layout::dataConnection($this->settings->all(), $this->url('/tools/data'), $this->url('/tools/data/test'),
+            'shopify' => \Banimark\Storage\DataSource::isShopify($dataSettings),
+            'data_card' => Layout::dataConnection($dataSettings, $this->url('/tools/data'), $this->url('/tools/data/test'),
                 $this->csrfField(), 'Banimark reads the tables next to its own.', '', false,
                 ['hosted' => Hosted::on(), 'download' => $this->url('/tools/connector/download'), 'secret_url' => $this->url('/tools/connector/secret'),
                     // the full address, for Shopify's App URL box: the desk's site as its licence knows it, then the admin path

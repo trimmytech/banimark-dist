@@ -5,7 +5,11 @@ connector does not apply. What a store has is the Admin GraphQL API, and that
 is what the desk uses. The owner makes an app in Shopify's Dev Dashboard
 (dev.shopify.com, signed in as the store owner), with five read scopes (`read_orders`, `read_all_orders`, `read_customers`,
 `read_products`, `read_inventory` - the last two of the five because Shopify
-otherwise shows only the last 60 days of orders and no stock levels),
+otherwise shows only the last 60 days of orders and no stock levels), pastes
+the Client ID and secret first, then installs. Shopify sends the owner back to
+the desk's Tools page with `?shop=…&hmac=…`; `Shopify\Install::arrival()`
+verifies the hmac with the saved secret, saves the store, switches the mode and
+runs the connection test, so the install ends connected.
 releases a version, installs it on the store from the app's Home page (if
 the dashboard asks for an App URL or a redirect URL, the desk's own Tools
 page address does - Shopify only opens it after the install; "Use legacy
