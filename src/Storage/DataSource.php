@@ -22,7 +22,7 @@ final class DataSource
     /** Settings keys, all optional - absent means "use Banimark's own connection". */
     public const KEYS = ['tools_db_enabled', 'tools_db_driver', 'tools_db_host', 'tools_db_port',
         'tools_db_database', 'tools_db_username', 'tools_db_password', 'tools_db_sqlite_path', 'tools_db_schema',
-        'connector_url', 'connector_secret', 'shopify_store', 'shopify_token'];
+        'connector_url', 'connector_secret', 'shopify_store', 'shopify_token', 'shopify_client_id', 'shopify_client_secret'];
 
     /**
      * Where database tools read from:
@@ -64,12 +64,18 @@ final class DataSource
             && trim((string) ($settings['connector_secret'] ?? '')) !== '';
     }
 
-    /** Shopify is chosen AND set up: a store name and a token. */
+    /** Shopify is chosen AND set up: a store name, and either a Client ID + secret (Dev Dashboard app) or a permanent token (admin app). */
     public static function isShopify(array $settings): bool
     {
         return self::mode($settings) === self::MODE_SHOPIFY
             && \Banimark\Shopify\Client::store((string) ($settings['shopify_store'] ?? '')) !== ''
-            && trim((string) ($settings['shopify_token'] ?? '')) !== '';
+            && (self::shopifyCredentials($settings) || trim((string) ($settings['shopify_token'] ?? '')) !== '');
+    }
+
+    /** A Dev Dashboard app's Client ID and secret are both there (they win over a token when both are typed). */
+    public static function shopifyCredentials(array $settings): bool
+    {
+        return trim((string) ($settings['shopify_client_id'] ?? '')) !== '' && trim((string) ($settings['shopify_client_secret'] ?? '')) !== '';
     }
 
     /**
@@ -88,7 +94,10 @@ final class DataSource
         if (!self::isShopify($settings)) {
             throw new \RuntimeException('The Shopify store is not connected yet: type its myshopify.com name and the Admin API access token of the app you made for it.');
         }
-        return new \Banimark\Shopify\Client(\Banimark\Shopify\Client::store((string) $settings['shopify_store']), trim((string) $settings['shopify_token']), $transport);
+        $store = \Banimark\Shopify\Client::store((string) $settings['shopify_store']);
+        return self::shopifyCredentials($settings)
+            ? \Banimark\Shopify\Client::withCredentials($store, (string) $settings['shopify_client_id'], (string) $settings['shopify_client_secret'], $transport)
+            : new \Banimark\Shopify\Client($store, trim((string) $settings['shopify_token']), $transport);
     }
 
     /** @throws \RuntimeException when the connector is not set up */
@@ -255,8 +264,10 @@ final class DataSource
             if (\Banimark\Shopify\Client::store($store) === '') {
                 return '"'.$store.'" is not a myshopify.com store name. Use the name from your admin address (admin.shopify.com/store/NAME), not your shop\'s own domain.';
             }
-            if (trim((string) ($settings['shopify_token'] ?? '')) === '') {
-                return 'Paste the Admin API access token of the app you made in your Shopify admin.';
+            if (!self::shopifyCredentials($settings) && trim((string) ($settings['shopify_token'] ?? '')) === '') {
+                return trim((string) ($settings['shopify_client_id'] ?? '')) !== ''
+                    ? 'Paste the Client secret too - it is next to the Client ID on the app\'s Settings page in the Dev Dashboard.'
+                    : 'Paste the Client ID and Client secret of the app you made in Shopify\'s Dev Dashboard (or, for an app made in your Shopify admin, its Admin API access token).';
             }
             return '';
         }
@@ -325,12 +336,20 @@ final class DataSource
                 }
             }
             $who = 'Connected to '.($shop['name'] !== '' ? $shop['name'].' ('.$shop['domain'].')' : $shop['domain']).($shop['currency'] !== '' ? ', prices in '.$shop['currency'] : '').'.';
+            $fix = 'in your Shopify admin open the app, Configuration, tick those scopes, save, then install the app again and paste the new token if it shows one.';
             if ($missing !== []) {
                 return ['ok' => false, 'tables' => 3 - count($missing), 'writable' => false,
-                    'message' => $who.' But the app is missing '.implode(', ', $missing).': in your Shopify admin open the app, Configuration, tick those scopes, save, then install the app again and paste the new token if it shows one.'];
+                    'message' => $who.' But the app is missing '.implode(', ', $missing).': '.$fix];
+            }
+            $extra = [];
+            foreach (\Banimark\Shopify\Catalog::EXTRA_SCOPES as $scope => $why) {
+                if (!in_array($scope, $shop['scopes'], true)) {
+                    $extra[] = $scope.' ('.$why.')';
+                }
             }
             return ['ok' => true, 'tables' => 3, 'writable' => false,
-                'message' => $who.' The token can read orders, customers and products, and nothing else - the assistant can never change anything in the store.'];
+                'message' => $who.' The token can read orders, customers and products, and nothing else - the assistant can never change anything in the store.'
+                    .($extra !== [] ? ' It is missing '.implode(' and ', $extra).', so the assistant will not see those: '.$fix : '')];
         }
         if (self::mode($settings) === self::MODE_NONE) {
             return ['ok' => false, 'message' => \Banimark\Standalone\Hosted::NO_SQL, 'tables' => 0, 'writable' => null];
@@ -409,6 +428,17 @@ final class DataSource
         $token = trim((string) ($input['shopify_token'] ?? ''));
         if ($token !== '') {
             $set('shopify_token', $token);
+        }
+        if (array_key_exists('shopify_client_id', $input)) {
+            $id = trim((string) $input['shopify_client_id']);
+            $set('shopify_client_id', $id);
+            // whatever was minted for the previous credentials is stale now
+            $store = trim((string) ($input['shopify_store'] ?? ''));
+            \Banimark\Shopify\Client::forget(\Banimark\Shopify\Client::store($store) ?: $store, $id);
+        }
+        $secret = trim((string) ($input['shopify_client_secret'] ?? ''));
+        if ($secret !== '') {
+            $set('shopify_client_secret', $secret);
         }
         $driver = (string) ($input['tools_db_driver'] ?? '');
         $set('tools_db_driver', in_array($driver, Dialect::SUPPORTED, true) ? $driver : Dialect::MYSQL);

@@ -214,7 +214,7 @@ class Layout
             .($noDb ? '' : '<div data-kind-block="sql"'.($kind !== 'sql' ? ' hidden' : '').'>'
             .'<div data-toolbuilder data-schema-url="'.$q($schemaUrl).'"'.($shopify ? ' data-shopify="1"' : '').' style="background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:14px 16px">'
             .'<div class="row" style="justify-content:space-between"><b>Visual builder</b><span class="muted" data-status>…</span></div>'
-            .($shopify ? '<div class="hint" style="margin-top:8px">Shopify is shown as three tables. A lookup finds rows by the columns marked <i>searchable</i> (an order by its order number and email, a product by title or SKU) and may show any column. A storefront visitor is usually not signed in, so for an order ask for the order number <b>and</b> the email on the order.</div>' : '')
+            .($shopify ? '<div class="hint" style="margin-top:8px">Shopify is shown as three tables. A lookup finds rows by the columns marked <i>searchable</i> (an order by its order number and email, a product by title or SKU) and may show any column: where a shipment is, when it arrives, what was refunded, whether a product is in stock and what it costs. A storefront visitor is usually not signed in, so for an order ask for the order number <b>and</b> the email on the order.</div>' : '')
             .'<div class="grid2" style="margin-top:8px">'
             .'<div><label>'.($shopify ? 'What to look in' : 'Table').'</label><select data-table><option value="">Loading…</option></select></div>'
             .'<div><label>Who is chatting is identified by <span class="muted">(identity keys, comma-separated)</span></label>'
@@ -570,6 +570,7 @@ class Layout
         $hasPassword = trim((string) ($s['tools_db_password'] ?? '')) !== '';
         $secret = trim((string) ($s['connector_secret'] ?? ''));
         $hasToken = trim((string) ($s['shopify_token'] ?? '')) !== '';
+        $hasClientSecret = trim((string) ($s['shopify_client_secret'] ?? '')) !== '';
         $shopify = \Banimark\Storage\DataSource::MODE_SHOPIFY;
         $choice = fn (string $value, bool $on, string $title, string $blurb, string $attrs) => '<label class="choice">'
             .'<input type="radio" name="tools_db_enabled" value="'.$value.'"'.($on ? ' checked' : '').' '.$attrs.'>'
@@ -647,22 +648,28 @@ class Layout
 
             // ---- a Shopify store ----
             .'<div id="bm-datashop"'.($mode === $shopify ? '' : ' hidden').' data-shopify-setup>'
-            .'<h3 class="bm-step">1. Make a read-only app for Banimark in your Shopify admin</h3>'
-            .'<div class="muted" style="margin-bottom:6px">About two minutes, once. Nothing is installed on your store, and the app can only read.</div>'
+            .'<h3 class="bm-step">1. Make a read-only app for Banimark in Shopify\'s Dev Dashboard</h3>'
+            .'<div class="muted" style="margin-bottom:6px">About five minutes, once. Nothing is installed on your storefront, and the app can only read.</div>'
             .'<ol class="bm-guide">'
-            .'<li><span>In your Shopify admin go to Settings &rarr; Apps and sales channels &rarr; Develop apps. The first time, press <b>Allow custom app development</b>.</span></li>'
-            .'<li><span>Press <b>Create an app</b>, call it Banimark, press Create app.</span></li>'
-            .'<li><span>On the Configuration tab press Configure under <b>Admin API integration</b>, tick these three scopes and nothing else, then Save:</span><pre><code>read_orders'."\n".'read_customers'."\n".'read_products</code></pre></li>'
-            .'<li><span>On the API credentials tab press <b>Install app</b>. Under Admin API access token press <b>Reveal token once</b> and copy it - Shopify shows it only that once.</span></li>'
+            .'<li><span>Go to <b>dev.shopify.com</b> and sign in with the account that owns your store (the store owner\'s login). Press <b>Create app</b>, choose to create it in the dashboard (not with the CLI), and call it Banimark.</span></li>'
+            .'<li><span>Open the app\'s <b>Versions</b> (or Configuration) and under Admin API access scopes enter these five read scopes and nothing else, then <b>Release</b> the version:</span><pre><code>read_orders, read_all_orders, read_customers, read_products, read_inventory</code></pre><span class="muted">Without read_all_orders Shopify shows only the last 60 days of orders; without read_inventory, no stock levels.</span></li>'
+            .'<li><span>On the app\'s <b>Home</b> page press <b>Install</b>, pick your store, and approve the scopes on the store.</span></li>'
+            .'<li><span>Open the app\'s <b>Settings</b> page and copy the <b>Client ID</b> and the <b>Client secret</b> into the boxes below. Banimark turns them into an access token itself and renews it every day - a Dev Dashboard app never shows a token of its own.</span></li>'
             .'</ol>'
-            .'<h3 class="bm-step">2. Paste the store name and the token</h3>'
+            .'<h3 class="bm-step">2. Paste the store name and the app\'s credentials</h3>'
             .'<div class="grid2">'
             .'<div><label for="bm-shopify-store">Store name <span class="muted">(from your admin address: admin.shopify.com/store/<b>name</b>)</span></label>'
             .'<input type="text" id="bm-shopify-store" name="shopify_store" value="'.$e($s['shopify_store'] ?? '').'" placeholder="acme" autocomplete="off"></div>'
-            .'<div><label for="bm-shopify-token">Admin API access token '.($hasToken ? '<span class="muted">(stored - blank keeps it)</span>' : '').'</label>'
-            .'<input type="password" id="bm-shopify-token" name="shopify_token" value="" autocomplete="new-password" placeholder="'.($hasToken ? '•••••••• (unchanged)' : 'shpat_…').'"></div>'
+            .'<div><label for="bm-shopify-client-id">Client ID</label>'
+            .'<input type="text" id="bm-shopify-client-id" name="shopify_client_id" value="'.$e($s['shopify_client_id'] ?? '').'" autocomplete="off" placeholder="from the app\'s Settings page"></div>'
+            .'<div><label for="bm-shopify-client-secret">Client secret '.($hasClientSecret ? '<span class="muted">(stored - blank keeps it)</span>' : '').'</label>'
+            .'<input type="password" id="bm-shopify-client-secret" name="shopify_client_secret" value="" autocomplete="new-password" placeholder="'.($hasClientSecret ? '•••••••• (unchanged)' : 'from the app\'s Settings page').'"></div>'
             .'</div>'
-            .'<div class="hint">What Banimark does with it: one read per lookup through Shopify\'s Admin API, never more than 50 rows, and only the columns the tool shows. It can never change anything in the store. The token is kept here and is never shown to the assistant or to a visitor. Lost it? Make a new one in the app\'s API credentials and paste it here.</div>'
+            .'<details style="margin-top:10px"'.($hasToken && !$hasClientSecret ? ' open' : '').'><summary class="muted" style="cursor:pointer">Made the app in your Shopify admin instead (Settings &rarr; Apps and sales channels &rarr; Develop apps)?</summary>'
+            .'<label for="bm-shopify-token">Its Admin API access token '.($hasToken ? '<span class="muted">(stored - blank keeps it)</span>' : '<span class="muted">(starts with shpat_; Shopify shows it once, when the app is installed)</span>').'</label>'
+            .'<input type="password" id="bm-shopify-token" name="shopify_token" value="" autocomplete="new-password" placeholder="'.($hasToken ? '•••••••• (unchanged)' : 'shpat_…').'">'
+            .'<div class="muted">Leave the Client ID and secret blank to use this token instead.</div></details>'
+            .'<div class="hint">What Banimark does with it: one read per lookup through Shopify\'s Admin API, never more than 50 rows, and only the columns the tool shows. It can never change anything in the store. The credentials are kept here and are never shown to the assistant or to a visitor.</div>'
             .'</div>'
 
             .'<div class="row" style="gap:10px;margin-top:16px"><button type="submit">'.Icons::get('check', 15).' Save</button>'

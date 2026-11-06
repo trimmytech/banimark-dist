@@ -2,10 +2,21 @@
 
 A Shopify store is hosted by Shopify: nothing can be installed on it, so the
 connector does not apply. What a store has is the Admin GraphQL API, and that
-is what the desk uses. The owner makes a custom app in their Shopify admin
-with three read scopes (`read_orders`, `read_customers`, `read_products`),
-pastes the store name and the app's Admin API access token on the Tools page,
-and the store becomes the desk's database.
+is what the desk uses. The owner makes an app in Shopify's Dev Dashboard
+(dev.shopify.com, signed in as the store owner), with five read scopes (`read_orders`, `read_all_orders`, `read_customers`,
+`read_products`, `read_inventory` - the last two of the five because Shopify
+otherwise shows only the last 60 days of orders and no stock levels),
+releases a version, installs it on the store from the app's Home page, and
+pastes the store name plus the app's **Client ID and Client secret** (its
+Settings page) on the Tools page. A Dev Dashboard app never shows an access
+token: `Shopify\Client::withCredentials()` mints one with the client
+credentials grant (`POST https://<store>/admin/oauth/access_token`,
+form-encoded `grant_type=client_credentials`), keeps it for the 24 hours it
+lives (in memory and in a 0600 file under the temp dir), renews it ten
+minutes before expiry, and mints once more on a 401. An app made the older
+way in the Shopify admin (Settings → Apps → Develop apps) has a permanent
+`shpat_` token instead; the card takes that under "made the app in your
+Shopify admin instead". The store then becomes the desk's database.
 
 ## The store as three tables
 
@@ -15,9 +26,9 @@ save-time validator cannot tell the difference:
 
 | table | searchable by | also shown |
 |---|---|---|
-| `orders` | order_number, email, financial_status, fulfillment_status, tags | phone, customer_name, created_at, updated_at, total, currency, items, shipping_address, tracking_company, tracking_number, tracking_url, cancelled_at, note |
-| `customers` | email, first_name, last_name, phone, tags | orders_count, total_spent, currency, created_at, updated_at, address |
-| `products` | title, handle, status, vendor, product_type, sku, tags | price, currency, available, description, url, created_at, updated_at, variants |
+| `orders` | order_number, email, financial_status, fulfillment_status, tags | phone, customer_name, created_at, updated_at, total, currency, items, shipping_address, tracking_company, tracking_number, tracking_url, shipment_status, estimated_delivery, shipping_method, return_status, refunded, discount_code, cancelled_at, note |
+| `customers` | email, first_name, last_name, phone, tags | orders_count, total_spent, currency, created_at, updated_at, last_order, last_order_date, address |
+| `products` | title, handle, status, vendor, product_type, sku, tags | price, currency, available, in_stock, description, url, image_url, created_at, updated_at, variants |
 
 A column marked *searchable* maps to a key of Shopify's search syntax
 (`name:`, `email:`, `tag:` ...). The others are read from the GraphQL answer
@@ -63,7 +74,8 @@ else, so no other host is ever called). Shopify's refusals become sentences:
 a 401 says to copy the token again, an `ACCESS_DENIED` names the missing
 scope, a throttle says to try again shortly. "Test the connection" reads
 `shop` and `currentAppInstallation.accessScopes` and reports which of the
-three read scopes the token is missing.
+three read scopes the token is missing, and warns when `read_all_orders` or
+`read_inventory` is.
 
 ## Scoping
 
@@ -76,7 +88,9 @@ placeholder.
 ## Settings
 
 `tools_db_enabled = shopify`, `shopify_store` (normalised to
-`name.myshopify.com`), `shopify_token` (write-only in the panel; a blank box
-keeps the stored one). `DataSource::isShopify()` is true when both are set;
+`name.myshopify.com`), `shopify_client_id` + `shopify_client_secret` (the
+secret write-only in the panel; a blank box keeps the stored one; saving
+forgets the minted token), or `shopify_token` for an admin app (also
+write-only). Credentials win when both are set. `DataSource::isShopify()` is true when both are set;
 `DataSource::ownerData()` is true for a connector or a store, and is what lets
 a hosted desk build database tools.

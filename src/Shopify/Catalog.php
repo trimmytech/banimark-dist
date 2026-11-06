@@ -23,6 +23,14 @@ final class Catalog
     /** The Admin API scopes a tool on each table needs. */
     public const SCOPES = ['orders' => 'read_orders', 'customers' => 'read_customers', 'products' => 'read_products'];
 
+    /**
+     * The scopes without which Shopify quietly hides part of the answer: an
+     * app sees only the last 60 days of orders without read_all_orders, and
+     * no stock levels without read_inventory. Asked for in the guide, reported
+     * by "Test the connection", never fatal.
+     */
+    public const EXTRA_SCOPES = ['read_all_orders' => 'orders older than 60 days', 'read_inventory' => 'stock levels on products'];
+
     /** @return array<string, array<int, array{name: string, type: string}>> SchemaInspector::all()'s shape */
     public static function schema(): array
     {
@@ -85,6 +93,13 @@ final class Catalog
                 'tracking_company' => ['string', null, fn (array $n) => self::tracking($n, 'company')],
                 'tracking_number' => ['string', null, fn (array $n) => self::tracking($n, 'number')],
                 'tracking_url' => ['string', null, fn (array $n) => self::tracking($n, 'url')],
+                'shipment_status' => ['string', null, fn (array $n) => implode(', ', array_unique(array_filter(array_map(
+                    fn ($f) => strtolower(str_replace('_', ' ', (string) ($f['displayStatus'] ?? ''))), (array) ($n['fulfillments'] ?? [])))))],
+                'estimated_delivery' => ['datetime', null, fn (array $n) => implode(', ', array_unique(array_filter(array_map(fn ($f) => (string) ($f['estimatedDeliveryAt'] ?? ''), (array) ($n['fulfillments'] ?? [])))))],
+                'shipping_method' => ['string', null, 'shippingLine.title'],
+                'return_status' => ['string', null, $status('returnStatus')],
+                'refunded' => ['number', null, $money('totalRefundedSet.shopMoney')],
+                'discount_code' => ['string', null, fn (array $n) => implode(', ', array_map('strval', (array) ($n['discountCodes'] ?? [])))],
                 'cancelled_at' => ['datetime', null, 'cancelledAt'],
                 'note' => ['string', null, 'note'],
                 'tags' => ['string', 'tag', $tags],
@@ -99,6 +114,8 @@ final class Catalog
                 'currency' => ['string', null, 'amountSpent.currencyCode'],
                 'created_at' => ['datetime', null, 'createdAt'],
                 'updated_at' => ['datetime', null, 'updatedAt'],
+                'last_order' => ['string', null, 'lastOrder.name'],
+                'last_order_date' => ['datetime', null, 'lastOrder.createdAt'],
                 'address' => ['string', null, $lines('defaultAddress.formatted')],
                 'tags' => ['string', 'tag', $tags],
             ],
@@ -112,13 +129,16 @@ final class Catalog
                 'price' => ['number', null, $money('priceRangeV2.minVariantPrice')],
                 'currency' => ['string', null, 'priceRangeV2.minVariantPrice.currencyCode'],
                 'available' => ['number', null, fn (array $n) => (int) ($n['totalInventory'] ?? 0)],
+                'in_stock' => ['string', null, fn (array $n) => (int) ($n['totalInventory'] ?? 0) > 0
+                    || array_filter((array) self::at($n, 'variants.nodes'), fn ($v) => !empty($v['availableForSale'])) !== [] ? 'yes' : 'no'],
                 'description' => ['string', null, 'description'],
                 'url' => ['string', null, 'onlineStoreUrl'],
+                'image_url' => ['string', null, 'featuredMedia.preview.image.url'],
                 'created_at' => ['datetime', null, 'createdAt'],
                 'updated_at' => ['datetime', null, 'updatedAt'],
                 'tags' => ['string', 'tag', $tags],
                 'variants' => ['string', null, fn (array $n) => implode('; ', array_map(
-                    fn ($v) => (string) ($v['title'] ?? '').' - '.(string) ($v['price'] ?? '').(isset($v['inventoryQuantity']) ? ' ('.(int) $v['inventoryQuantity'].' in stock)' : ''),
+                    fn ($v) => (string) ($v['title'] ?? '').' - '.(string) ($v['price'] ?? '').(isset($v['inventoryQuantity']) ? ' ('.(int) $v['inventoryQuantity'].' in stock)' : (array_key_exists('availableForSale', (array) $v) ? ($v['availableForSale'] ? ' (in stock)' : ' (sold out)') : '')),
                     (array) self::at($n, 'variants.nodes')))],
             ],
             default => [],
@@ -131,12 +151,13 @@ final class Catalog
     {
         $sort = ['orders' => 'OrderSortKeys', 'customers' => 'CustomerSortKeys', 'products' => 'ProductSortKeys'][$table] ?? 'OrderSortKeys';
         $fields = match ($table) {
-            'orders' => 'name email phone createdAt updatedAt cancelledAt note tags displayFinancialStatus displayFulfillmentStatus
-                totalPriceSet { shopMoney { amount currencyCode } } customer { displayName } shippingAddress { formatted(withName: false) }
-                lineItems(first: 25) { nodes { title quantity sku } } fulfillments(first: 5) { trackingInfo(first: 5) { company number url } }',
-            'customers' => 'email firstName lastName phone numberOfOrders createdAt updatedAt tags amountSpent { amount currencyCode } defaultAddress { formatted(withName: false) }',
+            'orders' => 'name email phone createdAt updatedAt cancelledAt note tags discountCodes returnStatus displayFinancialStatus displayFulfillmentStatus
+                totalPriceSet { shopMoney { amount currencyCode } } totalRefundedSet { shopMoney { amount } } customer { displayName } shippingAddress { formatted(withName: false) }
+                shippingLine { title } lineItems(first: 25) { nodes { title quantity sku } }
+                fulfillments(first: 5) { displayStatus estimatedDeliveryAt trackingInfo(first: 5) { company number url } }',
+            'customers' => 'email firstName lastName phone numberOfOrders createdAt updatedAt tags amountSpent { amount currencyCode } defaultAddress { formatted(withName: false) } lastOrder { name createdAt }',
             'products' => 'title handle status vendor productType description(truncateAt: 400) onlineStoreUrl totalInventory tags createdAt updatedAt
-                priceRangeV2 { minVariantPrice { amount currencyCode } } variants(first: 25) { nodes { title sku price inventoryQuantity } }',
+                featuredMedia { preview { image { url } } } priceRangeV2 { minVariantPrice { amount currencyCode } } variants(first: 25) { nodes { title sku price inventoryQuantity availableForSale } }',
             default => throw new \InvalidArgumentException('No such table'),
         };
         return 'query BanimarkLookup($q: String, $n: Int!, $sortKey: '.$sort.', $reverse: Boolean) { '
