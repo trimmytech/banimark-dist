@@ -1083,9 +1083,14 @@ class Panel
         }
         try {
             \Banimark\Tools\ToolFactory::make($definition, fn () => [], fn () => ['status' => 200, 'body' => '[]', 'error' => ''],
-                \Banimark\Storage\DataSource::isConnector($this->settings->all()));
+                \Banimark\Storage\DataSource::ownerData($this->settings->all()));
         } catch (\Throwable $e) {
             return '<div class="flash-err">'.Html::e($e->getMessage()).'</div>';
+        }
+        // a Shopify store runs the SELECT subset Shopify\Query translates - refused here, not in front of a visitor
+        if ($definition['kind'] === 'sql' && \Banimark\Storage\DataSource::mode($this->settings->all()) === \Banimark\Storage\DataSource::MODE_SHOPIFY
+            && !($shop = \Banimark\Shopify\Query::check((string) $definition['sql']))['ok']) {
+            return '<div class="flash-err">'.Html::e($shop['error']).'</div>';
         }
         // editing: original_name is the row to replace, name may be a rename
         if ($original === '') {
@@ -1563,8 +1568,8 @@ class Panel
                 'params' => array_keys(json_decode((string) $r['parameters'], true) ?: []), 'max_rows' => (int) $r['max_rows'], 'enabled' => (bool) $r['enabled'],
                 'needs' => \Banimark\Tools\ToolTester::needsOf($r)];
         }
-        $connector = \Banimark\Storage\DataSource::isConnector($this->settings->all());
-        // a hosted desk without a connector builds API and spreadsheet tools - the form opens on the API kind
+        $connector = \Banimark\Storage\DataSource::ownerData($this->settings->all());
+        // a hosted desk without a connector (or a Shopify store) builds API and spreadsheet tools - the form opens on the API kind
         $form = $ed !== null ? $ed + ['enabled' => !empty($ed['enabled'])] : ['enabled' => true, 'context_csv' => 'user_id', 'max_rows' => 10] + (Hosted::on() && !$connector ? ['kind' => 'http'] : []);
         if (Hosted::on()) {
             // the downloads carry the secret: make sure there is one before the card is drawn
@@ -1582,6 +1587,7 @@ class Panel
             'assist_ready' => $assistDriver !== null,
             'hosted' => Hosted::on(),
             'connector' => $connector,
+            'shopify' => \Banimark\Storage\DataSource::isShopify($this->settings->all()),
             'data_card' => Layout::dataConnection($this->settings->all(), $this->url('/tools/data'), $this->url('/tools/data/test'),
                 $this->csrfField(), 'Banimark reads the tables next to its own.', '', false,
                 ['hosted' => Hosted::on(), 'download' => $this->url('/tools/connector/download'), 'secret_url' => $this->url('/tools/connector/secret')]),

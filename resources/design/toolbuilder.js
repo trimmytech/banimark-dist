@@ -72,7 +72,7 @@
   function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
 
   function loadSchema() {
-    status.textContent = 'Reading your database…';
+    status.textContent = shopify ? 'Reading your Shopify store…' : 'Reading your database…';
     var xhr = new XMLHttpRequest();
     xhr.open('GET', schemaUrl, true);
     xhr.onreadystatechange = function () {
@@ -80,7 +80,7 @@
       try { schema = JSON.parse(xhr.responseText).tables || {}; } catch (e) { schema = {}; }
       var names = Object.keys(schema);
       tableSel.innerHTML = '<option value="">Choose a table…</option>' + names.map(function (t) { return '<option>' + esc(t) + '</option>'; }).join('');
-      status.textContent = names.length ? names.length + ' tables found' : 'No tables found (or no permission to list them)';
+      status.textContent = names.length ? (shopify ? 'orders, customers and products' : names.length + ' tables found') : 'No tables found (or no permission to list them)';
     };
     xhr.send();
   }
@@ -123,14 +123,17 @@
     if (keep) sel.value = keep;
   }
 
+  // a Shopify store finds rows by its searchable columns, with equals or contains only
+  var shopify = root && root.hasAttribute('data-shopify');
   function condRow() {
     var cols = currentColumns();
+    if (shopify) cols = cols.filter(function (c) { return /searchable/.test(c.type); });
     var row = document.createElement('div');
     row.className = 'row bm-cond'; row.style.marginBottom = '7px';
     row.innerHTML =
       '<select data-ccol style="flex:2">' + cols.map(function (c) { return '<option>' + esc(c.name) + '</option>'; }).join('') + '</select>' +
       '<select data-op style="flex:1">' +
-        '<option value="=">equals</option><option value="LIKE">contains</option><option value="<">less than</option><option value=">">greater than</option><option value="<=">at most</option><option value=">=">at least</option>' +
+        '<option value="=">equals</option><option value="LIKE">contains</option>' + (shopify ? '' : '<option value="<">less than</option><option value=">">greater than</option><option value="<=">at most</option><option value=">=">at least</option>') +
       '</select>' +
       '<select data-source style="flex:2"></select>' +
       '<button type="button" class="btn-ghost btn-icon" title="Remove" data-remove-cond>&times;</button>';

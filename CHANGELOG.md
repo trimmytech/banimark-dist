@@ -3,6 +3,10 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.41.0
+
+- **Connect a Shopify store.** On the Tools page, "Where your data lives" has a new choice: *My Shopify store*. Nothing is installed on the store (Shopify hosts it, so the connector cannot be): the owner makes a read-only custom app in their Shopify admin, following the four steps on the card, and pastes the store name and the app's Admin API access token. The store then shows up in the Tool Builder and in "Describe it, and it builds it" as three tables - orders, customers, products - with plain column names (order_number, fulfillment_status, tracking_url, items, total, ...), and a tool is the same SELECT it would be against a database, translated to one Shopify Admin GraphQL call per lookup. Every condition is checked again on the rows Shopify returns, so a customer sees their order only when the order number and the email on it both match. "Test the connection" names the store and says which of the three read scopes the token is missing. Works on hosted and self-hosted desks alike; a hosted desk with a store connected builds database tools like one with the connector. See docs/shopify.md.
+
 ## 0.40.0
 
 - **"Describe it, and it builds it" knows your spreadsheets.** The assistant is now shown every spreadsheet the desk reads (the linked Google Sheets and the uploaded CSVs, with their column names) alongside the connector's tables, and drafts a spreadsheet tool when that is where the data lives: the sheet, which column answers each question, which column must equal the visitor's identity, and the columns it may show. Paste a sheet's share link into the chat and it reads the columns itself. A draft that names a column the sheet does not have is sent back for correction before you see it; a draft reusing an uploaded CSV copies it when you save.

@@ -158,7 +158,8 @@ class Layout
         $v = fn (string $k, string $d = '') => $q($e[$k] ?? $d);
         // a hosted desk has no database of the owner's to read - unless their
         // connector is installed, which makes the database block theirs again
-        $noDb = $hosted && empty($opt['connector']);
+        $noDb = $hosted && empty($opt['connector']) && empty($opt['shopify']);
+        $shopify = !empty($opt['shopify']);
         $kind = (string) ($e['kind'] ?? ($noDb ? 'http' : 'sql'));
         if (!in_array($kind, ['sql', 'http', 'sheet'], true) || ($noDb && $kind === 'sql')) {
             $kind = $noDb ? 'http' : 'sql';
@@ -176,7 +177,9 @@ class Layout
             // blocks' boxes mirror into it
             .($noDb ? '<input type="hidden" name="context" value="'.$v('context_csv', 'user_id').'">' : '')
             .'<div class="row" style="gap:10px;margin-bottom:12px">'
-            .($noDb ? '' : $choice('sql', 'In my database', !empty($opt['connector']) ? 'Through the connector on your website - pick a table and the builder writes the query.' : 'Point at a table and the builder writes the query.'))
+            .($noDb ? '' : ($shopify
+                ? $choice('sql', 'In my Shopify store', 'Orders, customers and products, straight from Shopify - pick one and the builder writes the lookup.')
+                : $choice('sql', 'In my database', !empty($opt['connector']) ? 'Through the connector on your website - pick a table and the builder writes the query.' : 'Point at a table and the builder writes the query.')))
             .$choice('sheet', 'In a spreadsheet', 'A Google Sheet shared by link, or a CSV you upload. Nothing to install.')
             .$choice('http', 'From my own API', $noDb ? 'Call an address in your app - for data Banimark cannot reach directly.' : 'Call an address in your app - for data Banimark cannot reach directly.')
             .'</div>'
@@ -209,10 +212,11 @@ class Layout
 
             // ---- database ----
             .($noDb ? '' : '<div data-kind-block="sql"'.($kind !== 'sql' ? ' hidden' : '').'>'
-            .'<div data-toolbuilder data-schema-url="'.$q($schemaUrl).'" style="background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:14px 16px">'
+            .'<div data-toolbuilder data-schema-url="'.$q($schemaUrl).'"'.($shopify ? ' data-shopify="1"' : '').' style="background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:14px 16px">'
             .'<div class="row" style="justify-content:space-between"><b>Visual builder</b><span class="muted" data-status>…</span></div>'
+            .($shopify ? '<div class="hint" style="margin-top:8px">Shopify is shown as three tables. A lookup finds rows by the columns marked <i>searchable</i> (an order by its order number and email, a product by title or SKU) and may show any column. A storefront visitor is usually not signed in, so for an order ask for the order number <b>and</b> the email on the order.</div>' : '')
             .'<div class="grid2" style="margin-top:8px">'
-            .'<div><label>Table</label><select data-table><option value="">Loading…</option></select></div>'
+            .'<div><label>'.($shopify ? 'What to look in' : 'Table').'</label><select data-table><option value="">Loading…</option></select></div>'
             .'<div><label>Who is chatting is identified by <span class="muted">(identity keys, comma-separated)</span></label>'
             .'<input type="text" name="context" value="'.$v('context_csv', 'user_id').'" placeholder="user_id"></div></div>'
             .'<label>Columns the AI may show the customer</label><div data-columns><span class="muted">Pick a table first.</span></div>'
@@ -565,6 +569,8 @@ class Layout
         }
         $hasPassword = trim((string) ($s['tools_db_password'] ?? '')) !== '';
         $secret = trim((string) ($s['connector_secret'] ?? ''));
+        $hasToken = trim((string) ($s['shopify_token'] ?? '')) !== '';
+        $shopify = \Banimark\Storage\DataSource::MODE_SHOPIFY;
         $choice = fn (string $value, bool $on, string $title, string $blurb, string $attrs) => '<label class="choice">'
             .'<input type="radio" name="tools_db_enabled" value="'.$value.'"'.($on ? ' checked' : '').' '.$attrs.'>'
             .'<span><b>'.$title.'</b><div class="muted">'.$blurb.'</div></span></label>';
@@ -596,14 +602,17 @@ class Layout
         return '<div class="bm-card"><form method="post" action="'.$e($saveUrl).'">'.$csrf
             .'<div class="bm-sec-h"><div><h2>Where your data lives</h2>'
             .'<div class="muted">Tools only ever read, and only the columns you list. This is where database tools read from.</div></div></div>'
-            .'<div class="choices'.($hosted ? ' two' : '').'" style="margin:12px 0">'
+            .'<div class="choices" style="margin:12px 0">'
             .($hosted
-                ? $choice('0', $mode !== \Banimark\Storage\DataSource::MODE_CONNECTOR, 'No database', 'The assistant answers from your API and your spreadsheets. Banimark cannot see your database from here.', 'data-toggle-hide="#bm-dataconn"')
-                : $choice('0', $mode === \Banimark\Storage\DataSource::MODE_OWN, 'The same database as Banimark', $e($ownDescription), 'data-toggle-hide="#bm-datadb,#bm-dataconn"')
-                  .$choice('1', $mode === \Banimark\Storage\DataSource::MODE_SEPARATE, 'A different database', 'Another server, another engine, or the same data through a read-only account.', 'data-toggle-show="#bm-datadb" data-toggle-hide="#bm-dataconn"'))
+                ? $choice('0', !in_array($mode, [\Banimark\Storage\DataSource::MODE_CONNECTOR, $shopify], true), 'No database', 'The assistant answers from your API and your spreadsheets. Banimark cannot see your database from here.', 'data-toggle-hide="#bm-dataconn,#bm-datashop"')
+                : $choice('0', $mode === \Banimark\Storage\DataSource::MODE_OWN, 'The same database as Banimark', $e($ownDescription), 'data-toggle-hide="#bm-datadb,#bm-dataconn,#bm-datashop"')
+                  .$choice('1', $mode === \Banimark\Storage\DataSource::MODE_SEPARATE, 'A different database', 'Another server, another engine, or the same data through a read-only account.', 'data-toggle-show="#bm-datadb" data-toggle-hide="#bm-dataconn,#bm-datashop"'))
             .$choice(\Banimark\Storage\DataSource::MODE_CONNECTOR, $mode === \Banimark\Storage\DataSource::MODE_CONNECTOR, 'My website, through the Banimark connector',
                 'A small file or plugin you install on your site. It answers only your desk, reads only, and your database password never leaves your server.',
-                'data-toggle-show="#bm-dataconn"'.($hosted ? '' : ' data-toggle-hide="#bm-datadb"'))
+                'data-toggle-show="#bm-dataconn" data-toggle-hide="#bm-datashop'.($hosted ? '' : ',#bm-datadb').'"')
+            .$choice($shopify, $mode === $shopify, 'My Shopify store',
+                'Orders, customers and products through Shopify\'s own API. Nothing to install: you make a read-only app in your Shopify admin and paste its token here.',
+                'data-toggle-show="#bm-datashop" data-toggle-hide="#bm-dataconn'.($hosted ? '' : ',#bm-datadb').'"')
             .'</div>'
 
             // ---- a typed-in database (self-hosted only) ----
@@ -634,6 +643,26 @@ class Layout
             .'<div class="hint">'.($secret !== '' ? 'Secret ending in <code>…'.$e(substr($secret, -6)).'</code> is inside every download above. ' : '')
             .'Lost the file, or want to lock out an old copy? <button type="submit" class="btn-ghost btn-sm" formaction="'.$e((string) ($opt['secret_url'] ?? $saveUrl)).'" name="rotate" value="1" data-confirm="Make a new secret? Every connector you downloaded before stops working until you install a fresh download.">Make a new secret</button></div>'
             .'<div class="hint">What the connector does: answers only requests signed by this desk, runs only single SELECT queries with the values bound, stops at 100 rows and 5 seconds, and never returns columns that look like passwords, tokens or card numbers. Your database password stays on your server.</div>'
+            .'</div>'
+
+            // ---- a Shopify store ----
+            .'<div id="bm-datashop"'.($mode === $shopify ? '' : ' hidden').' data-shopify-setup>'
+            .'<h3 class="bm-step">1. Make a read-only app for Banimark in your Shopify admin</h3>'
+            .'<div class="muted" style="margin-bottom:6px">About two minutes, once. Nothing is installed on your store, and the app can only read.</div>'
+            .'<ol class="bm-guide">'
+            .'<li><span>In your Shopify admin go to Settings &rarr; Apps and sales channels &rarr; Develop apps. The first time, press <b>Allow custom app development</b>.</span></li>'
+            .'<li><span>Press <b>Create an app</b>, call it Banimark, press Create app.</span></li>'
+            .'<li><span>On the Configuration tab press Configure under <b>Admin API integration</b>, tick these three scopes and nothing else, then Save:</span><pre><code>read_orders'."\n".'read_customers'."\n".'read_products</code></pre></li>'
+            .'<li><span>On the API credentials tab press <b>Install app</b>. Under Admin API access token press <b>Reveal token once</b> and copy it - Shopify shows it only that once.</span></li>'
+            .'</ol>'
+            .'<h3 class="bm-step">2. Paste the store name and the token</h3>'
+            .'<div class="grid2">'
+            .'<div><label for="bm-shopify-store">Store name <span class="muted">(from your admin address: admin.shopify.com/store/<b>name</b>)</span></label>'
+            .'<input type="text" id="bm-shopify-store" name="shopify_store" value="'.$e($s['shopify_store'] ?? '').'" placeholder="acme" autocomplete="off"></div>'
+            .'<div><label for="bm-shopify-token">Admin API access token '.($hasToken ? '<span class="muted">(stored - blank keeps it)</span>' : '').'</label>'
+            .'<input type="password" id="bm-shopify-token" name="shopify_token" value="" autocomplete="new-password" placeholder="'.($hasToken ? '•••••••• (unchanged)' : 'shpat_…').'"></div>'
+            .'</div>'
+            .'<div class="hint">What Banimark does with it: one read per lookup through Shopify\'s Admin API, never more than 50 rows, and only the columns the tool shows. It can never change anything in the store. The token is kept here and is never shown to the assistant or to a visitor. Lost it? Make a new one in the app\'s API credentials and paste it here.</div>'
             .'</div>'
 
             .'<div class="row" style="gap:10px;margin-top:16px"><button type="submit">'.Icons::get('check', 15).' Save</button>'

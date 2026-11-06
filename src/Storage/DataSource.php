@@ -22,7 +22,7 @@ final class DataSource
     /** Settings keys, all optional - absent means "use Banimark's own connection". */
     public const KEYS = ['tools_db_enabled', 'tools_db_driver', 'tools_db_host', 'tools_db_port',
         'tools_db_database', 'tools_db_username', 'tools_db_password', 'tools_db_sqlite_path', 'tools_db_schema',
-        'connector_url', 'connector_secret'];
+        'connector_url', 'connector_secret', 'shopify_store', 'shopify_token'];
 
     /**
      * Where database tools read from:
@@ -30,18 +30,24 @@ final class DataSource
      *  separate   another database the owner typed in
      *  connector  the owner's own website, through the connector they installed
      *             (Connector\Protocol) - the only database mode a hosted desk has
+     *  shopify    the owner's Shopify store, through its Admin API (Shopify\Client) -
+     *             seen as three tables, since nothing can be installed on Shopify
      *  none       a hosted desk with no connector: API and spreadsheet tools only
      */
     public const MODE_OWN = 'own';
     public const MODE_SEPARATE = 'separate';
     public const MODE_CONNECTOR = 'connector';
     public const MODE_NONE = 'none';
+    public const MODE_SHOPIFY = 'shopify';
 
     public static function mode(array $settings): string
     {
         $v = (string) ($settings['tools_db_enabled'] ?? '0');
         if ($v === self::MODE_CONNECTOR) {
             return self::MODE_CONNECTOR;
+        }
+        if ($v === self::MODE_SHOPIFY) {
+            return self::MODE_SHOPIFY;
         }
         if ($v === '1' && !\Banimark\Standalone\Hosted::on()) {
             return self::MODE_SEPARATE;
@@ -56,6 +62,33 @@ final class DataSource
         return self::mode($settings) === self::MODE_CONNECTOR
             && trim((string) ($settings['connector_url'] ?? '')) !== ''
             && trim((string) ($settings['connector_secret'] ?? '')) !== '';
+    }
+
+    /** Shopify is chosen AND set up: a store name and a token. */
+    public static function isShopify(array $settings): bool
+    {
+        return self::mode($settings) === self::MODE_SHOPIFY
+            && \Banimark\Shopify\Client::store((string) ($settings['shopify_store'] ?? '')) !== ''
+            && trim((string) ($settings['shopify_token'] ?? '')) !== '';
+    }
+
+    /**
+     * The owner's OWN data is reachable from here - through the connector on
+     * their site or their Shopify store - so database tools may exist on a
+     * hosted desk too (ToolFactory refuses them otherwise).
+     */
+    public static function ownerData(array $settings): bool
+    {
+        return self::isConnector($settings) || self::isShopify($settings);
+    }
+
+    /** @throws \RuntimeException when the store is not set up */
+    public static function shopify(array $settings, ?callable $transport = null): \Banimark\Shopify\Client
+    {
+        if (!self::isShopify($settings)) {
+            throw new \RuntimeException('The Shopify store is not connected yet: type its myshopify.com name and the Admin API access token of the app you made for it.');
+        }
+        return new \Banimark\Shopify\Client(\Banimark\Shopify\Client::store((string) $settings['shopify_store']), trim((string) $settings['shopify_token']), $transport);
     }
 
     /** @throws \RuntimeException when the connector is not set up */
@@ -87,6 +120,7 @@ final class DataSource
     {
         return match (self::mode($settings)) {
             self::MODE_CONNECTOR => self::connector($settings, $transport)->runner(),
+            self::MODE_SHOPIFY => \Banimark\Shopify\Query::runner(self::shopify($settings, $transport)),
             self::MODE_NONE => function () { throw new \RuntimeException(\Banimark\Standalone\Hosted::NO_SQL); },
             default => self::runner(self::pdo($settings, $own)),
         };
@@ -97,10 +131,14 @@ final class DataSource
     {
         return match (self::mode($settings)) {
             self::MODE_CONNECTOR => self::connector($settings, $transport)->schema(),
+            self::MODE_SHOPIFY => \Banimark\Shopify\Catalog::schema(),
             self::MODE_NONE => [],
             default => (new \Banimark\Tools\SchemaInspector(self::pdo($settings, $own)))->all(),
         };
     }
+
+    /** The "dialect" of a Shopify store: the SELECT subset Shopify\Query accepts. */
+    public const DIALECT_SHOPIFY = 'shopify';
 
     /** Which SQL dialect the builder and the draftsman should write. Never throws. */
     public static function dialectFor(array $settings, \PDO $own, ?callable $transport = null): string
@@ -108,6 +146,7 @@ final class DataSource
         try {
             return match (self::mode($settings)) {
                 self::MODE_CONNECTOR => self::connector($settings, $transport)->dialect(),
+                self::MODE_SHOPIFY => self::DIALECT_SHOPIFY,
                 self::MODE_NONE => Dialect::MYSQL,
                 default => Dialect::of(self::pdo($settings, $own)),
             };
@@ -208,6 +247,19 @@ final class DataSource
     /** What is missing before this can be used at all. */
     public static function misconfigured(array $settings): string
     {
+        if (self::mode($settings) === self::MODE_SHOPIFY) {
+            $store = trim((string) ($settings['shopify_store'] ?? ''));
+            if ($store === '') {
+                return 'Type your store\'s name - the part before .myshopify.com in your Shopify admin address.';
+            }
+            if (\Banimark\Shopify\Client::store($store) === '') {
+                return '"'.$store.'" is not a myshopify.com store name. Use the name from your admin address (admin.shopify.com/store/NAME), not your shop\'s own domain.';
+            }
+            if (trim((string) ($settings['shopify_token'] ?? '')) === '') {
+                return 'Paste the Admin API access token of the app you made in your Shopify admin.';
+            }
+            return '';
+        }
         if (self::mode($settings) === self::MODE_CONNECTOR) {
             $url = trim((string) ($settings['connector_url'] ?? ''));
             if ($url === '') {
@@ -259,6 +311,26 @@ final class DataSource
                 'message' => 'Connected through the connector on '.(string) (parse_url(trim((string) $settings['connector_url']), PHP_URL_HOST) ?: 'your website')
                     .' ('.(string) ($h['platform'] ?? 'php').', '.(string) ($h['dialect'] ?? 'mysql').'): '.$n.' table'.($n === 1 ? '' : 's')
                     .'. Lookups are signed, read-only, and never return columns that look like secrets.'];
+        }
+        if (self::mode($settings) === self::MODE_SHOPIFY) {
+            try {
+                $shop = self::shopify($settings, $transport)->shop();
+            } catch (\Throwable $e) {
+                return ['ok' => false, 'message' => $e->getMessage(), 'tables' => 0, 'writable' => null];
+            }
+            $missing = [];
+            foreach (\Banimark\Shopify\Catalog::SCOPES as $table => $scope) {
+                if (!in_array($scope, $shop['scopes'], true)) {
+                    $missing[] = $scope.' (for '.$table.')';
+                }
+            }
+            $who = 'Connected to '.($shop['name'] !== '' ? $shop['name'].' ('.$shop['domain'].')' : $shop['domain']).($shop['currency'] !== '' ? ', prices in '.$shop['currency'] : '').'.';
+            if ($missing !== []) {
+                return ['ok' => false, 'tables' => 3 - count($missing), 'writable' => false,
+                    'message' => $who.' But the app is missing '.implode(', ', $missing).': in your Shopify admin open the app, Configuration, tick those scopes, save, then install the app again and paste the new token if it shows one.'];
+            }
+            return ['ok' => true, 'tables' => 3, 'writable' => false,
+                'message' => $who.' The token can read orders, customers and products, and nothing else - the assistant can never change anything in the store.'];
         }
         if (self::mode($settings) === self::MODE_NONE) {
             return ['ok' => false, 'message' => \Banimark\Standalone\Hosted::NO_SQL, 'tables' => 0, 'writable' => null];
@@ -325,10 +397,18 @@ final class DataSource
     public static function save(array $input, callable $set): void
     {
         $choice = (string) ($input['tools_db_enabled'] ?? '0');
-        // a hosted desk has two choices: no database, or the connector - never ours, never a typed-in one
-        $set('tools_db_enabled', $choice === self::MODE_CONNECTOR ? self::MODE_CONNECTOR : ($choice === '1' && !\Banimark\Standalone\Hosted::on() ? '1' : '0'));
+        // a hosted desk has three choices: no database, the connector, or Shopify - never ours, never a typed-in one
+        $set('tools_db_enabled', in_array($choice, [self::MODE_CONNECTOR, self::MODE_SHOPIFY], true) ? $choice : ($choice === '1' && !\Banimark\Standalone\Hosted::on() ? '1' : '0'));
         if (array_key_exists('connector_url', $input)) {
             $set('connector_url', trim((string) $input['connector_url']));
+        }
+        if (array_key_exists('shopify_store', $input)) {
+            $store = trim((string) $input['shopify_store']);
+            $set('shopify_store', \Banimark\Shopify\Client::store($store) ?: $store);   // the raw text is kept so the message can say what is wrong with it
+        }
+        $token = trim((string) ($input['shopify_token'] ?? ''));
+        if ($token !== '') {
+            $set('shopify_token', $token);
         }
         $driver = (string) ($input['tools_db_driver'] ?? '');
         $set('tools_db_driver', in_array($driver, Dialect::SUPPORTED, true) ? $driver : Dialect::MYSQL);

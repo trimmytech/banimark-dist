@@ -1560,7 +1560,8 @@ class PanelController
                 ...(($lib = $this->toolLibrary()) !== null ? ['library' => $lib] : []),
                 'upgrade_url' => (string) ($settings['support_url'] ?? ''),
                 'assist_ready' => \Banimark\Laravel\EngineFactory::driver()[0] !== null,
-                'connector' => \Banimark\Storage\DataSource::isConnector($settings),
+                'connector' => \Banimark\Storage\DataSource::ownerData($settings),
+                'shopify' => \Banimark\Storage\DataSource::isShopify($settings),
                 'data_card' => \Banimark\Ui\Layout::dataConnection($settings, route('banimark.admin.tools.data'), route('banimark.admin.tools.data.test'), csrf_field()->toHtml(),
                     'Banimark reads the tables next to its own: '.(DB::connection()->getDatabaseName() ?: 'this application\'s database').'.',
                     (string) session('bm_data_test', ''), (bool) session('bm_data_ok'),
@@ -1895,9 +1896,14 @@ class PanelController
         // the same compile-time gate the runtime uses - a bad tool dies HERE
         try {
             \Banimark\Tools\ToolFactory::make($definition, fn () => [], fn () => ['status' => 200, 'body' => '[]', 'error' => ''],
-                \Banimark\Storage\DataSource::isConnector(\Banimark\Laravel\BanimarkServiceProvider::settings()));
+                \Banimark\Storage\DataSource::ownerData(\Banimark\Laravel\BanimarkServiceProvider::settings()));
         } catch (\Throwable $e) {
             return back()->with('bm_error', $e->getMessage())->withInput();
+        }
+        // a Shopify store runs the SELECT subset Shopify\Query translates - refused here, not in front of a visitor
+        if ($definition['kind'] === 'sql' && \Banimark\Storage\DataSource::mode(\Banimark\Laravel\BanimarkServiceProvider::settings()) === \Banimark\Storage\DataSource::MODE_SHOPIFY
+            && !($shop = \Banimark\Shopify\Query::check((string) $definition['sql']))['ok']) {
+            return back()->with('bm_error', $shop['error'])->withInput();
         }
 
         // editing: original_name is the row to update, name may be a rename

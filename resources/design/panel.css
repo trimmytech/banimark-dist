@@ -881,6 +881,8 @@ label.check { display: flex; align-items: center; gap: 8px; margin-top: 14px; fo
 @media (max-width: 760px) { .savebar.sticky { margin: 8px -16px 18px; padding: 12px 16px; } .savebar.sticky button { flex: 1; } }
 /* radio cards */
 .choices { display: grid; gap: 8px; }
+.choices.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 700px) { .choices.two { grid-template-columns: minmax(0, 1fr); } }
 .choice { display: flex; gap: 11px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--border-2); border-radius: var(--r); cursor: pointer; margin: 0; transition: border-color .16s var(--ease), background .16s var(--ease); font-weight: 400; color: var(--text); }
 .choice:hover { border-color: var(--brand); }
 .choice input { margin-top: 3px; }
@@ -932,8 +934,6 @@ label.check { display: flex; align-items: center; gap: 8px; margin-top: 14px; fo
 .ticks-list svg { color: var(--brand); margin-top: 2px; }
 input.otp { width: 150px; text-align: center; letter-spacing: .22em; font-variant-numeric: tabular-nums; margin: 0; }
 input.otp.big { width: 190px; font-size: 20px; }
-.choices.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-@media (max-width: 700px) { .choices.two { grid-template-columns: minmax(0, 1fr); } }
 fieldset.subpanel { margin-top: 16px; padding: 14px 16px 16px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface-2); }
 fieldset.subpanel legend { padding: 0 6px; font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
 

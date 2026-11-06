@@ -108,7 +108,7 @@ final class Pages
                 'http_auth_ttl' => $v('http_auth_ttl', \Banimark\Tools\HttpAuth::JWT_TTL), 'http_auth_has_secret' => $v('http_auth_has_secret', false),
                 'sheet_url' => $v('sheet_url'), 'sheet_mode' => $v('sheet_mode', 'exact'), 'sheet_prefill' => $v('sheet_prefill', '{}'),
                 'sheet_has_csv' => $v('sheet_has_csv', false), 'sheet_rows' => $v('sheet_rows', 0),
-            ], $u['schema'], !empty($o['hosted']), ['sheet_url' => (string) ($u['sheet'] ?? ''), 'sheet_sample' => (string) ($u['sheet_sample'] ?? ''), 'connector' => !empty($o['connector'])])
+            ], $u['schema'], !empty($o['hosted']), ['sheet_url' => (string) ($u['sheet'] ?? ''), 'sheet_sample' => (string) ($u['sheet_sample'] ?? ''), 'connector' => !empty($o['connector']), 'shopify' => !empty($o['shopify'])])
             .Layout::tryItCard($u['try'])
             .'<div class="row" style="margin-top:18px;justify-content:flex-end"><button type="submit">'.Icons::get('check', 15).' '.($editing ? 'Check and save changes' : 'Check and save tool').'</button></div></fieldset></form></div>';
 
