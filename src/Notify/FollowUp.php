@@ -62,6 +62,36 @@ class FollowUp
         return $sent;
     }
 
+    /**
+     * Staff asked for a copy of their reply to go by email - whether or not the
+     * visitor is still watching, and however many times. Needs an address;
+     * never touches the one-per-absence bookkeeping of the automatic follow-up.
+     *
+     * @return bool whether the copy was sent
+     */
+    public function copyToVisitor(string $sessionId, string $replyText): bool
+    {
+        $p = $this->store->presence($sessionId);
+        if ($p === null || !filter_var($p['visitor_email'], FILTER_VALIDATE_EMAIL)) {
+            return false;
+        }
+        $name = trim($p['visitor_label']) !== '' ? trim($p['visitor_label']) : 'there';
+        $site = trim((string) ($this->settings['site_name'] ?? ($this->settings['title'] ?? 'Support')));
+        $body = "Hi {$name},\n\n"
+            ."Here is a copy of our reply in the chat:\n\n"
+            .'"'.trim($replyText)."\"\n\n"
+            ."Just reply to this email, or come back to the chat on our site and we'll pick up where we left off.\n\n"
+            ."- {$site}";
+        return $this->mailer->send([$p['visitor_email']], 'Re: your chat with '.$site, $body);
+    }
+
+    /** The address a copy would go to, or '' when the visitor gave none. */
+    public function visitorEmail(string $sessionId): string
+    {
+        $p = $this->store->presence($sessionId);
+        return $p !== null && filter_var($p['visitor_email'], FILTER_VALIDATE_EMAIL) ? (string) $p['visitor_email'] : '';
+    }
+
     /** Away = has polled at least once, and not within the grace period. */
     public static function isAway(array $presence, int $now, int $grace): bool
     {

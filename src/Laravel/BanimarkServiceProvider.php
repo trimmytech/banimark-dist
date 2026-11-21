@@ -102,7 +102,7 @@ class BanimarkServiceProvider extends ServiceProvider
                     // out of hours the owner may want an email regardless of the normal mode
                     $hours = \Banimark\Desk\BusinessHours::fromSettings($settings);
                     $emailAnyway = $hours->policy() === 'queue_email' && !$hours->isOpen();
-                    if (($settings['escalation_mode'] ?? 'staff') !== 'email' && !$emailAnyway) { return; }
+                    if (($settings['escalation_mode'] ?? 'email') === 'staff' && !$emailAnyway) { return; }
                     $to = array_filter(array_map('trim', explode(',', (string) ($settings['escalation_email'] ?? ''))));
                     if (!$to) { $to = $app->make(\Banimark\Auth\Agents::class)->emails(); }
                     if (!$to) { return; }

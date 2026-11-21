@@ -962,7 +962,7 @@ class PanelController
         if ($r = $this->gate($auth)) { return $r; }
         $s = DB::table('banimark_settings')->pluck('value', 'key')->all();
         return view('banimark::admin.escalation', [
-            'mode' => $s['escalation_mode'] ?? 'staff',
+            'mode' => $s['escalation_mode'] ?? 'email',
             'email' => $s['escalation_email'] ?? '',
             's' => $s,
             'hasSmtpPass' => trim((string) ($s['smtp_pass'] ?? '')) !== '',
@@ -1232,23 +1232,30 @@ class PanelController
             $attachments->markSent(array_column($files, 'token'), $sessionId);
         }
         $emailed = false;
+        $copy = (string) $request->input('email_copy', '') === '1'; // staff ticked "also email a copy"
+        $copyFailed = false;
         $row = null;
         if ($text !== '') {
             $store->appendAgentMessage($sessionId, $text, (int) $auth->id());
             $all = $store->transcript($sessionId);
             $row = $all === [] ? null : TranscriptView::row(end($all), $attachments);
-            // the visitor may have closed the tab - post the reply on to them
+            $plain = \Banimark\Files\Markers::parse($text)['text'] ?: 'Please see the attached file.';
             try {
                 $settings = \Banimark\Laravel\BanimarkServiceProvider::settings();
-                $emailed = (new \Banimark\Notify\FollowUp($store, app(\Banimark\Notify\Mailer::class), $settings))
-                    ->afterAgentReply($sessionId, \Banimark\Files\Markers::parse($text)['text'] ?: 'Please see the attached file.');
-            } catch (\Throwable $e) { /* a mail problem must never lose the reply */ }
+                $followUp = new \Banimark\Notify\FollowUp($store, app(\Banimark\Notify\Mailer::class), $settings);
+                // a copy on request; otherwise the visitor may have closed the tab - post the reply on to them
+                $emailed = $copy ? $followUp->copyToVisitor($sessionId, $plain) : $followUp->afterAgentReply($sessionId, $plain);
+                $copyFailed = $copy && !$emailed;
+            } catch (\Throwable $e) { $copyFailed = $copy; /* a mail problem must never lose the reply */ }
         }
         if ($request->ajax() || $request->expectsJson()) {
-            return response()->json(['ok' => $text !== '', 'message' => $row, 'emailed' => $emailed, 'mode' => $store->mode($sessionId)]);
+            return response()->json(['ok' => $text !== '', 'message' => $row, 'emailed' => $emailed, 'copy' => $copy, 'copy_failed' => $copyFailed, 'mode' => $store->mode($sessionId)]);
         }
         $redirect = redirect()->route('banimark.admin.conversation', $sessionId);
-        return $emailed ? $redirect->with('bm_ok', 'Sent. The visitor had left the chat, so we emailed them your reply.') : $redirect;
+        if ($copyFailed) {
+            return $redirect->with('bm_error', 'Sent in the chat, but the copy could not be emailed - check Outgoing email under Notifications.');
+        }
+        return $emailed ? $redirect->with('bm_ok', $copy ? 'Sent, and a copy was emailed to the visitor.' : 'Sent. The visitor had left the chat, so we emailed them your reply.') : $redirect;
     }
 
     public function setMode(Request $request, string $sessionId, PdoStore $store, AgentAuth $auth)

@@ -36,6 +36,9 @@ class WidgetController
                 'token' => (string) $request->input('token', ''),
                 'visitor' => (array) $request->input('visitor', []),
                 'attachments' => (array) $request->input('attachments', []),
+                // what the browser reveals about the visitor, for the Visitor card
+                'context' => (array) $request->input('context', []),
+                'user_agent' => (string) $request->userAgent(),
             ]);
         } catch (\Throwable $e) {
             // The visitor must never meet a stack trace, and every client

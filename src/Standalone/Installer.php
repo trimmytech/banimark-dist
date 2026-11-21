@@ -106,7 +106,7 @@ class Installer
             $settings = new Settings($pdo);
             (new Agents($pdo))->create((string) ($input['admin_name'] ?? 'Owner'), $adminEmail, $adminPassword, 'owner');
             $settings->set('identity_secret', bin2hex(random_bytes(32)));
-            $settings->set('escalation_mode', 'staff');
+            $settings->set('escalation_mode', 'email');
             $settings->set('escalation_email', '');
             $settings->set('title', trim((string) ($input['site_title'] ?? '')) ?: 'Support');
             $settings->set('greeting', 'Hi! How can we help you today?');

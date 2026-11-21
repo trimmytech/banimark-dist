@@ -153,7 +153,7 @@ class ChatEndpoint
         return isset($claims['user_id']) ? 'user #'.$claims['user_id'] : null;
     }
 
-    private function recordVisitor(string $sessionId, array $claims, array $visitor): void
+    private function recordVisitor(string $sessionId, array $claims, array $input): void
     {
         if (!$this->store instanceof PdoStore) {
             return;
@@ -162,6 +162,7 @@ class ChatEndpoint
         // It must run AFTER the conversation row exists, which is why this is
         // called at each persistence point rather than up front.
         $this->store->touch($sessionId);
+        $visitor = (array) ($input['visitor'] ?? []);
         $name = (string) ($claims['name'] ?? ($visitor['name'] ?? ''));
         $email = (string) ($claims['email'] ?? ($visitor['email'] ?? ''));
         $phone = (string) ($claims['phone'] ?? ($visitor['phone'] ?? ''));
@@ -170,10 +171,16 @@ class ChatEndpoint
         // a phone number is digits and the punctuation people put between them
         $phone = preg_replace('/[^0-9+()\-. ]/', '', trim($phone)) ?? '';
         $phone = mb_strlen(preg_replace('/\D/', '', $phone) ?? '') >= 6 ? mb_substr($phone, 0, 40) : '';
-        if ($name === '' && $email === '' && $phone === '') {
-            return;
+        if ($name !== '' || $email !== '' || $phone !== '') {
+            $this->store->setVisitor($sessionId, $name, $email, $phone);
         }
-        $this->store->setVisitor($sessionId, $name, $email, $phone);
+        // what the visitor's own browser reveals - captured once (setContext
+        // writes only empty columns). This runs even for an anonymous guest who
+        // gave no contact details, which is exactly who the card is most for.
+        $ctx = Context::clean((array) ($input['context'] ?? []), (string) ($input['user_agent'] ?? ''));
+        if ($ctx !== []) {
+            $this->store->setContext($sessionId, $ctx);
+        }
     }
 
     /**
@@ -235,7 +242,7 @@ class ChatEndpoint
                 }
             }
             $this->store->appendVisitorMessage($sessionId, $message, $identityHash);
-            $this->recordVisitor($sessionId, $claims, (array) ($input['visitor'] ?? []));
+            $this->recordVisitor($sessionId, $claims, $input);
             return [
                 'ok' => true,
                 'session_id' => $sessionId,
@@ -284,7 +291,7 @@ class ChatEndpoint
         if ($paced) {
             $before = $this->store->lastUserMessageId($sessionId);
             $this->store->save($sessionId, $state, $identityHash);
-            $this->recordVisitor($sessionId, $claims, (array) ($input['visitor'] ?? []));
+            $this->recordVisitor($sessionId, $claims, $input);
             if ($before > 0 && $this->store->answeredThrough($sessionId) === 0) {
                 // a conversation older than this bookkeeping: everything before
                 // this message was answered in its day, never "pending"
@@ -346,7 +353,7 @@ class ChatEndpoint
             // and put the REAL error in the thread where only staff can see it.
             $this->store->save($sessionId, $state, $identityHash);
             $release();
-            $this->recordVisitor($sessionId, $claims, (array) ($input['visitor'] ?? []));
+            $this->recordVisitor($sessionId, $claims, $input);
             $label = self::visitorLabel($claims, (array) ($input['visitor'] ?? []));
             if ($this->store instanceof PdoStore) {
                 $this->store->appendSystemNote($sessionId, 'AI could not answer - escalated automatically. Provider error: '.($result->error !== '' ? $result->error : 'unknown'));
@@ -374,7 +381,7 @@ class ChatEndpoint
             $this->store->save($sessionId, $state, $identityHash);
         }
         $release();
-        $this->recordVisitor($sessionId, $claims, (array) ($input['visitor'] ?? []));
+        $this->recordVisitor($sessionId, $claims, $input);
         $this->noteToolProblems($sessionId, $result);
 
         // the model called escalate_to_human -> flip to agent mode + notify.

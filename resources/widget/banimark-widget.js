@@ -383,7 +383,7 @@
        Flutter SDK put up the same form */
     var GUEST_FIELDS = (cfg.guest_fields && cfg.guest_fields.length ? cfg.guest_fields
         : [{ key: 'name', label: 'Your name', type: 'text', required: false, autocomplete: 'name' },
-           { key: 'email', label: 'you@example.com', type: 'email', required: false, autocomplete: 'email' }]);
+           { key: 'email', label: 'you@example.com', type: 'email', required: true, autocomplete: 'email' }]);
     (function buildGuestForm() {
         var intro = guestBox.querySelector('.g-intro');
         intro.textContent = cfg.guest_intro || '';
@@ -392,6 +392,8 @@
             return '<input class="g-f" data-k="' + f.key + '" type="' + f.type + '" placeholder="' +
                 String(f.label).replace(/"/g, '&quot;') + (f.required ? ' *' : '') + '" autocomplete="' + f.autocomplete + '">';
         }).join('');
+        // a detail the owner insists on cannot be skipped past
+        guestBox.querySelector('.g-skip').hidden = GUEST === 'required' || GUEST_FIELDS.some(function (f) { return f.required; });
     })();
     wrap.querySelector('.ttl').textContent = cfg.title;
     if (LABEL) { wrap.querySelector('.lbl').textContent = LABEL; }
@@ -890,6 +892,21 @@
         return st.shownId;
     }
 
+    /* What the visitor's own browser reveals, for the staff Visitor card: the
+     * page the chat is on, how they arrived, their language and timezone. The
+     * server captures this once and derives device/country/local time from it
+     * on its own machine - nothing is sent to any third party. Every lookup is
+     * wrapped: a locked-down browser that throws must never break sending. */
+    function pageContext() {
+        var c = {};
+        try { c.url = location.href; } catch (e) {}
+        try { c.title = document.title || ''; } catch (e) {}
+        try { c.referrer = document.referrer || ''; } catch (e) {}
+        try { c.locale = navigator.language || ''; } catch (e) {}
+        try { c.tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) {}
+        return c;
+    }
+
     /* a brand-new chat has no id until its first answer arrives: a follow-up
      * sent before then waits here, or it would open a SECOND conversation */
     var queued = [];
@@ -972,7 +989,8 @@
             session_id: session,
             token: cfg.token,
             visitor: { name: visitor.name, email: visitor.email, phone: visitor.phone || '' },
-            attachments: sendingIds
+            attachments: sendingIds,
+            context: pageContext()
         };
         if (seenThrough !== null) { body.seen_through = seenThrough; }
         xhr.send(JSON.stringify(body));

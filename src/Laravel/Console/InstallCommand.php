@@ -78,7 +78,7 @@ class InstallCommand extends Command
         }
 
         // escalation defaults
-        foreach (['escalation_mode' => 'staff', 'escalation_email' => ''] as $k => $v) {
+        foreach (['escalation_mode' => 'email', 'escalation_email' => ''] as $k => $v) {
             \Illuminate\Support\Facades\DB::table('banimark_settings')->updateOrInsert(['key' => $k], ['value' => $v]);
         }
 

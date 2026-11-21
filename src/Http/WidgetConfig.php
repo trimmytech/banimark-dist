@@ -75,7 +75,7 @@ class WidgetConfig
         'title' => 'Support',
         'greeting' => 'Hi! How can we help you today?',
         'poll_seconds' => 10,
-        'guest_mode' => 'off',
+        'guest_mode' => 'required',   // 0.45: a guest gives their email before chatting
         'offline_note' => '',
         'theme' => 'auto', // auto = follow the visitor's OS; light / dark force it
         'guest_intro' => 'Tell us where to reach you and we can follow up even if you close this tab.',
@@ -122,10 +122,15 @@ class WidgetConfig
         return $out;
     }
 
-    /** The default for an install that has never touched these settings. */
-    private static function defaultMode(string $key): string
+    /**
+     * The default for an install that has never touched these settings. The
+     * email is required (0.45): a guest who closes the tab can only be answered
+     * by email, and staff can only send a copy of a reply to an address they
+     * have. The name is offered, the phone is not asked for.
+     */
+    public static function defaultMode(string $key): string
     {
-        return $key === 'phone' ? 'off' : 'optional';
+        return ['name' => 'optional', 'email' => 'required', 'phone' => 'off'][$key] ?? 'optional';
     }
 
     /** Tappable openers - "commonly asked" phrased the way a visitor would. */
@@ -179,7 +184,7 @@ class WidgetConfig
         $cfg['poll_idle_seconds'] = max(10, min(600, (int) $cfg['poll_idle_seconds']));
         $cfg['launcher_reappear_minutes'] = max(0, min(1440, (int) $cfg['launcher_reappear_minutes']));
         $cfg['position'] = $cfg['position'] === 'left' ? 'left' : 'right';
-        $cfg['guest_mode'] = in_array($cfg['guest_mode'], ['off', 'optional', 'required'], true) ? $cfg['guest_mode'] : 'off';
+        $cfg['guest_mode'] = in_array($cfg['guest_mode'], ['off', 'optional', 'required'], true) ? $cfg['guest_mode'] : self::DEFAULTS['guest_mode'];
         $cfg['theme'] = in_array($cfg['theme'], ['auto', 'light', 'dark'], true) ? $cfg['theme'] : 'auto';
         // whitelabel is a plan feature, read from the signed licence HERE as well
         // as at the save button: a hide_brand=1 written into the database does

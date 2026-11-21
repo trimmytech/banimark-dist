@@ -42,6 +42,12 @@ class Schema
             kept INTEGER NOT NULL DEFAULT 0,
             answered_through INTEGER NOT NULL DEFAULT 0,
             turn_lock_until INTEGER NOT NULL DEFAULT 0,
+            visitor_ua VARCHAR(255) NOT NULL DEFAULT '',
+            visitor_page_url VARCHAR(500) NOT NULL DEFAULT '',
+            visitor_page_title VARCHAR(255) NOT NULL DEFAULT '',
+            visitor_referrer VARCHAR(500) NOT NULL DEFAULT '',
+            visitor_locale VARCHAR(40) NOT NULL DEFAULT '',
+            visitor_tz VARCHAR(64) NOT NULL DEFAULT '',
             created_at INTEGER NOT NULL DEFAULT 0
         ){$tail}");
         self::index($pdo, "{$prefix}conv_session", "{$prefix}conversations", 'session_id', true);
@@ -258,6 +264,17 @@ class Schema
         // per-conversation lock so two requests never run two turns at once
         self::addColumn($pdo, "{$prefix}conversations", 'answered_through', 'INTEGER NOT NULL DEFAULT 0');
         self::addColumn($pdo, "{$prefix}conversations", 'turn_lock_until', 'INTEGER NOT NULL DEFAULT 0');
+        // visitor context for the staff Visitor card: the browser's User-Agent,
+        // the page the chat was opened on, how the visitor arrived, and their
+        // language and timezone - all captured once, from the client's own
+        // request, and derived on-server (see Http\Context), never looked up
+        // from an outside service
+        self::addColumn($pdo, "{$prefix}conversations", 'visitor_ua', "VARCHAR(255) NOT NULL DEFAULT ''");
+        self::addColumn($pdo, "{$prefix}conversations", 'visitor_page_url', "VARCHAR(500) NOT NULL DEFAULT ''");
+        self::addColumn($pdo, "{$prefix}conversations", 'visitor_page_title', "VARCHAR(255) NOT NULL DEFAULT ''");
+        self::addColumn($pdo, "{$prefix}conversations", 'visitor_referrer', "VARCHAR(500) NOT NULL DEFAULT ''");
+        self::addColumn($pdo, "{$prefix}conversations", 'visitor_locale', "VARCHAR(40) NOT NULL DEFAULT ''");
+        self::addColumn($pdo, "{$prefix}conversations", 'visitor_tz', "VARCHAR(64) NOT NULL DEFAULT ''");
         // the tool/rule library: which template a tool came from (templates may
         // use at most half the plan's tools) and which pack a rule came from
         self::addColumn($pdo, "{$prefix}tools", 'template', "VARCHAR(40) NOT NULL DEFAULT ''");
@@ -273,6 +290,50 @@ class Schema
         // 0.16.1: emoji. Installs created before this release inherited the
         // server's default charset, which on MySQL is usually still utf8mb3.
         self::ensureUtf8mb4($pdo, $prefix);
+        self::applyDefaults($pdo, $prefix);
+    }
+
+    /**
+     * Defaults that changed after a desk was made, applied ONCE to every desk -
+     * existing ones included, which is the point: the owner asked for them on
+     * all desks, not only new ones. Each round is numbered in `defaults_version`
+     * and written over whatever the desk had; the owner can change the setting
+     * back on its page afterwards and it stays changed.
+     *
+     *  1 (0.45) a handover emails the team as well as landing in the inbox, and
+     *           a guest gives their email address before the chat starts.
+     *
+     * Never throws: a desk that cannot write a settings row must still open.
+     */
+    public const DEFAULTS_VERSION = 1;
+
+    public static function applyDefaults(\PDO $pdo, string $prefix = 'banimark_'): void
+    {
+        try {
+            $q = fn (string $i) => Dialect::quote(Dialect::of($pdo), $i);
+            $read = function (string $key) use ($pdo, $prefix, $q): ?string {
+                $st = $pdo->prepare("SELECT {$q('value')} FROM {$prefix}settings WHERE {$q('key')} = ?");
+                $st->execute([$key]);
+                $v = $st->fetchColumn();
+                return $v === false ? null : (string) $v;
+            };
+            $write = function (string $key, string $value) use ($pdo, $prefix, $q): void {
+                $pdo->prepare("DELETE FROM {$prefix}settings WHERE {$q('key')} = ?")->execute([$key]);
+                $pdo->prepare("INSERT INTO {$prefix}settings ({$q('key')}, {$q('value')}) VALUES (?, ?)")->execute([$key, $value]);
+            };
+            $have = (int) ($read('defaults_version') ?? 0);
+            if ($have >= self::DEFAULTS_VERSION) {
+                return;
+            }
+            if ($have < 1) {
+                $write('escalation_mode', 'email');
+                $write('guest_mode', 'required');
+                $write('guest_ask_email', 'required');
+            }
+            $write('defaults_version', (string) self::DEFAULTS_VERSION);
+        } catch (\Throwable $e) {
+            // a read-only database, or a settings table that is not there yet
+        }
     }
 
     /**

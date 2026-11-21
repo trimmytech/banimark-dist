@@ -444,10 +444,10 @@ final class Pages
             .'<div><label>Bring a dismissed launcher back after</label><div class="row"><input type="number" name="launcher_reappear_minutes" min="0" max="1440" value="'.$e($g('launcher_reappear_minutes', '10')).'" style="max-width:120px"><span class="muted">minutes</span></div>'
             .'<div class="hint">On the website and in the app a visitor can drag the chat bubble anywhere (it stays where they put it) and close it with its small ×; it returns after this long. 0 = not until they open the app again. A reply from your team always brings it back.</div></div>'
             .'<div><label>Ask guests who they are</label><select name="guest_mode">'
-            .'<option value="off"'.$sel('guest_mode', 'off', 'off').'>Off - chat straight away</option>'
-            .'<option value="optional"'.$sel('guest_mode', 'optional', 'off').'>Optional - offer, allow skip</option>'
-            .'<option value="required"'.$sel('guest_mode', 'required', 'off').'>Required - name and email first</option></select>'
-            .'<div class="hint">An email address is what lets us follow up when they leave.</div></div></div>'
+            .'<option value="required"'.$sel('guest_mode', 'required', 'required').'>Required - their details first (default)</option>'
+            .'<option value="optional"'.$sel('guest_mode', 'optional', 'required').'>Optional - offer, allow skip</option>'
+            .'<option value="off"'.$sel('guest_mode', 'off', 'required').'>Off - chat straight away</option></select>'
+            .'<div class="hint">Which details, and which are a must, is set under <b>What to ask for</b> on the First run tab. An email address is what lets you follow up when they leave, and send them a copy of a reply.</div></div></div>'
             .'<label class="check" style="margin-top:12px"><span class="switch"><input type="checkbox" name="sound" value="1"'.($g('sound', '1') !== '0' ? ' checked' : '').'><span class="sl"></span></span> Play a soft chime when your team replies</label>'
             .'<div class="hint">Browsers only allow it after the visitor has clicked in the chat.</div>'
             .'<label>Note shown when nobody is around <span class="muted">(optional)</span></label>'
@@ -878,7 +878,8 @@ final class Pages
     {
         $e = [self::class, 'e'];
         $g = fn (string $k, string $d = '') => $e((string) ($s[$k] ?? $d));
-        $mode = ($s['escalation_mode'] ?? 'staff') === 'email' ? 'email' : 'staff';
+        // email is the default (0.45): an owner who never visits this page still hears about a handover
+        $mode = ($s['escalation_mode'] ?? 'email') === 'staff' ? 'staff' : 'email';
         $enc = (string) ($s['smtp_encryption'] ?? 'tls');
         $sel = fn (string $v) => $enc === $v ? ' selected' : '';
         $hasPass = trim((string) ($s['smtp_pass'] ?? '')) !== '';
@@ -888,8 +889,8 @@ final class Pages
             .'<form method="post" action="'.$e($urls['save']).'" class="set-form" id="notify-form">'.$csrf
             .Layout::section('When the AI hands over', 'What should happen the moment a conversation needs a person.',
                 '<div class="choices">'
-                .Layout::choice('escalation_mode', 'staff', $mode === 'staff', 'Staff inbox', 'It appears in the inbox for any staff member to pick up. (Default)')
-                .Layout::choice('escalation_mode', 'email', $mode === 'email', 'Email alert too', 'Email your team as well. Needs the outgoing email settings below.')
+                .Layout::choice('escalation_mode', 'email', $mode === 'email', 'Email alert too', 'It appears in the inbox, and your team is emailed as well - through the outgoing email settings below. (Default)')
+                .Layout::choice('escalation_mode', 'staff', $mode === 'staff', 'Staff inbox only', 'It appears in the inbox for any staff member to pick up. No email.')
                 .'</div>'
                 .'<label>Alert these addresses <span class="muted">(comma separated - blank means all staff)</span></label>'
                 .'<input type="text" name="escalation_email" value="'.$g('escalation_email').'" placeholder="support@yourco.com, ops@yourco.com">')
@@ -1001,21 +1002,57 @@ final class Pages
             .'<div class="convo-foot">'
             .($quick !== '' ? '<div class="bm-quick">'.$quick.'</div>' : '')
             .'<div data-pending hidden style="padding:6px 0 0"></div>'
-            .'<form method="post" action="'.$e($u['reply']).'" class="bm-compose" data-reply>'.$o['csrf_field']
+            .'<form method="post" action="'.$e($u['reply']).'" class="bm-compose" id="bm-reply" data-reply>'.$o['csrf_field']
             .'<button type="button" class="btn-ghost btn-icon" data-emoji title="Emoji" aria-label="Emoji">🙂</button>'
             .($o['files_on'] ? '<button type="button" class="btn-ghost btn-icon" data-attach title="Attach a file" aria-label="Attach a file">📎</button><input type="file" data-file hidden>' : '')
             .'<textarea name="message" rows="1" placeholder="Reply as a person… (Enter sends, Shift+Enter for a new line)" autofocus autocomplete="off" aria-label="Your reply"></textarea>'
-            .'<button type="submit">'.Icons::get('send', 15).' Send</button></form></div></section>';
+            .'<button type="submit">'.Icons::get('send', 15).' Send</button></form>'
+            // a copy by email, on request - only when there is an address to send it to
+            .(($p['visitor_email'] ?? '') !== ''
+                ? '<label class="compose-opt" data-email-copy-row><input type="checkbox" name="email_copy" value="1" form="bm-reply" data-email-copy> Also email a copy to <b>'.$e($p['visitor_email']).'</b></label>'
+                : '<div class="compose-opt muted" data-email-copy-row>No email address for this visitor - a copy of your reply cannot be emailed.</div>')
+            .'</div></section>';
+
+        // what the visitor's own browser revealed, turned into staff-facing
+        // lines on this server (no outside lookup): see Http\Context. Each row
+        // appears only when we actually have that signal, so a token-identified
+        // visitor who sent nothing extra keeps a tidy card.
+        $C = \Banimark\Http\Context::class;
+        $context = [];
+        $pageUrl = (string) ($p['visitor_page_url'] ?? '');
+        $pageTitle = (string) ($p['visitor_page_title'] ?? '');
+        if ($pageUrl !== '' || $pageTitle !== '') {
+            $pageText = $pageTitle !== '' ? $pageTitle : $C::host($pageUrl);
+            $context[] = ['On page', $pageUrl !== ''
+                ? '<a href="'.$e($pageUrl).'" target="_blank" rel="noopener noreferrer nofollow">'.$e($pageText).'</a>'
+                : $e($pageText)];
+        }
+        if (($ref = (string) ($p['visitor_referrer'] ?? '')) !== '') {
+            $context[] = ['Came from', $e($C::host($ref) ?: $ref)];
+        }
+        if (($country = $C::country((string) ($p['visitor_tz'] ?? ''), (string) ($p['visitor_locale'] ?? ''))) !== '') {
+            $context[] = ['Country', $e($country)];
+        }
+        if (($localTime = $C::localTime((string) ($p['visitor_tz'] ?? ''))) !== '') {
+            $context[] = ['Local time', $e($localTime)];
+        }
+        if (($language = $C::language((string) ($p['visitor_locale'] ?? ''))) !== '') {
+            $context[] = ['Language', $e($language)];
+        }
+        if (($device = $C::device((string) ($p['visitor_ua'] ?? ''))) !== '') {
+            $context[] = ['Device', $e($device)];
+        }
 
         $facts = '';
-        foreach ([
+        foreach (array_merge([
             ['Email', ($p['visitor_email'] ?? '') !== '' ? '<a href="mailto:'.$e($p['visitor_email']).'">'.$e($p['visitor_email']).'</a>' : '<span class="muted">not given</span>'],
             ['Phone', ($p['visitor_phone'] ?? '') !== '' ? '<a href="tel:'.$e(preg_replace('/[^0-9+]/', '', (string) $p['visitor_phone'])).'">'.$e($p['visitor_phone']).'</a>' : '<span class="muted">not given</span>'],
+        ], $context, [
             ['Started', $started ? $e(date('j M Y, H:i', $started)) : '-'],
             ['Last seen', $seen ? $e(Chart::ago($seen)).($online ? ' · now' : ' ago') : '-'],
             ['Messages', (string) $count],
             ['Files', (string) $files],
-        ] as [$k, $v]) {
+        ]) as [$k, $v]) {
             $facts .= '<div><dt>'.$e($k).'</dt><dd>'.$v.'</dd></div>';
         }
         // the visitor deleted it (widget / app): hidden from them, erased on a
@@ -1557,7 +1594,7 @@ final class Pages
     public static function firstRun(array $s): string
     {
         $e = [self::class, 'e'];
-        $mode = fn (string $key) => (string) ($s['guest_ask_'.$key] ?? ($key === 'phone' ? 'off' : 'optional'));
+        $mode = fn (string $key) => (string) ($s['guest_ask_'.$key] ?? \Banimark\Http\WidgetConfig::defaultMode($key));
 
         $fields = '';
         foreach (\Banimark\Http\WidgetConfig::GUEST_FIELDS as $key => $meta) {
@@ -1611,7 +1648,7 @@ final class Pages
         $set('starters', implode("\n", array_slice($lines, 0, 6)));
         foreach (array_keys(\Banimark\Http\WidgetConfig::GUEST_FIELDS) as $key) {
             $mode = (string) ($p['guest_ask_'.$key] ?? '');
-            $set('guest_ask_'.$key, isset(\Banimark\Http\WidgetConfig::FIELD_MODES[$mode]) ? $mode : ($key === 'phone' ? 'off' : 'optional'));
+            $set('guest_ask_'.$key, isset(\Banimark\Http\WidgetConfig::FIELD_MODES[$mode]) ? $mode : \Banimark\Http\WidgetConfig::defaultMode($key));
             $set('guest_label_'.$key, mb_substr(trim(strip_tags((string) ($p['guest_label_'.$key] ?? ''))), 0, 60));
         }
     }

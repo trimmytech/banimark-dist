@@ -1144,3 +1144,8 @@ input[type="file"]::file-selector-button {
   border: 1px solid var(--border); background: var(--surface-2); color: var(--text); transition: background .16s var(--ease);
 }
 input[type="file"]::file-selector-button:hover { background: var(--surface-3); }
+
+/* "also email a copy" under the reply box */
+.compose-opt { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12.5px; color: var(--mut); }
+.compose-opt input { margin: 0; width: auto; }
+.compose-opt b { color: var(--fg); font-weight: 600; }

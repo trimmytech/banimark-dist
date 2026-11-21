@@ -164,6 +164,9 @@
     send.disabled = true;
     var fd = new FormData(); fd.append('message', text); if (csrfName) fd.append(csrfName, csrf);
     ready.forEach(function (p) { fd.append('attachments[]', p.id); });
+    // "also email a copy": the box sits beside the form, so it rides along here
+    var copyBox = root.querySelector('[data-email-copy]');
+    if (copyBox && copyBox.checked) fd.append('email_copy', '1');
     pending = []; drawPending();
     var xhr = new XMLHttpRequest();
     xhr.open('POST', replyUrl, true);
@@ -177,7 +180,12 @@
       box.value = ''; box.style.height = '';
       if (d.message) append([d.message]);
       setMode('agent');
-      if (flash) { flash.hidden = !d.emailed; if (d.emailed) flash.textContent = 'The visitor had left the chat, so we emailed them your reply.'; }
+      if (flash) {
+        flash.hidden = !(d.emailed || d.copy_failed);
+        flash.className = d.copy_failed ? 'flash-err' : 'flash-ok';
+        if (d.copy_failed) flash.textContent = 'Sent in the chat, but the copy could not be emailed - check Outgoing email under Notifications.';
+        else if (d.emailed) flash.textContent = d.copy ? 'Sent, and a copy was emailed to the visitor.' : 'The visitor had left the chat, so we emailed them your reply.';
+      }
       box.focus();
     };
     xhr.send(fd);

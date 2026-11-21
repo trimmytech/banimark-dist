@@ -558,7 +558,47 @@ class PdoStore implements StateStore
             'agent_typing' => (int) ($conv['agent_typing_at'] ?? 0) > time() - self::TYPING_WINDOW,
             'visitor_deleted_at' => (int) ($conv['visitor_deleted_at'] ?? 0),
             'kept' => (int) ($conv['kept'] ?? 0) === 1,
+            // visitor context, raw as captured - the Visitor card derives the
+            // device, language, local time and country from these at view time
+            'visitor_ua' => (string) ($conv['visitor_ua'] ?? ''),
+            'visitor_page_url' => (string) ($conv['visitor_page_url'] ?? ''),
+            'visitor_page_title' => (string) ($conv['visitor_page_title'] ?? ''),
+            'visitor_referrer' => (string) ($conv['visitor_referrer'] ?? ''),
+            'visitor_locale' => (string) ($conv['visitor_locale'] ?? ''),
+            'visitor_tz' => (string) ($conv['visitor_tz'] ?? ''),
         ];
+    }
+
+    /**
+     * Record what the visitor's own browser reveals about them - ONCE. Only
+     * columns that are still empty get written, so the page the chat STARTED
+     * on and the referrer that brought them are kept even as the visitor moves
+     * around the site during the conversation.
+     *
+     * @param array<string,string> $ctx column => value from Http\Context::clean
+     */
+    public function setContext(string $sessionId, array $ctx): void
+    {
+        if ($ctx === []) {
+            return;
+        }
+        $conv = $this->conversation($sessionId);
+        if (!$conv) {
+            return;
+        }
+        $set = [];
+        $args = [];
+        foreach (['visitor_ua', 'visitor_page_url', 'visitor_page_title', 'visitor_referrer', 'visitor_locale', 'visitor_tz'] as $col) {
+            if ((string) ($ctx[$col] ?? '') !== '' && (string) ($conv[$col] ?? '') === '') {
+                $set[] = "{$col} = ?";
+                $args[] = $ctx[$col];
+            }
+        }
+        if ($set === []) {
+            return;
+        }
+        $args[] = $conv['id'];
+        $this->exec("UPDATE {$this->prefix}conversations SET ".implode(', ', $set).' WHERE id = ?', $args);
     }
 
     public function markFollowedUp(string $sessionId, ?int $now = null): void

@@ -478,23 +478,28 @@ class Panel
                 $this->attachments()->markSent(array_column($files, 'token'), $m[1]);
             }
             $emailed = false;
+            $copy = ($p['email_copy'] ?? '') === '1'; // staff ticked "also email a copy"
+            $copyFailed = false;
             $row = null;
             if ($text !== '') {
                 $this->store->appendAgentMessage($m[1], $text, (int) $this->auth->id());
                 $all = $this->store->transcript($m[1]);
                 $row = $all === [] ? null : TranscriptView::row(end($all), $this->attachments());
-                // the visitor may have closed the tab - post the reply on to them
+                $plain = \Banimark\Files\Markers::parse($text)['text'] ?: 'Please see the attached file.';
                 try {
-                    $emailed = (new FollowUp($this->store, MailerFactory::make($this->settings->all()), $this->settings->all()))
-                        ->afterAgentReply($m[1], \Banimark\Files\Markers::parse($text)['text'] ?: 'Please see the attached file.');
-                } catch (\Throwable $e) { /* a mail problem must never lose the reply */ }
+                    $followUp = new FollowUp($this->store, MailerFactory::make($this->settings->all()), $this->settings->all());
+                    // a copy on request; otherwise the visitor may have closed the tab - post the reply on to them
+                    $emailed = $copy ? $followUp->copyToVisitor($m[1], $plain) : $followUp->afterAgentReply($m[1], $plain);
+                    $copyFailed = $copy && !$emailed;
+                } catch (\Throwable $e) { $copyFailed = $copy; /* a mail problem must never lose the reply */ }
             }
             if (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest') {
                 header('Content-Type: application/json');
-                echo json_encode(['ok' => $text !== '', 'message' => $row, 'emailed' => $emailed, 'mode' => $this->store->mode($m[1])]);
+                echo json_encode(['ok' => $text !== '', 'message' => $row, 'emailed' => $emailed, 'copy' => $copy, 'copy_failed' => $copyFailed, 'mode' => $this->store->mode($m[1])]);
                 return null;
             }
-            $this->go($this->url('/conversation/'.$m[1]));
+            $this->go($this->url('/conversation/'.$m[1]).($copyFailed ? '?bm_error='.rawurlencode('Sent in the chat, but the copy could not be emailed - check Outgoing email under Notifications.')
+                : ($emailed ? '?bm_ok='.rawurlencode($copy ? 'Sent, and a copy was emailed to the visitor.' : 'Sent. The visitor had left the chat, so we emailed them your reply.') : '')));
             return null;
         }
         if ($route === '/ai') {

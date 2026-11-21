@@ -3,6 +3,13 @@
 Notable changes to Banimark, newest first. Versions follow semver: while we are
 on 0.x, a minor bump may change behaviour — the upgrade notes below say when.
 
+## 0.45.0
+
+- **The Visitor card now shows who the guest is, from their own browser.** A conversation's Visitor panel now carries the page the chat was opened on, how the visitor arrived, their country, their current local time, their language and their device and browser - alongside the email and phone it already showed. Each line appears only when known. Everything is worked out on your own server from what the visitor's browser already reveals (country comes from their timezone, not an IP lookup), so nothing is sent to any outside service and a self-hosted desk's data stays put. Captured once, when the chat begins.
+- **A reply can be emailed to the visitor on request.** Under the reply box in a conversation, "Also email a copy to <their address>" sends the reply by email as well as in the chat, whether or not they are still watching. The box only appears when the visitor gave an address; when they did not, the page says so. A copy that cannot be sent is reported, and the reply still lands in the chat.
+- **A guest gives their email address before chatting - on every desk.** The widget's default is now "Required - their details first", with the email a must and the name optional, and the Skip button is gone whenever a detail is required. Visitors your site signs in are never asked. Existing desks are switched over too; the owner can change it back under Widget.
+- **A handover emails your team by default - on every desk.** "Email alert too" is now the default under Notifications, existing desks included. Choose "Staff inbox only" to switch the email off.
+
 ## 0.44.0
 
 - **A provider failure after the lookups no longer throws the lookups away.** Seen live: the assistant found two products for a visitor, then the provider timed out, and the visitor got "I'm having trouble reaching our assistant" with the answers discarded. Now a timeout, a 5xx or an overloaded provider is retried once; if it still fails and lookups are in hand, the visitor is shown what was found, plainly, and told a person will finish - the conversation is escalated and staff see the provider's error in the thread. A failure before any lookup escalates as before.
